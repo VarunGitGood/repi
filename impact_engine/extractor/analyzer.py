@@ -51,7 +51,7 @@ class CodebaseAnalyzer:
             return not node.text.decode('utf-8').startswith('_')
         curr = node
         while curr:
-            if curr.type in ('export_statement', 'export_clause'):
+            if curr.type in ('export_statement', 'export_clause', 'export_declaration'):
                 return True
             curr = curr.parent
         return False
@@ -91,7 +91,6 @@ class CodebaseAnalyzer:
         
         parser = self.parsers[lang_name]
         lang = self.languages[lang_name]
-        
         tree = parser.parse(source.encode('utf-8'))
         source_lines = source.split('\n')
         
@@ -103,112 +102,73 @@ class CodebaseAnalyzer:
             parse_errors.append("File contains syntax errors")
             
         entity_query = self.entity_queries[lang_name]
+        cursor = QueryCursor(entity_query)
+        
+        # New 0.25 API: Use matches() to get grouped captures
+        # returns list of (pattern_index, capture_dict) where capture_dict is {tag: [nodes]}
         try:
-            cursor = QueryCursor(entity_query)
-            captures_dict = cursor.captures(tree.root_node)
+            matches = cursor.matches(tree.root_node)
         except Exception as e:
             parse_errors.append(f"Entity query error: {str(e)}")
-            captures_dict = {}
+            matches = []
 
-        pending_entities = {}
-        # process captures dict: {tag: [nodes]}
-        for tag, nodes_found in captures_dict.items():
-            prefix, role = tag.split('.')
-            for node in nodes_found:
-                if role == 'name':
-                    name_str = node.text.decode('utf-8')
-                    if prefix == 'import':
-                        name_str = name_str.strip("'\"")
-                    
-                    # Look for parent declaration node that contains this name node
-                    parent = node.parent
-                    found = False
-                    while parent:
-                        key = (parent.start_byte, parent.end_byte, parent.type, prefix)
-                        if key in pending_entities:
-                            pending_entities[key]['name'] = name_str
-                            found = True
-                            break
-                        parent = parent.parent
-                    
-                    if not found:
-                        key_loose = (node.parent.start_byte, node.parent.end_byte, node.parent.type, prefix)
-                        if key_loose not in pending_entities:
-                            pending_entities[key_loose] = {'name': name_str, 'decl_node': node.parent, 'type_prefix': prefix}
-                        else:
-                            pending_entities[key_loose]['name'] = name_str
+        # Supported entity types from queries.py
+        entity_types = ['function', 'class', 'method', 'interface', 'type_alias', 'enum', 'import']
 
-                elif role == 'decl':
-                    key = (node.start_byte, node.end_byte, node.type, prefix)
-                    if key not in pending_entities:
-                        pending_entities[key] = {'decl_node': node, 'type_prefix': prefix}
-
-        for key, entity in pending_entities.items():
-            decl_node = entity.get('decl_node')
-            name = entity.get('name')
-            prefix = entity.get('type_prefix')
-            
-            if not decl_node or not name:
-                continue
-
-            node_type = prefix
-            if prefix == 'method' and name in ('constructor', '__init__'):
-                node_type = 'constructor'
+        for _, capture_dict in matches:
+            # Each match should have a .decl and a .name if the query is structured correctly
+            for etype in entity_types:
+                decl_tag = f"{etype}.decl"
+                name_tag = f"{etype}.name"
                 
-            start_line = decl_node.start_point[0] + 1
-            end_line = decl_node.end_point[0] + 1
-            
-            parent_class = self._get_parent_class(decl_node, lang_name)
-            exported = self._is_exported(decl_node, lang_name)
-            snippet = self._get_snippet(decl_node, source_lines)
-            
-            node_id = generate_id(file_path, node_type, name, start_line)
-            
-            nodes.append(CodeNode(
-                id=node_id,
-                file=file_path,
-                type=node_type,
-                name=name,
-                start_line=start_line,
-                end_line=end_line,
-                parent_class=parent_class,
-                exported=exported,
-                snippet=snippet
-            ))
+                if decl_tag in capture_dict and name_tag in capture_dict:
+                    decl_node = capture_dict[decl_tag][0]
+                    name_node = capture_dict[name_tag][0]
+                    
+                    name_str = name_node.text.decode('utf-8')
+                    if etype == 'import':
+                        name_str = name_str.strip("'\"")
+
+                    node_type = etype
+                    if etype == 'method' and name_str in ('constructor', '__init__'):
+                        node_type = 'constructor'
+                        
+                    start_line = decl_node.start_point[0] + 1
+                    end_line = decl_node.end_point[0] + 1
+                    
+                    parent_class = self._get_parent_class(decl_node, lang_name)
+                    exported = self._is_exported(decl_node, lang_name)
+                    snippet = self._get_snippet(decl_node, source_lines)
+                    
+                    node_id = generate_id(file_path, node_type, name_str, start_line)
+                    
+                    nodes.append(CodeNode(
+                        id=node_id,
+                        file=file_path,
+                        type=node_type,
+                        name=name_str,
+                        start_line=start_line,
+                        end_line=end_line,
+                        parent_class=parent_class,
+                        exported=exported,
+                        snippet=snippet
+                    ))
+                    break # One etype per match
 
         call_query = self.call_queries[lang_name]
         try:
             call_cursor = QueryCursor(call_query)
-            call_caps_dict = call_cursor.captures(tree.root_node)
+            call_matches = call_cursor.matches(tree.root_node)
             
-            call_dict = {}
-            for tag, nodes_found in call_caps_dict.items():
-                role = tag.split('.')[-1]
-                for node in nodes_found:
-                    if role == 'node':
-                        key = (node.start_byte, node.end_byte, node.type)
-                        if key not in call_dict:
-                            call_dict[key] = {'call_node': node}
-                        else:
-                            call_dict[key]['call_node'] = node
-                    elif role == 'callee':
-                        curr = node
-                        while curr and curr.type not in ('call', 'call_expression'):
-                            curr = curr.parent
-                        if curr:
-                            key = (curr.start_byte, curr.end_byte, curr.type)
-                            if key not in call_dict:
-                                call_dict[key] = {'callee_name': node.text.decode('utf-8')}
-                            else:
-                                call_dict[key]['callee_name'] = node.text.decode('utf-8')
-                        
-            for key, data in call_dict.items():
-                call_node = data.get('call_node')
-                callee_name = data.get('callee_name')
-                
-                if call_node and callee_name:
+            for _, capture_dict in call_matches:
+                if 'call.node' in capture_dict and 'call.callee' in capture_dict:
+                    call_node = capture_dict['call.node'][0]
+                    callee_node = capture_dict['call.callee'][0]
+                    
+                    callee_name = callee_node.text.decode('utf-8')
                     caller_line = call_node.start_point[0] + 1
                     caller_context = self._get_caller_context(call_node)
+                    
                     call_sites.append(CallSite(
                         caller_file=file_path,
                         caller_line=caller_line,

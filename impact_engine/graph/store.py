@@ -52,3 +52,35 @@ class GraphStore:
                     MERGE (a)-[r:CallEdge]->(b)
                 """
                 self.conn.execute(query, {'u': u, 'v': v})
+
+    def load_networkx_graph(self) -> nx.DiGraph:
+        """
+        Loads the entire Kuzu graph into a NetworkX DiGraph for analysis.
+        """
+        G = nx.DiGraph()
+        
+        # Load nodes
+        nodes_res = self.conn.execute("MATCH (n:CodeNode) RETURN n.*")
+        while nodes_res.has_next():
+            row = nodes_res.get_next()
+            # row format depends on table order
+            # id STRING, file STRING, type STRING, name STRING, start_line INT64, end_line INT64, parent_class STRING, exported BOOLEAN, snippet STRING
+            node_id = row[0]
+            G.add_node(node_id, **{
+                "file": row[1],
+                "type": row[2],
+                "name": row[3],
+                "start_line": row[4],
+                "end_line": row[5],
+                "parent_class": row[6],
+                "exported": row[7],
+                "snippet": row[8]
+            })
+            
+        # Load edges
+        edges_res = self.conn.execute("MATCH (a:CodeNode)-[r:CallEdge]->(b:CodeNode) RETURN a.id, b.id")
+        while edges_res.has_next():
+            row = edges_res.get_next()
+            G.add_edge(row[0], row[1])
+            
+        return G

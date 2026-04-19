@@ -17,6 +17,10 @@ kuzu = "^0.8.0"
 rich = "^13.9.0"
 pathspec = "^0.12.1"
 tree-sitter-python = "^0.25.0"
+gitpython = "^3.1.46"
+unidiff = "^0.7.5"
+numpy = "^2.4.4"
+scipy = "^1.17.1"
 
 [tool.poetry.scripts]
 repi = "impact_engine.cli:app"
