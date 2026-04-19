@@ -4,7 +4,13 @@ version = "0.1.0"
 description = "Codebase Impact Engine"
 authors = ["Varun Singh <varun7singh10@gmail.com>"]
 readme = "README.md"
-packages = [{include = "impact_engine"}]
+packages = [
+    {include = "extractor"},
+    {include = "graph"},
+    {include = "utils"},
+    {include = "diff"},
+    {include = "analysis"}
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -23,7 +29,7 @@ numpy = "^2.4.4"
 scipy = "^1.17.1"
 
 [tool.poetry.scripts]
-repi = "impact_engine.cli:app"
+repi = "cli:main"
 
 [build-system]
 requires = ["poetry-core"]

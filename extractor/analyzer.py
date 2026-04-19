@@ -3,7 +3,7 @@ import tree_sitter_typescript as tstypescript
 import tree_sitter_javascript as tsjavascript
 from tree_sitter import Language, Parser, Query, QueryCursor
 from .types import CodeNode, CallSite, FileAnalysis
-from ..utils.ids import generate_id
+from utils.ids import generate_id
 from .queries import (
     PYTHON_ENTITY_QUERY, PYTHON_CALL_QUERY,
     TS_ENTITY_QUERY, TS_CALL_QUERY, JS_ENTITY_QUERY

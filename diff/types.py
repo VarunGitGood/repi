@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from impact_engine.extractor.types import CodeNode
+from extractor.types import CodeNode
 
 @dataclass
 class DiffHunk:

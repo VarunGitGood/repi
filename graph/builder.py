@@ -1,5 +1,5 @@
 import networkx as nx
-from impact_engine.extractor.types import FileAnalysis
+from extractor.types import FileAnalysis
 
 class GraphBuilder:
     def build(self, analyses: list[FileAnalysis]) -> nx.DiGraph:

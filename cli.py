@@ -5,16 +5,16 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 import os
 import time
 
-from .extractor.analyzer import CodebaseAnalyzer
-from .utils.walker import walk_repo
-from .graph.builder import GraphBuilder
-from .graph.store import GraphStore
+from extractor.analyzer import CodebaseAnalyzer
+from utils.walker import walk_repo
+from graph.builder import GraphBuilder
+from graph.store import GraphStore
 
 # Phase 2 imports
-from .diff.parser import parse_diff
-from .diff.mapper import map_hunks_to_nodes
-from .analysis.blast import compute_blast_radius
-from .analysis.scorer import Scorer
+from diff.parser import parse_diff
+from diff.mapper import map_hunks_to_nodes
+from analysis.blast import compute_blast_radius
+from analysis.scorer import Scorer
 
 app = typer.Typer(help="repi: Codebase Impact Engine")
 console = Console()

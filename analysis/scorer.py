@@ -2,7 +2,7 @@ import os
 import json
 import networkx as nx
 from git import Repo
-from ..diff.types import ImpactedNode
+from diff.types import ImpactedNode
 
 class Scorer:
     def __init__(self, repo_path: str, G: nx.DiGraph):

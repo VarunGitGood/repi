@@ -1,6 +1,6 @@
 import collections
 import networkx as nx
-from ..diff.types import SeedNode, ImpactedNode
+from diff.types import SeedNode, ImpactedNode
 
 def compute_blast_radius(G: nx.DiGraph, seed_nodes: list[SeedNode], max_depth: int = 10) -> list[ImpactedNode]:
     """

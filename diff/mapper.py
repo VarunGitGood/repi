@@ -1,5 +1,5 @@
 from .types import DiffHunk, SeedNode
-from impact_engine.graph.store import GraphStore
+from graph.store import GraphStore
 
 def map_hunks_to_nodes(store: GraphStore, hunks: list[DiffHunk]) -> list[SeedNode]:
     """
