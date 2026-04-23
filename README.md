@@ -1,57 +1,60 @@
-# repi — Codebase Impact Engine
+# LogRag 🪵🔍
 
-**repi** (REPO Impact) is a distributable Python CLI tool that parses codebases into a persistent **Code Property Graph (CPG)**. 
+LogRag is a production-grade Python CLI tool for log ingestion and Retrieval-Augmented Generation (RAG) based log analysis. It combines BM25 keyword matching with dense vector search to retrieve relevant log clusters and provides them to an LLM for structured investigation.
 
-By mapping out functions, classes, and call sites into a local graph database, **repi** provides the foundation for deep codebase analysis, blast radius detection, and dependency tracking.
+## ✨ Features
 
-## Features
+- **Hybrid Retrieval**: BM25 + Dense (MiniLM-L6-v2) retrieval fused with Reciprocal Rank Fusion (RRF).
+- **Log Clustering**: Automatically clusters logs by message signature and time window to reduce LLM token usage.
+- **Structured Investigation**: LLM-based analysis of root cause, impact, and reproduction steps.
+- **Interactive Configuration**: CLI-based setup for API keys and database paths.
+- **Rich Output**: Beautifully formatted terminal results with severity analysis.
 
-- ⚡ **Persistent Graph**: All data is stored in an embedded [Kuzu](https://kuzudb.com/) graph database in your local `.repi` folder. No server required.
-- 🌳 **AST-Powered**: Uses Tree-sitter for high-accuracy parsing of code structures.
-- 🐍 **Language Support**: Optimized for **Python**, with full support for **TypeScript**, **TSX**, and **JavaScript**.
-- 🛠️ **Developer First**: Designed for humans. Deterministic IDs, clean CLI output, and JSON support.
+## 🚀 Quick Start
 
-## Installation
+### 1. Installation
+
+LogRag uses Poetry for dependency management.
 
 ```bash
-# Clone and install via poetry
-git clone https://github.com/vrun/repi.git
-cd repi
+# Clone the repository
+git clone <repository-url>
+cd lograg
+
+# Install dependencies
 poetry install
 ```
 
-## Quick Start
+### 2. Configuration
 
-### 1. Scan a Repository
-Point **repi** at any Python or TS/JS project to build its impact graph.
+Set up your OpenAI API key and other settings:
+
 ```bash
-repi scan ./my-project
+poetry run python lograg/cli.py config
 ```
 
-### 2. Inspect Nodes
-List all extracted functions, classes, or methods.
+### 3. Usage
+
+#### Ingest Logs
+Load your logs into the local cache:
 ```bash
-repi nodes ./my-project --type function
+poetry run python lograg/cli.py ingest examples/sample.log
 ```
 
-### 3. View Graph Stats
-Check the depth and complexity of your codebase.
+#### Investigate
+Run an AI-powered inquiry on the ingested logs:
 ```bash
-repi graph ./my-project
+poetry run python lograg/cli.py investigate "login failures on api/v1"
 ```
 
-## How it Works
+## 🛠️ Project Structure
 
-1. **Extraction**: Identifies named entities (functions, classes) and call sites using Tree-sitter.
-2. **Identification**: Generates deterministic IDs based on file path, name, and position.
-3. **Resolution**: Links call sites to their corresponding definitions within the codebase.
-4. **Persistence**: Stores the final nodes and edges in a high-performance graph database.
+- `lograg/ingest/`: Log parsing and automated clustering logic.
+- `lograg/retrieval/`: BM25, Dense (FAISS), and RRF implementations.
+- `lograg/llm/`: LlamaIndex integration, prompt templates, and Pydantic schemas.
+- `lograg/storage/`: SQLite-based investigation history and deduplication.
+- `lograg/core/`: Main orchestration pipeline.
 
-## Architecture
+## 📝 License
 
-- **`impact_engine/extractor`**: Tree-sitter based analysis logic.
-- **`impact_engine/graph`**: Kuzu database schema and graph construction.
-- **`impact_engine/cli.py`**: User interface powered by `typer` and `rich`.
-
-## License
 MIT
