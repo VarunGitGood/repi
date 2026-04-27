@@ -5,6 +5,7 @@ from src.app.retrieval.pgvector_store import PgVectorStore
 from src.app.retrieval.pg_fts_retriever import PgFTSRetriever
 from src.app.models.filters import RetrievalFilters
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 

@@ -48,11 +48,13 @@ class ReactInvestigationLoop:
         tools: dict[str, Callable],
         known_services: list[str],
         max_iterations: int = 8,
+        min_iteration_delay: float = 2.0,
     ) -> None:
         self.llm = llm
         self.tools = tools
         self.known_services = known_services
         self.max_iterations = max_iterations
+        self.min_iteration_delay = min_iteration_delay
 
     async def investigate(
         self,
@@ -71,6 +73,8 @@ class ReactInvestigationLoop:
         confidence = "medium"
         
         for i in range(self.max_iterations):
+            if i > 0:
+                await asyncio.sleep(self.min_iteration_delay)
             try:
                 raw_response = await self.llm.complete(messages)
                 parsed = self._parse_llm_response(raw_response)

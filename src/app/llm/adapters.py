@@ -3,6 +3,7 @@ import httpx
 import json
 import logging
 from typing import List, Optional
+import asyncio
 from src.app.llm.provider import LLMProvider, Message
 
 logger = logging.getLogger(__name__)
@@ -149,23 +150,43 @@ class MistralProvider(LLMProvider):
         self._url = "https://api.mistral.ai/v1/chat/completions"
 
     async def complete(self, messages: List[Message], max_tokens: int = 1000, temperature: float = 0.0) -> str:
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self._url,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    json={
-                        "model": self._model,
-                        "messages": [{"role": m.role, "content": m.content} for m in messages],
-                        "max_tokens": max_tokens,
-                        "temperature": temperature
-                    }
-                )
-                response.raise_for_status()
-                return response.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            raise LLMError(str(e), "mistral", self._model)
+        MAX_RETRIES = 3
+        BASE_DELAY = 15.0  # seconds - Mistral free tier resets per minute
+        
+        for attempt in range(MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        self._url,
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                        json={
+                            "model": self._model,
+                            "messages": [{"role": m.role, "content": m.content} for m in messages],
+                            "max_tokens": max_tokens,
+                            "temperature": temperature
+                        }
+                    )
+                    
+                    if response.status_code == 429:
+                        if attempt == MAX_RETRIES - 1:
+                            raise LLMError(f"Rate limited after {MAX_RETRIES} retries", "mistral", self._model)
+                        
+                        import random
+                        delay = BASE_DELAY * (2 ** attempt) + random.uniform(0, 5)
+                        logger.warning(f"Mistral 429 — waiting {delay:.1f}s before retry {attempt + 1}/{MAX_RETRIES}")
+                        await asyncio.sleep(delay)
+                        continue
 
+                    response.raise_for_status()
+                    return response.json()["choices"][0]["message"]["content"]
+            except Exception as e:
+                if isinstance(e, LLMError):
+                    raise
+                if attempt == MAX_RETRIES - 1:
+                    raise LLMError(str(e), "mistral", self._model)
+                logger.warning(f"Mistral attempt {attempt + 1} failed: {e}. Retrying...")
+                await asyncio.sleep(1.0)
+        
     @property
     def model_name(self) -> str:
         return self._model

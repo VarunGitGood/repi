@@ -1,15 +1,12 @@
 from __future__ import annotations
 import logging
+import asyncpg
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
-from dataclasses import dataclass, asdict
-from sqlalchemy import text
-from sqlmodel import select, func, and_
+from dataclasses import dataclass
 
-from src.app.models.schema import LogChunk
 from src.app.models.filters import RetrievalFilters
 from src.app.retrieval.rrf import RRFRetrievalService
-from src.app.retrieval.pgvector_store import PgVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -66,26 +63,28 @@ async def search_logs(
     return output
 
 async def get_timeline(
-    vector_store: PgVectorStore,
+    pool: asyncpg.Pool,
     chunk_ids: list[str],
 ) -> list[dict]:
     """Sort chunks by timestamp to see the sequence of events."""
-    chunks_data = await vector_store.get_chunks_by_ids(chunk_ids)
-    sorted_chunks = sorted(
-        chunks_data.values(), 
-        key=lambda x: x.get("timestamp_start") or datetime.min
+    if not chunk_ids:
+        return []
+        
+    rows = await pool.fetch(
+        "SELECT chunk_id, source_service, log_level, timestamp_start, text FROM log_chunks WHERE chunk_id = ANY($1) ORDER BY timestamp_start",
+        chunk_ids
     )
     
     return [{
-        "chunk_id": c["chunk_id"],
-        "service": c["source_service"],
-        "level": c["log_level"],
-        "timestamp": c["timestamp_start"],
-        "text": c["text"]
-    } for c in sorted_chunks]
+        "chunk_id": r["chunk_id"],
+        "service": r["source_service"],
+        "level": r["log_level"],
+        "timestamp": r["timestamp_start"].isoformat() if r["timestamp_start"] else None,
+        "text": r["text"]
+    } for r in rows]
 
 async def find_co_occurring(
-    vector_store: PgVectorStore,
+    pool: asyncpg.Pool,
     chunk_ids: list[str],
     window_seconds: int = 300,
 ) -> list[dict]:
@@ -100,45 +99,52 @@ async def find_co_occurring(
     FROM log_chunks a
     JOIN log_chunks b
       ON a.source_service != b.source_service
-      AND ABS(EXTRACT(EPOCH FROM (a.timestamp_start - b.timestamp_start))) < :window
-    WHERE a.chunk_id = ANY(:ids)
-      AND b.chunk_id = ANY(:ids)
+      AND ABS(EXTRACT(EPOCH FROM (a.timestamp_start - b.timestamp_start))) < $1
+    WHERE a.chunk_id = ANY($2)
+      AND b.chunk_id = ANY($2)
     """
     
-    async with vector_store.session.connection() as conn:
-        result = await vector_store.session.execute(text(sql), {"window": window_seconds, "ids": chunk_ids})
-        return [dict(row._mapping) for row in result.all()]
+    rows = await pool.fetch(sql, window_seconds, chunk_ids)
+    return [dict(row) for row in rows]
 
 async def get_service_summary(
-    vector_store: PgVectorStore,
+    pool: asyncpg.Pool,
     service: str,
     time_from: str | None = None,
     time_to: str | None = None,
 ) -> dict:
-    """Get high-level statistics for a service."""
-    from_dt = datetime.fromisoformat(time_from.replace("Z", "+00:00")) if time_from else None
-    to_dt = datetime.fromisoformat(time_to.replace("Z", "+00:00")) if time_to else None
-    
-    statement = select(
-        func.count(LogChunk.id).label("total_chunks"),
-        func.count(LogChunk.log_level.filter(LogChunk.log_level == 'ERROR')).label("error_count"),
-        func.count(LogChunk.log_level.filter(LogChunk.log_level == 'WARNING')).label("warning_count"),
-        func.min(LogChunk.timestamp_start).label("earliest"),
-        func.max(LogChunk.timestamp_end).label("latest")
-    ).where(LogChunk.source_service == service)
-    
-    if from_dt:
-        statement = statement.where(LogChunk.timestamp_start >= from_dt)
-    if to_dt:
-        statement = statement.where(LogChunk.timestamp_end <= to_dt)
-        
-    result = await vector_store.session.execute(statement)
-    row = result.one()._asdict()
-    
-    # unique_requests (if metadata has request_id)
-    # Since we don't have a rigid request_id column yet, we might check log_metadata
-    # For now, let's just return what we have
-    return row
+    """Get high-level statistics for a service using raw SQL (Bug 1 Fix)."""
+    time_from_dt = datetime.fromisoformat(time_from.replace("Z", "+00:00")) if time_from else None
+    time_to_dt = datetime.fromisoformat(time_to.replace("Z", "+00:00")) if time_to else None
+
+    row = await pool.fetchrow(
+        """
+        SELECT
+            COUNT(*)                                                        AS total_chunks,
+            COUNT(DISTINCT request_id)                                      AS unique_requests,
+            COUNT(*) FILTER (WHERE log_level = 'ERROR')                    AS error_count,
+            COUNT(*) FILTER (WHERE log_level = 'WARNING')                  AS warning_count,
+            COUNT(*) FILTER (WHERE log_level = 'INFO')                     AS info_count,
+            MIN(timestamp_start)                                            AS earliest,
+            MAX(timestamp_end)                                              AS latest
+        FROM log_chunks
+        WHERE source_service = $1
+          AND ($2::timestamptz IS NULL OR timestamp_start >= $2)
+          AND ($3::timestamptz IS NULL OR timestamp_end   <= $3)
+        """,
+        service, time_from_dt, time_to_dt,
+    )
+
+    return {
+        "service": service,
+        "total_chunks": row["total_chunks"],
+        "unique_requests": row["unique_requests"],
+        "error_count": row["error_count"],
+        "warning_count": row["warning_count"],
+        "info_count": row["info_count"],
+        "earliest": row["earliest"].isoformat() if row["earliest"] else None,
+        "latest": row["latest"].isoformat() if row["latest"] else None,
+    }
 
 TOOL_SCHEMAS = {
     "search_logs": {

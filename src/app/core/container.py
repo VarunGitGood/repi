@@ -14,6 +14,7 @@ from src.app.llm.factory import create_provider_from_env
 from src.app.retrieval.query_expander import QueryExpander
 from src.app.investigation.react_loop import ReactInvestigationLoop
 from src.app.investigation.tools import search_logs, get_timeline, find_co_occurring, get_service_summary
+import asyncpg
 from sentence_transformers import SentenceTransformer
 
 # Load environment variables from .env
@@ -40,6 +41,7 @@ class Container:
         self.async_session_maker = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
+        self.pool: Optional[asyncpg.Pool] = None
         
         # Load embedding model once
         self.model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -69,7 +71,12 @@ class Container:
             from sqlmodel import SQLModel
             await conn.run_sync(SQLModel.metadata.create_all)
             
-        logger.info("Database initialized (extension and tables verified)")
+        # Initialize asyncpg pool
+        if not self.pool:
+            dsn = self.db_url.replace("postgresql+asyncpg://", "postgresql://")
+            self.pool = await asyncpg.create_pool(dsn)
+            
+        logger.info("Database initialized (extension, tables, and asyncpg pool verified)")
 
     async def init_known_services(self) -> None:
         """Query distinct services from DB if not provided via env."""
@@ -100,9 +107,9 @@ class Container:
         # Bind tools to dependencies
         tools = {
             "search_logs": lambda **kwargs: search_logs(retrieval_service, **kwargs),
-            "get_timeline": lambda **kwargs: get_timeline(vector_store, **kwargs),
-            "find_co_occurring": lambda **kwargs: find_co_occurring(vector_store, **kwargs),
-            "get_service_summary": lambda **kwargs: get_service_summary(vector_store, **kwargs),
+            "get_timeline": lambda **kwargs: get_timeline(self.pool, **kwargs),
+            "find_co_occurring": lambda **kwargs: find_co_occurring(self.pool, **kwargs),
+            "get_service_summary": lambda **kwargs: get_service_summary(self.pool, **kwargs),
         }
         
         return ReactInvestigationLoop(
