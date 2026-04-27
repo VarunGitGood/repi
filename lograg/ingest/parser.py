@@ -5,7 +5,7 @@ from datetime import datetime
 
 # Common log patterns
 TEXT_LOG_PATTERN = re.compile(
-    r"(?P<timestamp>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?)?\s*"
+    r"(?P<timestamp>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)?\s*"
     r"\[?(?P<level>INFO|ERROR|WARNING|DEBUG|CRITICAL|FATAL)\]?\s*"
     r"(?P<message>.*)",
     re.IGNORECASE

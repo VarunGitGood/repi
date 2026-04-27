@@ -78,8 +78,11 @@ def chunk_logs(logs: List[Dict[str, Any]], window_seconds: int = 30) -> List[Dic
             if signature in current_clusters:
                 # Close the old one and start a new one
                 old_cluster = current_clusters[signature]
-                # Cleanup internal fields
                 old_cluster.pop("last_ts")
+                # Format time_range
+                s_opt = old_cluster.get("start_time") or "N/A"
+                e_opt = old_cluster.get("end_time") or "N/A"
+                old_cluster["time_range"] = f"{s_opt} to {e_opt}" if s_opt != e_opt else s_opt
                 clusters.append(old_cluster)
             
             current_clusters[signature] = new_cluster

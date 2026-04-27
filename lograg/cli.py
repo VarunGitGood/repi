@@ -130,5 +130,17 @@ def config():
     else:
         console.print("[red]API Key is required for investigation features.[/red]")
 
+@app.command()
+def evaluate(
+    mode: str = typer.Option("rerank", help="Mode: bm25, dense, hybrid, rerank"),
+    dataset: str = typer.Option("evaluation/dataset.json", help="Path to evaluation dataset"),
+    logs: str = typer.Option("examples/eval_logs.log", help="Path to logs for evaluation")
+):
+    """
+    Evaluate retrieval quality metrics.
+    """
+    from evaluation.runner import evaluate as run_eval
+    run_eval(mode=mode, dataset_path=dataset, log_path=logs)
+
 if __name__ == "__main__":
     app()

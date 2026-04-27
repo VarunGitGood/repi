@@ -1,0 +1,15 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: lograg-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: lograg
+      POSTGRES_USER: lograg_user
+      POSTGRES_PASSWORD: password_here
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

@@ -38,8 +38,12 @@ class DatabaseManager:
         Args:
             db_path: Path to the SQLite database file.
         """
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        self.engine = create_engine(f"sqlite:///{db_path}")
+        if db_path != ":memory:":
+            os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+            self.engine = create_engine(f"sqlite:///{db_path}")
+        else:
+            self.engine = create_engine("sqlite:///:memory:")
+            
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 

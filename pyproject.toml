@@ -17,6 +17,13 @@ llama-index = "^0.10.50"
 pydantic = "^2.7.4"
 sqlalchemy = "^2.0.31"
 python-dotenv = "^1.0.1"
+tqdm = "^4.66.4"
+numpy = "^1.26.4"
+sqlmodel = "^0.0.38"
+pgvector = "^0.4.2"
+asyncpg = "^0.31.0"
+fastapi = "^0.136.1"
+uvicorn = "^0.46.0"
 
 [tool.poetry.scripts]
 lograg = "lograg.cli:app"
