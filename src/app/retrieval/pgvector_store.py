@@ -1,10 +1,10 @@
-from __future__ import annotations
+from datetime import datetime
 from typing import List, Tuple, Dict, Any, Optional
 from sqlmodel import select, Session, and_
 from sqlmodel.ext.asyncio.session import AsyncSession
 from src.app.models.schema import LogChunk
 from src.app.models.filters import RetrievalFilters
-from src.app.retrieval.filter_builder import build_filter_expressions
+from src.app.retrieval.filter_builder import build_filter_expressions, _to_naive_utc
 import numpy as np
 import logging
 
@@ -30,8 +30,8 @@ class PgVectorStore:
             chunk.source_service = source_service
             chunk.source_env = source_env
             chunk.log_level = log_level
-            chunk.timestamp_start = timestamp_start
-            chunk.timestamp_end = timestamp_end
+            chunk.timestamp_start = _to_naive_utc(timestamp_start)
+            chunk.timestamp_end = _to_naive_utc(timestamp_end)
             chunk.log_metadata = log_metadata
         else:
             chunk = LogChunk(
@@ -41,8 +41,8 @@ class PgVectorStore:
                 source_service=source_service,
                 source_env=source_env,
                 log_level=log_level,
-                timestamp_start=timestamp_start,
-                timestamp_end=timestamp_end,
+                timestamp_start=_to_naive_utc(timestamp_start),
+                timestamp_end=_to_naive_utc(timestamp_end),
                 log_metadata=log_metadata
             )
             self.session.add(chunk)

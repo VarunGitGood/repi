@@ -172,8 +172,19 @@ class MistralProvider(LLMProvider):
                             raise LLMError(f"Rate limited after {MAX_RETRIES} retries", "mistral", self._model)
                         
                         import random
-                        delay = BASE_DELAY * (2 ** attempt) + random.uniform(0, 5)
-                        logger.warning(f"Mistral 429 — waiting {delay:.1f}s before retry {attempt + 1}/{MAX_RETRIES}")
+                        retry_after = response.headers.get("Retry-After")
+                        if retry_after:
+                            try:
+                                delay = float(retry_after) + random.uniform(0, 2)
+                                source = "Retry-After header"
+                            except ValueError:
+                                delay = BASE_DELAY * (2 ** attempt) + random.uniform(0, 5)
+                                source = "exponential backoff (invalid header)"
+                        else:
+                            delay = BASE_DELAY * (2 ** attempt) + random.uniform(0, 5)
+                            source = "exponential backoff"
+                            
+                        logger.warning(f"Mistral 429 — waiting {delay:.1f}s (source: {source}) before retry {attempt + 1}/{MAX_RETRIES}")
                         await asyncio.sleep(delay)
                         continue
 

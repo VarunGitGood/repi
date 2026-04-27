@@ -34,7 +34,7 @@ class DatabaseManager:
     def __init__(self, db_path: str = "data/lograg.db"):
         """
         Initialize the database.
-        
+        6543
         Args:
             db_path: Path to the SQLite database file.
         """

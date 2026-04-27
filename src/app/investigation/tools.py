@@ -10,6 +10,16 @@ from src.app.retrieval.rrf import RRFRetrievalService
 
 logger = logging.getLogger(__name__)
 
+def _parse_iso_timestamp(ts: str | None) -> datetime | None:
+    """Helper to parse ISO8601 strings with 'Z' support."""
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        logger.warning(f"Failed to parse timestamp: {ts}")
+        return None
+
 @dataclass
 class ToolCall:
     name: str
@@ -32,14 +42,11 @@ async def search_logs(
     top_k: int = 10,
 ) -> list[dict]:
     """Search log chunks by query, service, time range, and level."""
-    parsed_from = datetime.fromisoformat(time_from.replace("Z", "+00:00")) if time_from else None
-    parsed_to = datetime.fromisoformat(time_to.replace("Z", "+00:00")) if time_to else None
-    
     filters = RetrievalFilters(
         source_service=service,
         log_level=level,
-        time_from=parsed_from,
-        time_to=parsed_to
+        time_from=_parse_iso_timestamp(time_from),
+        time_to=_parse_iso_timestamp(time_to)
     )
     
     results = await rrf_service.search(query=query, top_k=top_k, filters=filters)
@@ -114,8 +121,8 @@ async def get_service_summary(
     time_to: str | None = None,
 ) -> dict:
     """Get high-level statistics for a service using raw SQL (Bug 1 Fix)."""
-    time_from_dt = datetime.fromisoformat(time_from.replace("Z", "+00:00")) if time_from else None
-    time_to_dt = datetime.fromisoformat(time_to.replace("Z", "+00:00")) if time_to else None
+    time_from_dt = _parse_iso_timestamp(time_from)
+    time_to_dt = _parse_iso_timestamp(time_to)
 
     row = await pool.fetchrow(
         """

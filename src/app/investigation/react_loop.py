@@ -55,6 +55,20 @@ class ReactInvestigationLoop:
         self.known_services = known_services
         self.max_iterations = max_iterations
         self.min_iteration_delay = min_iteration_delay
+        self._tool_failure_counts: dict[str, int] = {}
+        self._evidence_chunk_ids: set[str] = set()
+
+    def _extract_chunk_ids(self, tool_result: Any) -> list[str]:
+        """Extract chunk_id values from any tool result shape (Fix 3)."""
+        ids = []
+        if isinstance(tool_result, list):
+            for item in tool_result:
+                if isinstance(item, dict) and "chunk_id" in item:
+                    ids.append(item["chunk_id"])
+        elif isinstance(tool_result, dict):
+            if "chunk_id" in tool_result:
+                ids.append(tool_result["chunk_id"])
+        return ids
 
     async def investigate(
         self,
@@ -62,6 +76,9 @@ class ReactInvestigationLoop:
         on_step: Optional[Callable[[InvestigationStep], Awaitable[None]]] = None,
     ) -> InvestigationResult:
         start_time = time.time()
+        self._tool_failure_counts = {}  # Reset for each call (Fix 2)
+        self._evidence_chunk_ids = set()
+        
         messages = [
             Message(role="system", content=self._build_system_prompt()),
             Message(role="user", content=query)
@@ -99,13 +116,10 @@ class ReactInvestigationLoop:
                                 result=result
                             ))
                             
-                            # Track evidence
-                            if tool_name == "search_logs":
-                                for chunk in result:
-                                    evidence_chunk_ids.add(chunk["chunk_id"])
-                            elif tool_name == "get_timeline":
-                                for chunk in result:
-                                    evidence_chunk_ids.add(chunk["chunk_id"])
+                            # Track evidence (Fix 3)
+                            extracted_ids = self._extract_chunk_ids(result)
+                            for cid in extracted_ids:
+                                self._evidence_chunk_ids.add(cid)
                                     
                         except Exception as e:
                             logger.error(f"Tool execution failed: {e}")
@@ -115,6 +129,20 @@ class ReactInvestigationLoop:
                                 result=None,
                                 error=str(e)
                             ))
+                            
+                            # Circuit breaker (Fix 2)
+                            self._tool_failure_counts[tool_name] = self._tool_failure_counts.get(tool_name, 0) + 1
+                            if self._tool_failure_counts[tool_name] >= 2:
+                                circuit_msg = (
+                                    f"SYSTEM: Tool '{tool_name}' has failed {self._tool_failure_counts[tool_name]} times "
+                                    f"with the same error. Do not call this tool again in this investigation. "
+                                    f"Work with the information you already have or use a different tool."
+                                )
+                                # We add this to messages LATER in the loop iteration logic if needed, 
+                                # but the prompt says "messages.append(...)".
+                                # Since we are in the middle of processing the loop, we can append it here.
+                                messages.append(Message(role="user", content=circuit_msg))
+                                logger.warning("Circuit breaker triggered for tool '%s'", tool_name)
                     else:
                         observation = Observation(tool_result=ToolResult(
                             tool_name=tool_name,
@@ -165,7 +193,7 @@ class ReactInvestigationLoop:
             query=query,
             steps=steps,
             answer=final_answer,
-            evidence_chunk_ids=list(evidence_chunk_ids),
+            evidence_chunk_ids=list(self._evidence_chunk_ids),
             confidence=confidence,
             duration_seconds=time.time() - start_time
         )
