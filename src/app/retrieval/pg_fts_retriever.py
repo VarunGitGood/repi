@@ -5,6 +5,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.app.models.schema import LogChunk
 from src.app.models.filters import RetrievalFilters
 from src.app.retrieval.filter_builder import build_filter_expressions
+import logging
+
+logger = logging.getLogger(__name__)
 
 class PgFTSRetriever:
     def __init__(self, session: AsyncSession) -> None:
@@ -38,5 +41,9 @@ class PgFTSRetriever:
         statement = statement.where(and_(*where_exprs))
         statement = statement.order_by(text("score DESC")).limit(top_k)
         
+        logger.debug(f"PgFTSRetriever: Running FTS query='{query}' with k={top_k}")
         result = await self.session.exec(statement)
-        return [(row[0], float(row[1])) for row in result.all()]
+        rows = result.all()
+        logger.debug(f"PgFTSRetriever: Found {len(rows)} matches")
+        
+        return [(row[0], float(row[1])) for row in rows]

@@ -12,7 +12,7 @@ console = Console()
 container = Container()
 
 @app.command()
-def query(text: str):
+def query(text: str, boost: bool = typer.Option(False, "--boost", help="Enable recency boosting")):
     """Query logs with natural language intent."""
     async def _run():
         await container.init_db()
@@ -26,6 +26,11 @@ def query(text: str):
         console.print(f"  Time Range: {intent.time_from} to {intent.time_to}")
         console.print(f"  Clean Query: {intent.clean_query}")
         
+        # Auto-enable boost if "last" or "recent" is in the text, or if flag is set
+        final_boost = boost or any(k in text.lower() for k in ["last", "recent", "since"])
+        if final_boost:
+            console.print("  [italic yellow]Recency boost enabled[/italic yellow]")
+
         # 2. Build Filters
         filters = RetrievalFilters(
             source_service=intent.source_service,
@@ -42,7 +47,7 @@ def query(text: str):
                 query=intent.clean_query,
                 top_k=5,
                 filters=filters,
-                recency_boost=True
+                recency_boost=final_boost
             )
             
             # 4. Display Results

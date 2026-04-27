@@ -19,3 +19,6 @@ ingest-test:
 
 query-test:
 	poetry run python -m src.app.cli query "ERROR in auth-service last 5 minutes"
+
+eval:
+	poetry run python -m evaluation.runner
