@@ -10,6 +10,10 @@ from src.app.retrieval.pgvector_store import PgVectorStore
 from src.app.retrieval.pg_fts_retriever import PgFTSRetriever
 from src.app.retrieval.rrf import RRFRetrievalService
 from src.app.ingestion.log_ingestor import LogIngestor
+from src.app.llm.factory import create_provider_from_env
+from src.app.retrieval.query_expander import QueryExpander
+from src.app.investigation.react_loop import ReactInvestigationLoop
+from src.app.investigation.tools import search_logs, get_timeline, find_co_occurring, get_service_summary
 from sentence_transformers import SentenceTransformer
 
 # Load environment variables from .env
@@ -41,6 +45,10 @@ class Container:
         self.model = SentenceTransformer("all-MiniLM-L6-v2")
         self.known_services: list[str] = os.getenv("KNOWN_SERVICES", "").split(",")
         self.known_services = [s.strip() for s in self.known_services if s.strip()]
+        
+        # LLM Foundation
+        self.llm_provider = create_provider_from_env()
+        self.query_expander = QueryExpander(llm=self.llm_provider)
 
     def embedding_func(self, texts: list[str]):
         return self.model.encode(texts, convert_to_numpy=True)
@@ -81,3 +89,24 @@ class Container:
         vector_store = PgVectorStore(session)
         fts_retriever = PgFTSRetriever(session)
         return RRFRetrievalService(vector_store, fts_retriever, self.embedding_func)
+
+    def get_investigation_loop(self, session: AsyncSession) -> ReactInvestigationLoop:
+        """
+        Create a ReAct loop with tools bound to the current session.
+        """
+        vector_store = PgVectorStore(session)
+        retrieval_service = self.get_retrieval_service(session)
+        
+        # Bind tools to dependencies
+        tools = {
+            "search_logs": lambda **kwargs: search_logs(retrieval_service, **kwargs),
+            "get_timeline": lambda **kwargs: get_timeline(vector_store, **kwargs),
+            "find_co_occurring": lambda **kwargs: find_co_occurring(vector_store, **kwargs),
+            "get_service_summary": lambda **kwargs: get_service_summary(vector_store, **kwargs),
+        }
+        
+        return ReactInvestigationLoop(
+            llm=self.llm_provider,
+            tools=tools,
+            known_services=self.known_services
+        )

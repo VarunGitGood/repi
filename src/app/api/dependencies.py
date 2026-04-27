@@ -12,3 +12,12 @@ async def get_session() -> AsyncSession:
 
 async def get_ingestor(session: AsyncSession = Depends(get_session)) -> LogIngestor:
     return container.get_ingestor(session)
+
+def get_container() -> Container:
+    return container
+
+async def get_retrieval_service(session: AsyncSession = Depends(get_session)):
+    return container.get_retrieval_service(session)
+
+async def get_investigation_loop(session: AsyncSession = Depends(get_session)):
+    return container.get_investigation_loop(session)
