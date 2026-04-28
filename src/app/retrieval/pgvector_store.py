@@ -92,4 +92,4 @@ class PgVectorStore:
         statement = select(LogChunk).where(LogChunk.chunk_id.in_(chunk_ids))
         result = await self.session.exec(statement)
         chunks = result.all()
-        return {c.chunk_id: c.model_dump() for c in chunks}
+        return {c.chunk_id: c.model_dump(exclude={"embedding"}) for c in chunks}

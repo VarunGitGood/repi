@@ -5,10 +5,22 @@ from uuid import UUID, uuid4
 from sqlmodel import SQLModel, Field, Column, JSON
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import TEXT, ARRAY, Index, String, Column
+from pydantic import field_validator
 from sqlalchemy.dialects.postgresql import JSONB
 
 class LogChunk(SQLModel, table=True):
     __tablename__ = "log_chunks"
+
+    @field_validator("embedding", mode="before")
+    @classmethod
+    def coerce_embedding(cls, v):
+        if v is None:
+            return None
+        if hasattr(v, "tolist"):   # numpy ndarray
+            return v.tolist()
+        if isinstance(v, (list, tuple)):
+            return list(v)
+        return v
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     chunk_id: str = Field(index=True, unique=True)

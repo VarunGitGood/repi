@@ -12,6 +12,56 @@ from src.app.investigation.tools import ToolCall, ToolResult, TOOL_SCHEMAS
 
 logger = logging.getLogger(__name__)
 
+import re
+
+def parse_llm_response(raw: str) -> dict:
+    # Step 1: strip markdown fences
+    cleaned = re.sub(r"```json|```", "", raw).strip()
+
+    # Step 2: try parsing as a single object first (happy path)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Step 3: find ALL JSON objects in the response using brace matching
+    objects = _extract_json_objects(cleaned)
+
+    if not objects:
+        raise ValueError(f"No valid JSON found in LLM response: {raw[:200]}")
+
+    if len(objects) == 1:
+        return objects[0]
+
+    # Step 4: merge multiple objects — last one wins per key, but merge carefully
+    merged = {}
+    for obj in objects:
+        merged.update(obj)
+    return merged
+
+
+def _extract_json_objects(text: str) -> list[dict]:
+    """Extract all top-level JSON objects from text using brace counting."""
+    objects = []
+    depth = 0
+    start = None
+
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                candidate = text[start:i+1]
+                try:
+                    objects.append(json.loads(candidate))
+                except json.JSONDecodeError:
+                    pass
+                start = None
+    return objects
+
 @dataclass
 class Thought:
     content: str
@@ -94,7 +144,7 @@ class ReactInvestigationLoop:
                 await asyncio.sleep(self.min_iteration_delay)
             try:
                 raw_response = await self.llm.complete(messages)
-                parsed = self._parse_llm_response(raw_response)
+                parsed = parse_llm_response(raw_response)
                 
                 thought = Thought(content=parsed.get("thought", ""))
                 action = None
@@ -138,9 +188,6 @@ class ReactInvestigationLoop:
                                     f"with the same error. Do not call this tool again in this investigation. "
                                     f"Work with the information you already have or use a different tool."
                                 )
-                                # We add this to messages LATER in the loop iteration logic if needed, 
-                                # but the prompt says "messages.append(...)".
-                                # Since we are in the middle of processing the loop, we can append it here.
                                 messages.append(Message(role="user", content=circuit_msg))
                                 logger.warning("Circuit breaker triggered for tool '%s'", tool_name)
                     else:
@@ -169,8 +216,12 @@ class ReactInvestigationLoop:
                 
                 # Prepare for next iteration
                 messages.append(Message(role="assistant", content=raw_response))
-                obs_content = f"Observation: {json.dumps(observation.tool_result.result if observation.tool_result.result is not None else observation.tool_result.error, default=str)}"
-                messages.append(Message(role="user", content=obs_content))
+                
+                # Bug 1 Fix: Serialize observation to JSON
+                if observation and observation.tool_result:
+                    res = observation.tool_result.result if observation.tool_result.result is not None else {"error": observation.tool_result.error}
+                    observation_text = json.dumps(res, default=str, indent=2)
+                    messages.append(Message(role="user", content=f"Observation:\n{observation_text}"))
                 
             except Exception as e:
                 logger.error(f"Iteration {i+1} failed: {e}")
@@ -182,7 +233,7 @@ class ReactInvestigationLoop:
             messages.append(Message(role="user", content="Max iterations reached. Produce your best answer now using FORMAT B."))
             try:
                 raw_response = await self.llm.complete(messages)
-                parsed = self._parse_llm_response(raw_response)
+                parsed = parse_llm_response(raw_response)
                 final_answer = json.dumps(parsed.get("answer", {}), indent=2)
                 confidence = parsed.get("answer", {}).get("confidence", "low")
             except Exception as e:
@@ -237,29 +288,5 @@ Rules:
 - Only produce FORMAT B when you have evidence from at least 2 tool calls
 - Never invent log content — only reference what tools returned
 - If tools return empty results, say so explicitly in your answer
-"""
 
-    def _parse_llm_response(self, raw: str) -> dict:
-        content = raw.strip()
-        if content.startswith("```"):
-            lines = content.splitlines()
-            if lines[0].startswith("```"):
-                # find start of json
-                for i, line in enumerate(lines):
-                    if line.strip().startswith("{"):
-                        content = "\n".join(lines[i:])
-                        break
-            content = content.split("```")[0].strip()
-            
-        # Fallback more robustly
-        start_idx = content.find("{")
-        end_idx = content.rfind("}")
-        if start_idx != -1 and end_idx != -1:
-            content = content[start_idx:end_idx+1]
-            
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse LLM response as JSON: {raw}")
-            # Synthetic retry or error
-            return {{"thought": f"I failed to produce valid JSON. My raw output was: {raw}", "action": {{"tool": "error", "args": {}}}}}
+"""

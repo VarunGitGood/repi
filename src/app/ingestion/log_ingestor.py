@@ -39,11 +39,9 @@ class LogIngestor:
         count = 0
         for i, chunk in enumerate(chunks):
             chunk_id = str(uuid.uuid4())
-            # For simplicity, we use the signature or some hash as chunk_id if we want idempotency,
-            # but the prompt says to update upsert which takes chunk_id: str.
             
             await self.vector_store.upsert(
-                chunk_id=chunk.signature, # Using signature as chunk_id for idempotency in this example
+                chunk_id=chunk_id,
                 embedding=embeddings[i].tolist() if hasattr(embeddings[i], 'tolist') else embeddings[i],
                 text=chunk_texts[i],
                 source_service=source_service,

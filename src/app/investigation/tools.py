@@ -32,6 +32,16 @@ class ToolResult:
     result: Any
     error: str | None = None
 
+import uuid
+
+def _is_valid_uuid(s: str) -> bool:
+    """Check if a string is a valid UUID (Bug 4)."""
+    try:
+        uuid.UUID(str(s))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
 async def search_logs(
     rrf_service: RRFRetrievalService,
     query: str,
@@ -62,8 +72,8 @@ async def search_logs(
             "chunk_id": chunk_id,
             "service": data.get("source_service"),
             "level": data.get("log_level"),
-            "timestamp_start": data.get("timestamp_start"),
-            "timestamp_end": data.get("timestamp_end"),
+            "timestamp_start": data.get("timestamp_start").isoformat() if hasattr(data.get("timestamp_start"), "isoformat") else data.get("timestamp_start"),
+            "timestamp_end": data.get("timestamp_end").isoformat() if hasattr(data.get("timestamp_end"), "isoformat") else data.get("timestamp_end"),
             "text": data.get("text"),
             "score": float(score)
         })
@@ -94,15 +104,28 @@ async def find_co_occurring(
     pool: asyncpg.Pool,
     chunk_ids: list[str],
     window_seconds: int = 300,
-) -> list[dict]:
+) -> dict:
     """Find pairs of chunks from different services that occurred near each other."""
     if not chunk_ids:
-        return []
+        return {"results": []}
         
+    # Bug 4 Fix: UUID validation
+    invalid = [cid for cid in chunk_ids if not _is_valid_uuid(cid)]
+    if invalid:
+        return {
+            "warning": (
+                f"chunk_ids must be UUID strings returned by search_logs or get_timeline. "
+                f"Invalid values received: {invalid}. "
+                f"Call search_logs first and use the 'chunk_id' field from those results."
+            ),
+            "results": []
+        }
+
     sql = """
-    SELECT a.chunk_id as chunk_a, b.chunk_id as chunk_b,
+    SELECT a.chunk_id as chunk_a_id, b.chunk_id as chunk_b_id,
            a.source_service as service_a, b.source_service as service_b,
-           a.timestamp_start as time_a, b.timestamp_start as time_b
+           a.timestamp_start as time_a, b.timestamp_start as time_b,
+           ABS(EXTRACT(EPOCH FROM (a.timestamp_start - b.timestamp_start))) as time_delta_seconds
     FROM log_chunks a
     JOIN log_chunks b
       ON a.source_service != b.source_service
@@ -112,7 +135,7 @@ async def find_co_occurring(
     """
     
     rows = await pool.fetch(sql, window_seconds, chunk_ids)
-    return [dict(row) for row in rows]
+    return {"results": [dict(row) for row in rows]}
 
 async def get_service_summary(
     pool: asyncpg.Pool,
