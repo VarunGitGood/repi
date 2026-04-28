@@ -9,7 +9,7 @@ async def main():
     await container.init_db()
     await container.init_known_services()
     
-    query = "What caused the auth-service outage on April 28?"
+    query = "Why are payment-service and user-service failing since 02:31?"
     
     print(f"Starting investigation for: {query}\n")
     

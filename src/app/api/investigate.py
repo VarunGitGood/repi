@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dataclasses import asdict
 
-from src.app.api.dependencies import get_investigation_loop
+from src.app.api.dependencies import get_investigation_loop, get_container
 from src.app.investigation.react_loop import InvestigationStep, ReactInvestigationLoop
 
 logger = logging.getLogger(__name__)
