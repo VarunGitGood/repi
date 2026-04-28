@@ -20,13 +20,16 @@ class InvestigateRequest(BaseModel):
 @router.post("")
 async def investigate_stream(
     request: InvestigateRequest,
-    loop: ReactInvestigationLoop = Depends(get_investigation_loop)
+    loop: ReactInvestigationLoop = Depends(get_investigation_loop),
+    container: Container = Depends(get_container)
 ):
     """
     Stream investigation steps (Chain of Thought) via SSE.
     """
     async def event_stream():
         try:
+            services = await container.init_known_services()
+            
             async def on_step(step: InvestigationStep):
                 event_data = {
                     "type": "step",
@@ -41,8 +44,7 @@ async def investigate_stream(
                 }
                 yield f"data: {json.dumps(event_data, default=str)}\n\n"
 
-            # loop = container.get_investigation_loop()  <-- Old way
-            result = await loop.investigate(request.query, on_step=on_step)
+            result = await loop.investigate(request.query, on_step=on_step, known_services=services)
 
             # Final result event
             yield f"data: {json.dumps({'type': 'result', 'answer': result.answer, 'confidence': result.confidence, 'duration': result.duration_seconds})}\n\n"
@@ -56,15 +58,15 @@ async def investigate_stream(
 @router.post("/sync")
 async def investigate_sync(
     request: InvestigateRequest,
-    loop: ReactInvestigationLoop = Depends(get_investigation_loop)
+    loop: ReactInvestigationLoop = Depends(get_investigation_loop),
+    container: Container = Depends(get_container)
 ):
     """
     Perform deep investigation and return final result synchronously.
     """
     try:
-        # loop = container.get_investigation_loop()
-        result = await loop.investigate(request.query)
-        result = await loop.investigate(request.query)
+        services = await container.init_known_services()
+        result = await loop.investigate(request.query, known_services=services)
         return asdict(result)
     except Exception as e:
         logger.error(f"Investigation failed: {e}")

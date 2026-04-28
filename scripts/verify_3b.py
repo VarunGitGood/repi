@@ -28,7 +28,8 @@ async def main():
 
     async with container.async_session_maker() as session:
         loop = container.get_investigation_loop(session)
-        result = await loop.investigate(query, on_step=on_step)
+        services = await container.init_known_services()
+        result = await loop.investigate(query, on_step=on_step, known_services=services)
         
         print("=== FINAL ANSWER ===")
         print(result.answer)

@@ -78,15 +78,16 @@ class Container:
             
         logger.info("Database initialized (extension, tables, and asyncpg pool verified)")
 
-    async def init_known_services(self) -> None:
+    async def init_known_services(self) -> list[str]:
         """Query distinct services from DB if not provided via env."""
-        if not self.known_services:
+        if not os.getenv("KNOWN_SERVICES"):
             from src.app.models.schema import LogChunk
             async with self.async_session_maker() as session:
                 statement = select(LogChunk.source_service).distinct()
                 result = await session.exec(statement)
                 self.known_services = list(result.all())
                 logger.info(f"Loaded known services from DB: {self.known_services}")
+        return self.known_services
 
     def get_ingestor(self, session: AsyncSession) -> LogIngestor:
         vector_store = PgVectorStore(session)

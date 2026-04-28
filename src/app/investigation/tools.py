@@ -176,6 +176,11 @@ async def get_service_summary(
         "latest": row["latest"].isoformat() if row["latest"] else None,
     }
 
+async def get_all_services(pool: asyncpg.Pool) -> list[str]:
+    """Dynamically fetch all unique services currently in the database."""
+    rows = await pool.fetch("SELECT DISTINCT source_service FROM log_chunks")
+    return [r["source_service"] for r in rows]
+
 TOOL_SCHEMAS = {
     "search_logs": {
         "description": "Search log chunks by query, service, time range, and level",

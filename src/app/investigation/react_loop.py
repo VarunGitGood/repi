@@ -107,6 +107,22 @@ class ReactInvestigationLoop:
         self.min_iteration_delay = min_iteration_delay
         self._tool_failure_counts: dict[str, int] = {}
         self._evidence_chunk_ids: set[str] = set()
+        self._llm_call_timestamps: list[float] = []
+
+    async def _wait_for_rate_limit(self):
+        """Enforce a rolling window of max 3 calls per 60 seconds (Issue 7)."""
+        now = time.time()
+        # Clean up old timestamps
+        self._llm_call_timestamps = [t for t in self._llm_call_timestamps if now - t < 60]
+        
+        while len(self._llm_call_timestamps) >= 3:
+            wait_time = 60 - (now - self._llm_call_timestamps[0]) + 1
+            logger.warning(f"Rate limit management: 3 calls already made in 60s. Waiting {wait_time:.1f}s...")
+            await asyncio.sleep(wait_time)
+            now = time.time()
+            self._llm_call_timestamps = [t for t in self._llm_call_timestamps if now - t < 60]
+        
+        self._llm_call_timestamps.append(now)
 
     def _extract_chunk_ids(self, tool_result: Any) -> list[str]:
         """Extract chunk_id values from any tool result shape (Fix 3)."""
@@ -124,10 +140,15 @@ class ReactInvestigationLoop:
         self,
         query: str,
         on_step: Optional[Callable[[InvestigationStep], Awaitable[None]]] = None,
+        known_services: list[str] | None = None,
     ) -> InvestigationResult:
+        if known_services:
+            self.known_services = known_services
+
         start_time = time.time()
         self._tool_failure_counts = {}  # Reset for each call (Fix 2)
         self._evidence_chunk_ids = set()
+        self._llm_call_timestamps = []
         
         messages = [
             Message(role="system", content=self._build_system_prompt()),
@@ -135,14 +156,17 @@ class ReactInvestigationLoop:
         ]
         
         steps: list[InvestigationStep] = []
-        evidence_chunk_ids = set()
         final_answer = ""
         confidence = "medium"
         
         for i in range(self.max_iterations):
             if i > 0:
                 await asyncio.sleep(self.min_iteration_delay)
+            
             try:
+                # Issue 7: Rolling Rate Limiter
+                await self._wait_for_rate_limit()
+                
                 raw_response = await self.llm.complete(messages)
                 parsed = parse_llm_response(raw_response)
                 
@@ -232,6 +256,7 @@ class ReactInvestigationLoop:
             # Hit max iterations
             messages.append(Message(role="user", content="Max iterations reached. Produce your best answer now using FORMAT B."))
             try:
+                await self._wait_for_rate_limit()
                 raw_response = await self.llm.complete(messages)
                 parsed = parse_llm_response(raw_response)
                 final_answer = json.dumps(parsed.get("answer", {}), indent=2)
@@ -252,41 +277,45 @@ class ReactInvestigationLoop:
     def _build_system_prompt(self) -> str:
         return f"""You are an expert SRE investigating a system incident using log data.
 Current UTC time: {datetime.utcnow().isoformat()}
-Known services: {self.known_services}
 
-You have access to these tools:
+KNOWN SERVICES:
+{self.known_services}
+
+INVESTIGATION TOOLS:
 {json.dumps(TOOL_SCHEMAS, indent=2)}
 
-At each step you MUST respond with valid JSON in exactly one of these two formats:
+You MUST respond with valid JSON in exactly one of these two formats:
 
-FORMAT A — to call a tool:
+FORMAT A — tool call:
 {{
-  "thought": "your reasoning about what to investigate next and why",
+  "thought": "reasoning about the investigation",
   "action": {{
     "tool": "tool_name",
     "args": {{ ... }}
   }}
 }}
 
-FORMAT B — when you have enough evidence to answer:
+FORMAT B — final answer:
 {{
-  "thought": "your final reasoning summarizing what you found",
+  "thought": "summary of findings",
   "answer": {{
-    "summary": "one paragraph describing what happened",
-    "root_cause": "the specific root cause identified",
-    "causal_chain": ["event 1 → event 2 → event 3"],
-    "impacted_services": ["service-a", "service-b"],
+    "summary": "paragraph describing the incident",
+    "root_cause": "specific root cause identified",
+    "causal_chain": ["A -> B -> C"],
+    "impacted_services": ["service-1", "service-2"],
     "confidence": "high | medium | low",
-    "confidence_reasoning": "why you chose this confidence level"
+    "confidence_reasoning": "rationale for confidence"
   }}
 }}
 
-Rules:
-- Always start by getting a service summary before searching chunks
-- Use find_co_occurring when you suspect cross-service causation
-- Use get_timeline to establish event ordering before drawing causal conclusions
-- Only produce FORMAT B when you have evidence from at least 2 tool calls
-- Never invent log content — only reference what tools returned
-- If tools return empty results, say so explicitly in your answer
+CRITICAL HEURISTICS:
+1. CROSS-SERVICE SEARCH: For any outage or failure, you MUST call `get_service_summary` on ALL known services in the suspected time window before narrowing down. Do not assume the failure is isolated to the service mentioned in the query.
+2. CASCADE ANALYSIS: Look for causal chains like (resource exhaustion -> timeouts -> circuit breakers -> cascading failures).
+3. TOOL CONTRACT (find_co_occurring): You MUST retrieve chunks from at least 2 different services via `search_logs` BEFORE calling `find_co_occurring`. This tool requires chunks from multiple services to find relationships.
+4. CONFIDENCE LIMITS:
+   - If `find_co_occurring` returns empty, do NOT conclude the failure is isolated. It may mean you haven't retrieved enough data from other services. Confidence must be 'medium' or 'low' in this case.
+   - If you only search the service mentioned in the query, confidence must be 'low'.
+5. EVIDENCE: Only produce FORMAT B after at least 2 tool calls. Reference real log text returned by tools.
 
+CRITICAL: Your entire response must be a single JSON object.
 """
