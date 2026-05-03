@@ -71,7 +71,7 @@ async def update_watcher(watcher_id: UUID, update: WatcherConfigUpdate):
         if not db_config:
             raise HTTPException(status_code=404, detail="Watcher not found")
         
-        update_data = update.dict(exclude_unset=True)
+        update_data = update.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(db_config, key, value)
         
