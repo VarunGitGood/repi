@@ -6,6 +6,9 @@ export
 migrate:
 	poetry run psql $(DATABASE_URL) -f db/migrations/001_init.sql
 
+migrate-watchers:
+	poetry run psql $(DATABASE_URL) -f db/migrations/002_watchers.sql
+
 serve:
 	poetry run uvicorn repi.api:app --host 0.0.0.0 --port 8000 --reload
 

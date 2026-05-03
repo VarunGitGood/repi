@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: Optional[str] = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
+    # WORKER
+    WATCHER_CONFIG_REFRESH_SECS: int = 30
+
     MAX_RETRIES_PER_STEP: int = 2
     BACKOFF_BASE_SECONDS: int = 5
 

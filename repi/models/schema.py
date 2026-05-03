@@ -93,5 +93,5 @@ class WatcherOffset(SQLModel, table=True):
     watcher_config_id: UUID = Field(index=True)
     file_path: str = Field(index=True)
     offset: int = Field(default=0)
-    last_seen_at: datetime = Field(default_factory=datetime.utcnow)
+    last_seen_at: Optional[datetime] = Field(default=None)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
