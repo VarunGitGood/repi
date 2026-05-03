@@ -1,14 +1,16 @@
 [tool.poetry]
-name = "lograg"
+name = "repi"
 version = "0.1.0"
-description = "Log ingestion and retrieval-augmented generation for log analysis"
+description = "repi: Log Investigation Engine"
 authors = ["Varun Singh <varun7singh10@gmail.com>"]
 readme = "README.md"
-packages = [{include = "lograg"}]
+packages = [{include = "repi"}]
 
 [tool.poetry.dependencies]
 python = "3.11.9"
-typer = {extras = ["all"], version = "^0.12.3"}
+fastapi = "^0.111.0"
+uvicorn = {extras = ["standard"], version = "^0.30.1"}
+python-multipart = "^0.0.9"
 rich = "^13.7.1"
 rank-bm25 = "^0.2.2"
 sentence-transformers = "^3.0.1"
@@ -22,11 +24,13 @@ numpy = "^1.26.4"
 sqlmodel = "^0.0.38"
 pgvector = "^0.4.2"
 asyncpg = "^0.31.0"
-fastapi = "^0.136.1"
-uvicorn = "^0.46.0"
+redis = "^5.0.4"
+pydantic-settings = "^2.14.0"
+click = "8.1.7"
+watchfiles = "^0.21.0"
 
 [tool.poetry.scripts]
-lograg = "lograg.cli:app"
+# repi = "repi.cli:main"
 
 [build-system]
 requires = ["poetry-core"]
