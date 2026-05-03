@@ -3,13 +3,13 @@ from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
 import json
 
-from src.app.investigation.tools import (
+from repi.investigation.tools import (
     search_logs,
     get_timeline,
     find_co_occurring,
     get_service_summary
 )
-from src.app.models.filters import RetrievalFilters
+from repi.models.filters import RetrievalFilters
 
 @pytest.mark.asyncio
 async def test_search_logs():
@@ -52,15 +52,18 @@ async def test_get_timeline():
 @pytest.mark.asyncio
 async def test_find_co_occurring():
     pool = MagicMock()
+    # Use valid UUIDs
+    c1 = "550e8400-e29b-41d4-a716-446655440001"
+    c2 = "550e8400-e29b-41d4-a716-446655440002"
     pool.fetch = AsyncMock(return_value=[
-        {"chunk_a": "c1", "chunk_b": "c2", "service_a": "s1", "service_b": "s2", "time_a": datetime(2026,4,1,10,0), "time_b": datetime(2026,4,1,10,0,5)}
+        {"chunk_a_id": c1, "chunk_b_id": c2, "service_a": "s1", "service_b": "s2", "time_a": datetime(2026,4,1,10,0), "time_b": datetime(2026,4,1,10,0,5)}
     ])
 
-    results = await find_co_occurring(pool, ["c1", "c2"], window_seconds=10)
+    results = await find_co_occurring(pool, [c1, c2], window_seconds=10)
 
-    assert len(results) == 1
-    assert results[0]["chunk_a"] == "c1"
-    assert results[0]["chunk_b"] == "c2"
+    assert len(results["results"]) == 1
+    assert results["results"][0]["chunk_a_id"] == c1
+    assert results["results"][0]["chunk_b_id"] == c2
 
 @pytest.mark.asyncio
 async def test_get_service_summary():

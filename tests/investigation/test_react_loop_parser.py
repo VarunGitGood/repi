@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 import numpy as np
-from src.app.investigation.react_loop import parse_llm_response, _extract_json_objects
-from src.app.models.domain import SearchResult
+from repi.investigation.react_loop import parse_llm_response, _extract_json_objects
+from repi.models.domain import SearchResult
 
 class TestExtractJsonObjects:
     def test_single_object(self):
