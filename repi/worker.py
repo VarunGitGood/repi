@@ -22,7 +22,7 @@ class IngestionWorker:
         self.watcher_configs: Dict[str, WatcherConfig] = {}
         self.offsets: Dict[str, int] = {}
         self.running = False
-        self.refresh_interval = int(os.getenv("WATCHER_CONFIG_REFRESH_SECS", 30))
+        self.refresh_interval = settings.WATCHER_CONFIG_REFRESH_SECS
 
     async def setup(self):
         await self.container.init_db()
