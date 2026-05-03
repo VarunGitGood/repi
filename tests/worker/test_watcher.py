@@ -32,14 +32,17 @@ async def test_handle_file_change(tmp_path):
     mock_session.refresh = AsyncMock()
     mock_ingestor = AsyncMock()
     mock_ingestor.ingest = AsyncMock(return_value=2)
-    
-    # Mock container methods
-    worker.container.get_session = MagicMock(return_value=mock_session)
+
+    # get_session() returns an async context manager that yields mock_session
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+    worker.container.get_session = MagicMock(return_value=mock_ctx)
     worker.container.get_ingestor = MagicMock(return_value=mock_ingestor)
-    
-    # Mock DB queries
+
+    # Mock DB queries — first() must be a plain MagicMock (not AsyncMock)
     mock_result = MagicMock()
-    mock_result.first.side_effect = [None, None]
+    mock_result.first = MagicMock(side_effect=[None, None])
     mock_session.exec = AsyncMock(return_value=mock_result)
     
     # Run handler
