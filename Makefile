@@ -9,8 +9,8 @@ setup:
 migrate:
 	poetry run psql $(DATABASE_URL) -f db/migrations/001_init.sql
 
-run:
-	poetry run uvicorn src.app.main:app --host 0.0.0.0 --port 8000 --reload
+serve:
+	poetry run uvicorn repi.api:app --host 0.0.0.0 --port 8000 --reload
 
 ingest-test:
 	curl -X POST http://localhost:8000/api/v1/ingest \
