@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.app.investigation.tools import (
+from repi.investigation.tools import (
     search_logs,
     get_service_summary,
     find_co_occurring,
@@ -73,7 +73,7 @@ class TestSearchLogsReturnShape:
 
     @pytest.fixture
     def mock_rrf_service(self):
-        from src.app.models.domain import SearchResult
+        from repi.models.domain import SearchResult
         mock = AsyncMock()
         # Mock vector_store
         mock.vector_store = AsyncMock()
