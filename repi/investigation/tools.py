@@ -11,11 +11,16 @@ from repi.retrieval.rrf import RRFRetrievalService
 logger = logging.getLogger(__name__)
 
 def _parse_iso_timestamp(ts: str | None) -> datetime | None:
-    """Helper to parse ISO8601 strings with 'Z' support."""
+    """Parse ISO8601 string to naive UTC datetime (asyncpg requires naive timestamps)."""
     if not ts:
         return None
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        # Strip tzinfo — DB stores naive UTC timestamps
+        if dt.tzinfo is not None:
+            from datetime import timezone
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
     except ValueError:
         logger.warning(f"Failed to parse timestamp: {ts}")
         return None

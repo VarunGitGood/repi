@@ -145,10 +145,24 @@ def resolve(
             time_from = _to_utc(candidate, tz)
             time_to = _to_utc(now_local, tz)
 
-    # around HH:MM
+    # last night
+    if time_from is None and re.search(r"\blast\s+night\b", q):
+        yesterday = now_local - timedelta(days=1)
+        night_start = yesterday.replace(hour=22, minute=0, second=0, microsecond=0)
+        night_end = now_local.replace(hour=6, minute=0, second=0, microsecond=0)
+        if night_end < now_local:
+            pass  # still before 06:00 today — window is fine
+        time_from = _to_utc(night_start, tz)
+        time_to = _to_utc(night_end, tz)
+        assumed.append(
+            f"'last night' interpreted as {time_from.strftime('%Y-%m-%d %H:%M')} – "
+            f"{time_to.strftime('%Y-%m-%d %H:%M')} UTC"
+        )
+
+    # around HH:MM  (standalone — weekday compound is handled inside the weekday block below)
     if time_from is None:
         m = re.search(r"\baround\s+(\d{1,2}):(\d{2})\b", q)
-        if m:
+        if m and not re.search("|".join(WEEKDAY_MAP.keys()), q):
             hh, mm = int(m.group(1)), int(m.group(2))
             centre = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
             if centre > now_local:
@@ -169,7 +183,8 @@ def resolve(
             time_from = _to_utc(start, tz)
             time_to = _to_utc(end, tz)
 
-    # weekday [+ part-of-day]  e.g. "last friday night", "friday evening", "monday"
+    # weekday [+ part-of-day] [+ around H/HH:MM or around Xam/pm]
+    # e.g. "last friday night", "wednesday around 3am", "last thursday around 03:00"
     if time_from is None:
         weekday_pat = "|".join(WEEKDAY_MAP.keys())
         pod_pat = "|".join(PARTS_OF_DAY.keys())
@@ -207,6 +222,39 @@ def resolve(
                     assumed.append(
                         f"'{m_wd.group(2)}' interpreted as {time_from.strftime('%Y-%m-%d')} UTC"
                     )
+
+                # Optional: refine with "around HH:MM" or "around Xam/pm" on the same date
+                m_around_hm = re.search(r"\baround\s+(\d{1,2}):(\d{2})\b", q)
+                m_around_ap = re.search(r"\baround\s+(\d{1,2})\s*(am|pm)\b", q)
+                if m_around_hm:
+                    hh, mm = int(m_around_hm.group(1)), int(m_around_hm.group(2))
+                    centre = day_midnight.replace(hour=hh, minute=mm, second=0)
+                    time_from = _to_utc(centre - timedelta(minutes=30), tz)
+                    time_to = _to_utc(centre + timedelta(minutes=30), tz)
+                elif m_around_ap:
+                    hh = int(m_around_ap.group(1))
+                    if m_around_ap.group(2) == "pm" and hh != 12:
+                        hh += 12
+                    elif m_around_ap.group(2) == "am" and hh == 12:
+                        hh = 0
+                    centre = day_midnight.replace(hour=hh, minute=0, second=0)
+                    time_from = _to_utc(centre - timedelta(minutes=30), tz)
+                    time_to = _to_utc(centre + timedelta(minutes=30), tz)
+
+    # around Xam / Xpm standalone (e.g. "around 3am") — only if no weekday already set a window
+    if time_from is None:
+        m = re.search(r"\baround\s+(\d{1,2})\s*(am|pm)\b", q)
+        if m:
+            hh = int(m.group(1))
+            if m.group(2) == "pm" and hh != 12:
+                hh += 12
+            elif m.group(2) == "am" and hh == 12:
+                hh = 0
+            centre = now_local.replace(hour=hh, minute=0, second=0, microsecond=0)
+            if centre > now_local:
+                centre -= timedelta(days=1)
+            time_from = _to_utc(centre - timedelta(minutes=30), tz)
+            time_to = _to_utc(centre + timedelta(minutes=30), tz)
 
     # ── Service matching ──────────────────────────────────────────────────────
     found_services: list[str] = []
