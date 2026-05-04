@@ -1,0 +1,22 @@
+2026-05-01T21:55:02Z [INFO] Service started, version 4.12.3
+2026-05-01T21:55:02Z [INFO] Connected to inventory_db (pool=20)
+2026-05-01T21:58:11Z [INFO] Health check ok, 1247 SKUs cached
+2026-05-01T22:00:14Z [INFO] Applying migration 0042_add_warehouse_id.sql
+2026-05-01T22:00:14Z [INFO] Migration 0042 added column warehouse_id NOT NULL to skus table
+2026-05-01T22:00:15Z [INFO] Migration 0042 completed in 847ms
+2026-05-01T22:00:47Z [ERROR] Failed to insert SKU sku_8821: null value in column "warehouse_id" violates not-null constraint
+2026-05-01T22:00:47Z [ERROR] Write failed: returning 500 to caller request_id=req_a91f
+2026-05-01T22:01:12Z [ERROR] Failed to insert SKU sku_8822: null value in column "warehouse_id" violates not-null constraint
+2026-05-01T22:01:12Z [ERROR] Write failed: returning 500 to caller request_id=req_b04c
+2026-05-01T22:01:48Z [ERROR] Failed to insert SKU sku_8823: null value in column "warehouse_id" violates not-null constraint
+2026-05-01T22:02:31Z [ERROR] Failed to insert SKU sku_8826: null value in column "warehouse_id" violates not-null constraint
+2026-05-01T22:03:02Z [ERROR] Failed to insert SKU sku_8829: null value in column "warehouse_id" violates not-null constraint
+2026-05-01T22:03:44Z [ERROR] Failed to insert SKU sku_8831: null value in column "warehouse_id" violates not-null constraint
+2026-05-01T22:04:09Z [WARNING] Inbound request rate from cart-svc spiking: 142 req/s (baseline 12 req/s)
+2026-05-01T22:04:33Z [WARNING] Connection backlog from cart-svc: 89 pending
+2026-05-01T22:05:12Z [WARNING] Connection backlog from cart-svc: 211 pending
+2026-05-01T22:08:01Z [INFO] Health check ok, 1247 SKUs cached
+2026-05-01T22:33:22Z [INFO] Migration 0042 rolled back by ops via deploy/rollback.sh
+2026-05-01T22:33:22Z [INFO] Column warehouse_id removed from skus table
+2026-05-01T22:33:55Z [INFO] SKU writes resumed normal
+2026-05-01T22:35:00Z [INFO] Backlog drained

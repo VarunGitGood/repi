@@ -1,0 +1,6 @@
+2026-04-30T02:00:00Z [INFO] Scrape cycle started
+2026-04-30T02:30:00Z [INFO] Scrape cycle ok, 12 targets up
+2026-04-30T03:00:00Z [INFO] Scrape cycle ok, 12 targets up
+2026-04-30T03:15:00Z [WARNING] Scrape target report-svc:9090 unreachable (connection refused)
+2026-04-30T03:30:00Z [WARNING] Scrape target report-svc:9090 unreachable (connection refused)
+2026-04-30T03:45:00Z [WARNING] Scrape target report-svc:9090 unreachable (connection refused)

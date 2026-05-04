@@ -1,0 +1,69 @@
+{
+  "query": "why did checkout break friday night",
+  "expected_clarification": {
+    "should_clarify": true,
+    "missing_dims": ["time", "service"],
+    "rationale": "'friday night' is parseable but spans 8 hours; 'checkout' is a feature, not a registered service. After the overhaul the resolver should ask one consolidated question pinning the date and confirming which service the user means by 'checkout' (likely cart-svc or payment-svc).",
+    "acceptable_user_reply": "last friday around 10pm, the cart service"
+  },
+  "expected_answer": {
+    "incident_window": {
+      "start": "2026-05-01T22:00:00Z",
+      "end":   "2026-05-01T22:36:00Z"
+    },
+    "affected_services": ["inventory-svc", "cart-svc"],
+    "trigger_event": {
+      "service": "inventory-svc",
+      "timestamp_approx": "2026-05-01T22:00:14Z",
+      "log_line_must_contain": "Migration 0042 added column warehouse_id NOT NULL to skus table"
+    },
+    "propagation_chain_must_include_in_order": [
+      {"service": "inventory-svc", "ts_approx": "2026-05-01T22:00:14Z", "what_must_mention": "migration 0042 / warehouse_id NOT NULL"},
+      {"service": "inventory-svc", "ts_approx": "2026-05-01T22:00:47Z", "what_must_mention": "500 / null value / warehouse_id"},
+      {"service": "cart-svc",      "ts_approx": "2026-05-01T22:00:50Z", "what_must_mention": "retry"},
+      {"service": "cart-svc",      "ts_approx": "2026-05-01T22:04:11Z", "what_must_mention": "pool exhausted"},
+      {"service": "cart-svc",      "ts_approx": "2026-05-01T22:04:15Z", "what_must_mention": "checkout / cart timeout"}
+    ],
+    "root_cause_must_mention": [
+      "migration",
+      "warehouse_id",
+      "NOT NULL",
+      "retry",
+      "pool exhaustion"
+    ],
+    "ruled_out_hypotheses_must_include": [
+      {
+        "hypothesis_about": "pricing-svc",
+        "rationale": "pricing-svc is in the cart call path but has zero ERROR/WARNING log lines in window beyond noting reduced inbound rate."
+      },
+      {
+        "hypothesis_about": "payment-svc",
+        "rationale": "payment-svc only observed reduced inbound checkout rate (a downstream symptom, not a cause). No error logs."
+      },
+      {
+        "hypothesis_about": "notification-svc",
+        "rationale": "notification-svc had no errors and is not in the cart→inventory path."
+      }
+    ],
+    "assumptions_must_echo": [
+      "friday night → 2026-05-01 22:00 to 2026-05-02 06:00 UTC (or user-local)",
+      "'checkout' interpreted as cart-svc"
+    ],
+    "confidence": "high",
+    "gaps_must_be_empty_or_minor": true
+  },
+  "common_failure_modes_to_grade_against": [
+    "Names cart-svc as root cause (it's the dominant symptom, not the trigger). Should be downgraded.",
+    "Misses inventory-svc entirely because it was not mentioned in the query.",
+    "Includes pricing-svc in affected_services on circumstantial evidence.",
+    "Skips ruled_out_hypotheses or fills it with empty/non-evidenced entries.",
+    "Returns a single timestamp instead of an ordered propagation chain.",
+    "Does not echo the time-window assumption."
+  ],
+  "what_this_dataset_tests": [
+    "Temporal grounding: 'friday night' must be resolved (today=2026-05-04 Mon → last Fri = 2026-05-01).",
+    "Cross-service auto-sweep: inventory-svc errors must surface even though only 'checkout' was queried.",
+    "Schema discipline: propagation_chain ordered by timestamp; chunk_id citations required.",
+    "Red-herring elimination: pricing-svc and notification-svc must appear in ruled_out_hypotheses, not in affected_services."
+  ]
+}

@@ -1,0 +1,14 @@
+2026-05-01T21:50:00Z [INFO] Service started, version 5.8.0
+2026-05-01T21:58:00Z [INFO] Stripe connector healthy
+2026-05-01T22:00:11Z [INFO] Charge succeeded order_id=ord_55801 amount=4280
+2026-05-01T22:01:33Z [INFO] Charge succeeded order_id=ord_55802 amount=1190
+2026-05-01T22:03:04Z [INFO] Charge succeeded order_id=ord_55803 amount=8770
+2026-05-01T22:05:41Z [WARNING] Inbound checkout rate dropped sharply: 0.1/s (baseline 1.4/s) over last 5min
+2026-05-01T22:10:08Z [WARNING] Inbound checkout rate still depressed: 0.0/s
+2026-05-01T22:15:00Z [WARNING] Inbound checkout rate still depressed: 0.1/s
+2026-05-01T22:20:11Z [WARNING] Inbound checkout rate still depressed: 0.0/s
+2026-05-01T22:25:33Z [WARNING] Inbound checkout rate still depressed: 0.1/s
+2026-05-01T22:30:00Z [WARNING] Inbound checkout rate still depressed: 0.1/s
+2026-05-01T22:35:14Z [INFO] Charge succeeded order_id=ord_55804 amount=2240
+2026-05-01T22:36:01Z [INFO] Inbound checkout rate recovering: 0.9/s
+2026-05-01T22:38:22Z [INFO] Charge succeeded order_id=ord_55807 amount=6610

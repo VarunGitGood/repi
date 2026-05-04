@@ -1,0 +1,10 @@
+2026-05-01T21:50:00Z [INFO] Service started, version 1.4.0
+2026-05-01T21:55:00Z [INFO] SMTP connection healthy
+2026-05-01T22:00:14Z [INFO] Sent order confirmation email order_id=ord_55801
+2026-05-01T22:01:41Z [INFO] Sent order confirmation email order_id=ord_55802
+2026-05-01T22:03:18Z [INFO] Sent order confirmation email order_id=ord_55803
+2026-05-01T22:10:00Z [INFO] Health check ok
+2026-05-01T22:20:00Z [INFO] Health check ok
+2026-05-01T22:30:00Z [INFO] Health check ok
+2026-05-01T22:35:25Z [INFO] Sent order confirmation email order_id=ord_55804
+2026-05-01T22:38:30Z [INFO] Sent order confirmation email order_id=ord_55807
