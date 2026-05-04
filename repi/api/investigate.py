@@ -38,6 +38,9 @@ class SimpleInvestigationResponse(BaseModel):
     id: str
     status: str
 
+class ClarifyRequest(BaseModel):
+    reply: str
+
 @router.get("/investigations", response_model=List[InvestigationResponse])
 async def list_investigations(limit: int = 20):
     """List recent investigations."""
@@ -78,6 +81,34 @@ async def investigate(request: InvestigateRequest):
         status=investigation.status
     )
 
+@router.post("/investigations/{investigation_id}/clarify", response_model=SimpleInvestigationResponse)
+async def clarify_investigation(investigation_id: str, request: ClarifyRequest):
+    """
+    Provide clarification for a paused investigation.
+    """
+    try:
+        uuid_obj = UUID(investigation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid investigation ID format")
+
+    container = get_container()
+    async with container.get_session() as session:
+        store = container.get_investigation_store(session)
+        investigation = await store.get_by_id(uuid_obj)
+        
+        if not investigation:
+            raise HTTPException(status_code=404, detail="Investigation not found")
+        
+        if investigation.status != "awaiting_clarification":
+            raise HTTPException(status_code=409, detail=f"Investigation is in status {investigation.status}, not awaiting_clarification")
+        
+        await store.resume_from_clarification(uuid_obj, request.reply)
+        
+    return SimpleInvestigationResponse(
+        id=investigation_id,
+        status="running"
+    )
+
 @router.get("/investigations/{investigation_id}/stream")
 async def stream_investigation(investigation_id: str):
     """
@@ -115,6 +146,12 @@ async def stream_investigation(investigation_id: str):
                 yield f"data: {json.dumps({'type': 'done', 'data': {'answer': investigation.answer}})}\n\n"
                 return
 
+            # 2b. If paused for clarification, emit clarification_request and stop
+            if investigation.status == "awaiting_clarification":
+                question = investigation.pending_question or ""
+                yield f"data: {json.dumps({'type': 'clarification_request', 'data': {'question': question, 'investigation_id': investigation_id}})}\n\n"
+                return
+
             # 3. If not done, run the loop and stream new steps
             queue = asyncio.Queue()
 
@@ -130,6 +167,7 @@ async def stream_investigation(investigation_id: str):
             # Run investigation in a separate task
             task = asyncio.create_task(loop.investigate(
                 investigation.query,
+                investigation_id=uuid_obj,
                 on_step=on_step,
                 resume=True
             ))
