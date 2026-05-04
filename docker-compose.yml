@@ -16,6 +16,12 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: repi-redis
+    ports:
+      - "6379:6379"
+
   api:
     build: .
     container_name: repi-api
@@ -40,6 +46,18 @@ services:
     volumes:
       - .:/app
       - /var/log:/var/log:ro
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: repi-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

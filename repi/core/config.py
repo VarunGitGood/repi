@@ -1,8 +1,12 @@
 from __future__ import annotations
 import os
+import json
+from pathlib import Path
 from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+
+CONFIG_PATH = Path("config.json")
 
 class Settings(BaseSettings):
     # DATABASE
@@ -59,4 +63,28 @@ class Settings(BaseSettings):
     def time_expansions_list(self) -> List[int]:
         return [int(x.strip()) for x in self.TIME_WINDOW_EXPANSIONS.split(",") if x.strip()]
 
-settings = Settings()
+    def reload(self):
+        """Hot-reload settings from config.json."""
+        if CONFIG_PATH.exists():
+            try:
+                with open(CONFIG_PATH, "r") as f:
+                    data = json.load(f)
+                # Update attributes in place
+                for key, value in data.items():
+                    if hasattr(self, key):
+                        setattr(self, key, value)
+            except Exception as e:
+                print(f"Error reloading config: {e}")
+
+def get_settings() -> Settings:
+    """Initialize settings, preferring config.json if it exists."""
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                data = json.load(f)
+            return Settings(**data)
+        except Exception as e:
+            print(f"Error loading config.json: {e}")
+    return Settings()
+
+settings = get_settings()

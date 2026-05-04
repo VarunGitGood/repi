@@ -2,11 +2,13 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from repi.core.container import get_container
 from repi.api.ingest import router as ingest_router
 from repi.api.investigate import router as investigate_router
 from repi.api.watchers import router as watchers_router
+from repi.api.config import router as config_router
 
 logger = logging.getLogger("repi.api")
 
@@ -26,9 +28,18 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, restrict this to the frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(ingest_router, tags=["ingest"])
 app.include_router(investigate_router, tags=["investigate"])
 app.include_router(watchers_router, tags=["watchers"])
+app.include_router(config_router, tags=["config"])
 
 
 @app.get("/services", tags=["services"])

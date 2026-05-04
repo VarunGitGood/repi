@@ -18,6 +18,12 @@ class InvestigationStore:
         result = await self.session.exec(statement)
         return result.first()
 
+    async def list_all(self, limit: int = 50) -> List[Investigation]:
+        """List all investigations, newest first."""
+        statement = select(Investigation).order_by(desc(Investigation.created_at)).limit(limit)
+        result = await self.session.exec(statement)
+        return list(result.all())
+
     async def get_or_create(self, query: str) -> Investigation:
         """Find an existing active investigation for the same query or create a new one."""
         statement = select(Investigation).where(
