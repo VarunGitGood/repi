@@ -138,3 +138,32 @@ class InvestigationStore:
         investigation.total_llm_calls += 1
         self.session.add(investigation)
         await self.session.commit()
+
+    async def set_awaiting_clarification(self, investigation_id: UUID, question: str) -> None:
+        """Set investigation status to awaiting_clarification with a pending question."""
+        inv = await self.get_by_id(investigation_id)
+        if inv:
+            inv.status = "awaiting_clarification"
+            inv.pending_question = question
+            self.session.add(inv)
+            await self.session.commit()
+
+    async def resume_from_clarification(self, investigation_id: UUID, reply: str) -> None:
+        """Write user's reply as observation on the pending ask_user step, then set status=running."""
+        # Find the pending ask_user step (latest step with ask_user tool and no observation)
+        steps = await self.get_steps(investigation_id)
+        ask_user_step = next(
+            (s for s in reversed(steps) if s.action and s.action.get("name") == "ask_user" and not s.observation),
+            None
+        )
+        if ask_user_step:
+            ask_user_step.observation = {"tool_name": "ask_user", "args": {}, "result": {"reply": reply}}
+            self.session.add(ask_user_step)
+
+        inv = await self.get_by_id(investigation_id)
+        if inv:
+            inv.status = "running"
+            inv.pending_question = None
+            self.session.add(inv)
+
+        await self.session.commit()

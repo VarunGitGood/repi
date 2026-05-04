@@ -50,6 +50,8 @@ class Investigation(SQLModel, table=True):
     services_seen: Optional[list[str]] = Field(default_factory=list, sa_column=Column(JSONB))
     total_llm_calls: int = Field(default=0)
     answer: Optional[str] = Field(default=None, sa_column=Column(TEXT))
+    # Valid statuses: "started", "running", "completed", "failed", "awaiting_clarification"
+    pending_question: Optional[str] = Field(default=None, nullable=True)
 
 class InvestigationStep(SQLModel, table=True):
     __tablename__ = "investigation_steps"

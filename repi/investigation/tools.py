@@ -181,6 +181,22 @@ async def get_all_services(pool: asyncpg.Pool) -> list[str]:
     rows = await pool.fetch("SELECT DISTINCT source_service FROM log_chunks")
     return [r["source_service"] for r in rows]
 
+from repi.investigation.sweep import auto_sweep
+
+async def sweep_window(
+    pool: asyncpg.Pool,
+    time_from: str,
+    time_to: str,
+    exclude_services: list[str] | None = None,
+) -> dict:
+    """Sweep a time window for errors and warnings."""
+    return await auto_sweep(
+        pool=pool,
+        time_from=_parse_iso_timestamp(time_from),
+        time_to=_parse_iso_timestamp(time_to),
+        exclude_services=exclude_services
+    )
+
 TOOL_SCHEMAS = {
     "search_logs": {
         "description": "Search log chunks by query, service, time range, and level",
@@ -212,6 +228,28 @@ TOOL_SCHEMAS = {
             "service": "string (required)",
             "time_from": "ISO8601 string | null",
             "time_to": "ISO8601 string | null"
+        }
+    },
+    "sweep_window": {
+        "description": "Sweep a time window across all services to find errors and warnings. Returns buckets by service and the chronological first errors.",
+        "args": {
+            "time_from": "ISO8601 string (required)",
+            "time_to": "ISO8601 string (required)",
+            "exclude_services": "list[string] | null"
+        }
+    },
+    "submit_answer": {
+        "description": "Submit the final investigation answer once the root cause is identified. MUST follow the structured schema.",
+        "args": {
+            "root_cause": "string (required)",
+            "incident_window": {"start": "ISO8601", "end": "ISO8601"},
+            "affected_services": "list[string]",
+            "trigger_event": {"service": "string", "timestamp": "ISO8601", "log_line": "string", "chunk_id": "string"},
+            "propagation_chain": "list[{'ts': 'ISO8601', 'service': 'string', 'what': 'string', 'chunk_id': 'string'}]",
+            "ruled_out_hypotheses": "list[{'hypothesis': 'string', 'why_ruled_out': 'string'}]",
+            "assumptions": "list[string]",
+            "confidence": "low | medium | high",
+            "gaps": "list[string]"
         }
     }
 }
