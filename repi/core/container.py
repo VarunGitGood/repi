@@ -136,6 +136,9 @@ class Container:
             store=store
         )
 
+    def get_investigation_store(self, session: AsyncSession) -> InvestigationStore:
+        return InvestigationStore(session)
+
 def get_container() -> Container:
     # Use global singleton pattern for API if needed, or just return instance
     if not hasattr(get_container, "_instance"):

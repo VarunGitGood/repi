@@ -1,11 +1,15 @@
+import json
+import asyncio
 import logging
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from uuid import UUID
+from datetime import datetime
 
 from repi.core.container import get_container
-from repi.investigation.react_loop import InvestigationResult
+from repi.investigation.react_loop import InvestigationResult, InvestigationStep
 
 logger = logging.getLogger("repi.api.investigate")
 
@@ -25,47 +29,131 @@ class InvestigationStepModel(BaseModel):
 class InvestigationResponse(BaseModel):
     id: str
     query: str
-    answer: str
-    confidence: str
-    duration_seconds: float
+    status: str
+    answer: Optional[str] = None
+    created_at: datetime
     steps: List[InvestigationStepModel]
 
-@router.post("/investigate", response_model=InvestigationResponse)
+class SimpleInvestigationResponse(BaseModel):
+    id: str
+    status: str
+
+@router.get("/investigations", response_model=List[InvestigationResponse])
+async def list_investigations(limit: int = 20):
+    """List recent investigations."""
+    container = get_container()
+    async with container.get_session() as session:
+        store = container.get_investigation_store(session)
+        items = await store.list_all(limit=limit)
+        
+        results = []
+        for inv in items:
+            results.append(InvestigationResponse(
+                id=str(inv.id),
+                query=inv.query,
+                status=inv.status,
+                answer=inv.answer,
+                created_at=inv.created_at,
+                steps=[] # Don't load steps for the list
+            ))
+        return results
+
+@router.post("/investigate", response_model=SimpleInvestigationResponse)
 async def investigate(request: InvestigateRequest):
     """
-    Run an autonomous log investigation.
+    Start an autonomous log investigation (non-blocking).
     """
     container = get_container()
-    services = container.known_services
-    
     async with container.get_session() as session:
-        loop = container.get_investigation_loop(session)
+        store = container.get_investigation_store(session)
+        investigation = await store.get_or_create(request.query)
         
-        result: InvestigationResult = await loop.investigate(
-            request.query,
-            known_services=services,
-            resume=request.resume
-        )
+    # We don't start the loop here; the /stream endpoint will start it if it's not finished.
+    # Alternatively, we could start it in a background task. 
+    # The spec says "SSE: replay from DB if done, stream live if running".
+    # This implies the /stream endpoint handles the execution.
     
-    steps = []
-    for s in result.steps:
-        obs_str = str(s.observation.tool_result.result or s.observation.tool_result.error) if s.observation else None
-        steps.append(InvestigationStepModel(
-            step_number=s.step_number,
-            thought=s.thought.content,
-            tool_name=s.action.tool_call.name if s.action else None,
-            tool_args=s.action.tool_call.args if s.action else None,
-            observation_preview=obs_str[:200] + "..." if obs_str and len(obs_str) > 200 else obs_str
-        ))
-        
-    return InvestigationResponse(
-        id=result.id,
-        query=result.query,
-        answer=result.answer,
-        confidence=result.confidence,
-        duration_seconds=result.duration_seconds,
-        steps=steps
+    return SimpleInvestigationResponse(
+        id=str(investigation.id),
+        status=investigation.status
     )
+
+@router.get("/investigations/{investigation_id}/stream")
+async def stream_investigation(investigation_id: str):
+    """
+    SSE endpoint to stream investigation steps.
+    """
+    try:
+        uuid_obj = UUID(investigation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid investigation ID format")
+
+    async def event_generator():
+        container = get_container()
+        async with container.get_session() as session:
+            loop = container.get_investigation_loop(session)
+            store = loop.store
+            investigation = await store.get_by_id(uuid_obj)
+            
+            if not investigation:
+                yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Investigation not found'}})}\n\n"
+                return
+
+            # 1. Replay existing steps
+            steps = await store.get_steps(uuid_obj)
+            for s in steps:
+                step_data = {
+                    "step_number": s.step_number,
+                    "thought": s.thought,
+                    "action": s.action,
+                    "observation": s.observation
+                }
+                yield f"data: {json.dumps({'type': 'step', 'data': step_data})}\n\n"
+
+            # 2. If already done, send done and exit
+            if investigation.status in ("completed", "failed"):
+                yield f"data: {json.dumps({'type': 'done', 'data': {'answer': investigation.answer}})}\n\n"
+                return
+
+            # 3. If not done, run the loop and stream new steps
+            queue = asyncio.Queue()
+
+            async def on_step(step: InvestigationStep):
+                step_data = {
+                    "step_number": step.step_number,
+                    "thought": step.thought.content,
+                    "action": {"tool": step.action.tool_call.name, "args": step.action.tool_call.args} if step.action else None,
+                    "observation": step.observation.tool_result.result if step.observation else None
+                }
+                await queue.put({"type": "step", "data": step_data})
+
+            # Run investigation in a separate task
+            task = asyncio.create_task(loop.investigate(
+                investigation.query,
+                on_step=on_step,
+                resume=True
+            ))
+
+            while True:
+                # Check if task is done and queue is empty
+                if task.done() and queue.empty():
+                    break
+                
+                try:
+                    # Wait for a step or timeout to check task status
+                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+            
+            try:
+                result = await task
+                yield f"data: {json.dumps({'type': 'done', 'data': {'answer': result.answer}})}\n\n"
+            except Exception as e:
+                logger.error(f"Investigation failed: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @router.get("/investigations/{investigation_id}", response_model=InvestigationResponse)
 async def get_investigation(investigation_id: str):
@@ -81,8 +169,6 @@ async def get_investigation(investigation_id: str):
     async with container.get_session() as session:
         loop = container.get_investigation_loop(session)
         store = loop.store
-        if not store:
-            raise HTTPException(status_code=500, detail="Store not configured")
         
         investigation = await store.get_by_id(uuid_obj)
         if not investigation:
@@ -104,8 +190,8 @@ async def get_investigation(investigation_id: str):
     return InvestigationResponse(
         id=str(investigation.id),
         query=investigation.query,
-        answer=investigation.answer or "",
-        confidence="unknown",
-        duration_seconds=0.0,
+        status=investigation.status,
+        answer=investigation.answer,
+        created_at=investigation.created_at,
         steps=steps
     )

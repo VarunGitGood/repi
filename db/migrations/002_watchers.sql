@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS watcher_offsets (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     watcher_config_id   UUID NOT NULL REFERENCES watcher_configs(id) ON DELETE CASCADE,
     file_path           TEXT NOT NULL,
-    offset              BIGINT NOT NULL DEFAULT 0,
+    "offset"            BIGINT NOT NULL DEFAULT 0,
     last_seen_at        TIMESTAMPTZ,
     updated_at          TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (watcher_config_id, file_path)
