@@ -4,9 +4,12 @@ import logging
 import asyncio
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+from uuid import UUID
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 from dataclasses import dataclass, field
+
+import asyncpg
 
 from repi.llm.provider import LLMProvider, Message
 from repi.investigation.tools import ToolCall, ToolResult, TOOL_SCHEMAS
@@ -18,14 +21,26 @@ from repi.investigation.schema import InvestigationAnswer, validate_answer
 
 logger = logging.getLogger(__name__)
 
+def _strip_js_comments(text: str) -> str:
+    """Remove // line comments and /* block comments */ from JSON-like text."""
+    # Block comments first
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    # Line comments (only outside strings — naive but covers the common LLM pattern)
+    text = re.sub(r"//[^\n]*", "", text)
+    return text
+
+
 def parse_llm_response(raw: str) -> dict:
     """Extract and parse JSON from LLM response, supporting multiple blocks and markdown fences."""
     # Remove markdown fences
     cleaned = re.sub(r"```json|```", "", raw).strip()
-    
+
     # Remove common prefixes like "Tool Call:" or "Final Answer:"
     cleaned = re.sub(r"^(?:Tool Call|Final Answer):\s*", "", cleaned, flags=re.IGNORECASE)
-    
+
+    # Strip JS-style comments that LLMs sometimes emit
+    cleaned = _strip_js_comments(cleaned)
+
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
@@ -187,40 +202,61 @@ class ReactInvestigationLoop:
                 clarified_query = f"{query} (User Clarification: {reply})"
                 logger.info(f"Resuming with clarified query: {clarified_query}")
 
+        # True if we're resuming after a clarification round
+        post_clarification = clarified_query != query
+
         # Resolve if fresh OR if we just clarified
-        if not existing_steps or (clarified_query != query):
+        if not existing_steps or post_clarification:
             now = datetime.utcnow()
             resolution = resolve_intent(clarified_query, self.known_services, now)
             logger.info(f"Intent Resolution for '{clarified_query}': {resolution}")
-            
+
             if isinstance(resolution, ClarificationNeeded):
-                thought_text = "I need to clarify the request before I can proceed."
-                action_data = {"name": "ask_user", "args": {"question": resolution.question}}
-                
-                if self.store:
-                    # Only add if it's not already the same question (to avoid loops)
-                    if not last_step or last_step.action.get("args", {}).get("question") != resolution.question:
-                        await self.store.add_step(
-                            investigation_id=investigation_obj.id,
-                            step_number=len(existing_steps) + 1,
-                            thought=thought_text,
-                            action=action_data
-                        )
-                    await self.store.set_awaiting_clarification(investigation_obj.id, resolution.question)
-                
-                step = InvestigationStep(len(existing_steps) + 1, Thought(thought_text), Action(ToolCall(name="ask_user", args=action_data["args"])))
-                if on_step: await on_step(step)
-                
-                return InvestigationResult(
-                    id=str(investigation_obj.id),
-                    query=query,
-                    steps=[step],
-                    answer="Awaiting clarification...",
-                    evidence_chunk_ids=[],
-                    confidence="low",
-                    duration_seconds=time.time() - start_time
-                )
-            
+                if post_clarification:
+                    # Single-round guarantee: already clarified once — commit with widest defaults
+                    logger.warning(
+                        f"Still ambiguous after clarification ({resolution.missing_dims}). "
+                        "Proceeding with widest-default window (last 24h)."
+                    )
+                    resolution = ResolvedIntent(
+                        time_from=datetime.utcnow() - timedelta(days=1),
+                        time_to=datetime.utcnow(),
+                        services=[],
+                        symptoms=[],
+                        assumed=[
+                            f"time could not be resolved after clarification — defaulting to last 24 hours",
+                            f"clarification was: {clarified_query}",
+                        ],
+                    )
+                    # fall through with this ResolvedIntent
+                else:
+                    thought_text = "I need to clarify the request before I can proceed."
+                    action_data = {"name": "ask_user", "args": {"question": resolution.question}}
+
+                    if self.store:
+                        # Only add if it's not already the same question (to avoid loops)
+                        if not last_step or last_step.action.get("args", {}).get("question") != resolution.question:
+                            await self.store.add_step(
+                                investigation_id=investigation_obj.id,
+                                step_number=len(existing_steps) + 1,
+                                thought=thought_text,
+                                action=action_data
+                            )
+                        await self.store.set_awaiting_clarification(investigation_obj.id, resolution.question)
+
+                    step = InvestigationStep(len(existing_steps) + 1, Thought(thought_text), Action(ToolCall(name="ask_user", args=action_data["args"])))
+                    if on_step: await on_step(step)
+
+                    return InvestigationResult(
+                        id=str(investigation_obj.id),
+                        query=query,
+                        steps=[step],
+                        answer="Awaiting clarification...",
+                        evidence_chunk_ids=[],
+                        confidence="low",
+                        duration_seconds=time.time() - start_time
+                    )
+
             resolved_intent = resolution
 
         # --- 2. AUTO SWEEP ---
@@ -229,7 +265,7 @@ class ReactInvestigationLoop:
             Message(role="user", content=query)
         ]
 
-        if resolved_intent and not existing_steps:
+        if resolved_intent and (not existing_steps or post_clarification):
             sweep_results = await auto_sweep(
                 pool=self.pool,
                 time_from=resolved_intent.time_from,
@@ -310,37 +346,8 @@ class ReactInvestigationLoop:
                     
                     # Handle common LLM aliases for finishing
                     if tool_name in ["Final Answer", "FinalAnswer", "submit", "finish", "submit_answer"]:
-                        # Validate structured answer
-                        try:
-                            answer = validate_answer(tool_args, evidence_ids)
-                            final_answer_dict = answer.dict()
-                            
-                            step = InvestigationStep(
-                                step_number=i + 1,
-                                thought=thought.content,
-                                tool_name="submit_answer",
-                                tool_args=tool_args,
-                                observation="Investigation completed with structured answer.",
-                                is_terminal=True,
-                                answer=final_answer_dict
-                            )
-                            processed_steps.append(step)
-                            if self.store:
-                                await self.store.add_step(
-                                    investigation_id=investigation_obj.id,
-                                    step_number=i + 1,
-                                    thought=thought.content,
-                                    action={"name": "submit_answer", "args": tool_args},
-                                    observation={"result": "Investigation completed."}
-                                )
-                                await self.store.update_status(investigation_obj.id, "completed")
-                            
-                            if on_step: await on_step(step)
-                            break # EXIT LOOP
-                        except Exception as e:
-                            logger.warning(f"Validation failed for structured answer: {e}.")
-                            # Fall through to retry/error handling if needed
-                            parsed["answer"] = tool_args # Let the fallback validation handle it
+                        # Route into the "answer in parsed" validation path below
+                        parsed["answer"] = tool_args
                     else:
                         action = Action(tool_call=ToolCall(name=tool_name, args=tool_args))
                         
