@@ -1,0 +1,12 @@
+2026-05-01T21:50:00Z [INFO] Service started, version 2.1.4
+2026-05-01T21:55:00Z [INFO] Price cache loaded, 1247 entries
+2026-05-01T22:00:00Z [INFO] Health check ok
+2026-05-01T22:05:00Z [INFO] Health check ok
+2026-05-01T22:05:14Z [INFO] Inbound request rate from cart-svc dropped: 4 req/s (baseline 12 req/s)
+2026-05-01T22:10:00Z [INFO] Health check ok
+2026-05-01T22:15:00Z [INFO] Health check ok
+2026-05-01T22:20:00Z [INFO] Health check ok
+2026-05-01T22:25:00Z [INFO] Health check ok
+2026-05-01T22:30:00Z [INFO] Health check ok
+2026-05-01T22:35:00Z [INFO] Health check ok
+2026-05-01T22:36:18Z [INFO] Inbound request rate from cart-svc recovered: 13 req/s

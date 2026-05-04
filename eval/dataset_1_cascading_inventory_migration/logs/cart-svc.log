@@ -1,0 +1,28 @@
+2026-05-01T21:50:00Z [INFO] Service started, version 7.3.1
+2026-05-01T21:50:00Z [INFO] HTTP client pool to inventory-svc initialized (max=50, timeout=2s)
+2026-05-01T21:55:00Z [INFO] HTTP client pool to pricing-svc initialized (max=50, timeout=2s)
+2026-05-01T22:00:50Z [WARNING] Upstream inventory-svc returned 500 for request_id=req_a91f, retry 1/5
+2026-05-01T22:00:52Z [WARNING] Upstream inventory-svc returned 500 for request_id=req_a91f, retry 2/5
+2026-05-01T22:00:56Z [WARNING] Upstream inventory-svc returned 500 for request_id=req_a91f, retry 3/5
+2026-05-01T22:01:14Z [WARNING] Upstream inventory-svc returned 500 for request_id=req_b04c, retry 1/5
+2026-05-01T22:02:33Z [WARNING] Upstream inventory-svc 500 retry storm: 22 in-flight retries
+2026-05-01T22:03:01Z [ERROR] Inventory check failed for cart_id=cart_99213 after 5 retries: upstream 500
+2026-05-01T22:03:48Z [ERROR] Inventory check failed for cart_id=cart_99221 after 5 retries: upstream 500
+2026-05-01T22:04:11Z [ERROR] HTTP client pool to inventory-svc EXHAUSTED (50/50 in use), new requests will queue
+2026-05-01T22:04:15Z [ERROR] Cart operation timeout for cart_id=cart_99240 (waiting for inventory client slot)
+2026-05-01T22:04:32Z [ERROR] Cart operation timeout for cart_id=cart_99244
+2026-05-01T22:04:48Z [ERROR] Cart operation timeout for cart_id=cart_99249
+2026-05-01T22:05:01Z [ERROR] Cart operation timeout for cart_id=cart_99252
+2026-05-01T22:05:33Z [ERROR] Cart operation timeout for cart_id=cart_99258
+2026-05-01T22:06:11Z [ERROR] Checkout failed for cart_id=cart_99262: cart operation timed out
+2026-05-01T22:08:44Z [ERROR] Checkout failed for cart_id=cart_99275: cart operation timed out
+2026-05-01T22:11:02Z [ERROR] Checkout failed for cart_id=cart_99291: cart operation timed out
+2026-05-01T22:14:27Z [ERROR] Checkout failed for cart_id=cart_99308: cart operation timed out
+2026-05-01T22:18:55Z [ERROR] Checkout failed for cart_id=cart_99332: cart operation timed out
+2026-05-01T22:22:01Z [ERROR] Checkout failed for cart_id=cart_99355: cart operation timed out
+2026-05-01T22:26:18Z [ERROR] Checkout failed for cart_id=cart_99379: cart operation timed out
+2026-05-01T22:30:44Z [ERROR] Checkout failed for cart_id=cart_99404: cart operation timed out
+2026-05-01T22:31:55Z [WARNING] Operator restarted inventory-svc HTTP client pool
+2026-05-01T22:32:10Z [INFO] HTTP client pool to inventory-svc reset, 50 slots available
+2026-05-01T22:34:01Z [INFO] Cart operations recovering, error rate dropping
+2026-05-01T22:36:00Z [INFO] Service nominal

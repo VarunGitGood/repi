@@ -1,0 +1,70 @@
+{
+  "query": "why is the nightly report failing",
+  "expected_clarification": {
+    "should_clarify": true,
+    "missing_dims": ["time"],
+    "rationale": "'nightly report' implies a recurring job, but no specific date is given. Resolver should ask which night.",
+    "acceptable_user_reply": "last night, around 3am"
+  },
+  "expected_answer": {
+    "incident_window": {
+      "start_approx": "2026-04-30T02:00:00Z",
+      "end_approx":   "2026-04-30T03:45:00Z"
+    },
+    "affected_services": ["report-svc", "cron-runner"],
+    "trigger_event_acceptable_options": [
+      {
+        "service": "report-svc",
+        "ts_approx": "2026-04-30T03:14:48Z",
+        "log_line_must_contain": "SIGKILL",
+        "note": "Process was killed externally (likely OOM by the kernel) — but logs do not confirm cause."
+      },
+      {
+        "service": "cron-runner",
+        "ts_approx": "2026-04-30T03:00:00Z",
+        "log_line_must_contain": "exceeded timeout",
+        "note": "Acceptable as a symptom-anchor only — not a root cause."
+      }
+    ],
+    "root_cause_must_be_one_of": [
+      "unable_to_determine",
+      "hypothesis_only"
+    ],
+    "root_cause_must_NOT_assert": [
+      "memory leak",
+      "OOM (as a fact)",
+      "GC pressure",
+      "any specific code path",
+      "any specific dependency"
+    ],
+    "ruled_out_hypotheses_must_consider": [
+      {"hypothesis_about": "code crash", "expected": "weakly ruled out — no stack trace or panic logged"},
+      {"hypothesis_about": "deadlock", "expected": "cannot confirm or rule out — no thread-state logs"},
+      {"hypothesis_about": "external kill", "expected": "consistent with SIGKILL but cannot identify killer"}
+    ],
+    "confidence": "low",
+    "gaps_must_include_one_of": [
+      "no memory or resource utilization logs",
+      "no per-request or per-stage timing logs from report-svc",
+      "no logs identifying which process or system signaled SIGKILL",
+      "no GC, CPU, or thread-state telemetry available"
+    ],
+    "assumptions_must_echo": [
+      "interpreted 'last night around 3am' → 2026-04-30 02:00–04:00 UTC (or user-local)"
+    ]
+  },
+  "common_failure_modes_to_grade_against": [
+    "Confidently asserts OOM as root cause without evidence (the only OOM-suggestive signal is SIGKILL, which has many causes).",
+    "Names a memory leak in a specific dependency (zero evidence).",
+    "Returns confidence=high or confidence=medium when gaps are obvious.",
+    "Omits the gaps field or fills it with placeholder text.",
+    "Treats the cron-runner timeout as the trigger event (it's a downstream consequence — the job was already in trouble before the timeout fired).",
+    "Hallucinates log lines that aren't in the seeded data."
+  ],
+  "what_this_dataset_tests": [
+    "Honest gap reporting: confidence=low with explicit gaps is the CORRECT answer.",
+    "Schema validation does not let the LLM skip ruled_out_hypotheses just because nothing is provable.",
+    "The structured schema's 'assumptions' field is populated even when root cause is uncertain.",
+    "The system does not fabricate chunk_id citations to pad the answer."
+  ]
+}

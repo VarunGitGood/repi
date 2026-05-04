@@ -1,0 +1,5 @@
+2026-04-30T02:00:00Z [INFO] Triggering job nightly_reports → report-svc
+2026-04-30T02:00:00Z [INFO] Job nightly_reports started, timeout=3600s
+2026-04-30T03:00:00Z [WARNING] Job nightly_reports has been running for 3600s (timeout limit reached)
+2026-04-30T03:00:00Z [ERROR] Job nightly_reports exceeded timeout, marking as failed
+2026-04-30T03:00:01Z [INFO] No retry policy configured for nightly_reports
