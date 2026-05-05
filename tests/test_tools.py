@@ -6,7 +6,7 @@ import json
 from repi.investigation.tools import (
     search_logs,
     get_timeline,
-    find_co_occurring,
+    scan_window,
     get_service_summary
 )
 from repi.models.filters import RetrievalFilters
@@ -50,20 +50,28 @@ async def test_get_timeline():
     assert results[1]["timestamp"] == "2026-04-01T10:01:00"
 
 @pytest.mark.asyncio
-async def test_find_co_occurring():
+async def test_scan_window():
     pool = MagicMock()
-    # Use valid UUIDs
     c1 = "550e8400-e29b-41d4-a716-446655440001"
     c2 = "550e8400-e29b-41d4-a716-446655440002"
-    pool.fetch = AsyncMock(return_value=[
-        {"chunk_a_id": c1, "chunk_b_id": c2, "service_a": "s1", "service_b": "s2", "time_a": datetime(2026,4,1,10,0), "time_b": datetime(2026,4,1,10,0,5)}
-    ])
+    summary_rows = [
+        {"source_service": "s1", "errors": 1, "warnings": 0, "first_error": datetime(2026,4,1,10,0)},
+        {"source_service": "s2", "errors": 1, "warnings": 0, "first_error": datetime(2026,4,1,10,0,5)},
+    ]
+    log_rows = [
+        {"chunk_id": c1, "source_service": "s1", "log_level": "ERROR", "timestamp_start": datetime(2026,4,1,10,0), "text": "err1"},
+        {"chunk_id": c2, "source_service": "s2", "log_level": "ERROR", "timestamp_start": datetime(2026,4,1,10,0,5), "text": "err2"},
+    ]
+    pool.fetch = AsyncMock(side_effect=[summary_rows, log_rows])
 
-    results = await find_co_occurring(pool, [c1, c2], window_seconds=10)
+    results = await scan_window(pool, time_from="2026-04-01T09:55:00", time_to="2026-04-01T10:05:00")
 
-    assert len(results["results"]) == 1
-    assert results["results"][0]["chunk_a_id"] == c1
-    assert results["results"][0]["chunk_b_id"] == c2
+    assert results["total"] == 2
+    assert results["logs"][0]["chunk_id"] == c1
+    assert results["logs"][0]["service"] == "s1"
+    assert results["logs"][1]["chunk_id"] == c2
+    assert "s1" in results["summary"]
+    assert results["summary"]["s1"]["errors"] == 1
 
 @pytest.mark.asyncio
 async def test_get_service_summary():

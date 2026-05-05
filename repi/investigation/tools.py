@@ -1,24 +1,18 @@
 from __future__ import annotations
+import asyncio
 import logging
 import asyncpg
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 
+from repi.core.dates import DateHandler
 from repi.models.filters import RetrievalFilters
 from repi.retrieval.rrf import RRFRetrievalService
 
 logger = logging.getLogger(__name__)
 
-def _parse_iso_timestamp(ts: str | None) -> datetime | None:
-    """Helper to parse ISO8601 strings with 'Z' support."""
-    if not ts:
-        return None
-    try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
-        logger.warning(f"Failed to parse timestamp: {ts}")
-        return None
+_parse_iso_timestamp = DateHandler.parse_iso
 
 @dataclass
 class ToolCall:
@@ -58,22 +52,27 @@ async def search_logs(
         time_from=_parse_iso_timestamp(time_from),
         time_to=_parse_iso_timestamp(time_to)
     )
-    
-    results = await rrf_service.search(query=query, top_k=top_k, filters=filters)
-    
-    # Enrich with text and metadata
+
+    if query and query.strip():
+        results = await rrf_service.search(query=query, top_k=top_k, filters=filters)
+    else:
+        # No semantic query — skip RRF and do a direct filter+recency sort
+        results = await rrf_service.vector_store.filter_search(filters=filters, top_k=top_k)
+
     chunk_ids = [res[0] for res in results]
     chunks_data = await rrf_service.vector_store.get_chunks_by_ids(chunk_ids)
-    
+
     output = []
     for chunk_id, score in results:
         data = chunks_data.get(chunk_id, {})
+        ts_start = data.get("timestamp_start")
+        ts_end = data.get("timestamp_end")
         output.append({
             "chunk_id": chunk_id,
             "service": data.get("source_service"),
             "level": data.get("log_level"),
-            "timestamp_start": data.get("timestamp_start").isoformat() if hasattr(data.get("timestamp_start"), "isoformat") else data.get("timestamp_start"),
-            "timestamp_end": data.get("timestamp_end").isoformat() if hasattr(data.get("timestamp_end"), "isoformat") else data.get("timestamp_end"),
+            "timestamp_start": DateHandler.to_iso(ts_start) if hasattr(ts_start, "isoformat") else ts_start,
+            "timestamp_end": DateHandler.to_iso(ts_end) if hasattr(ts_end, "isoformat") else ts_end,
             "text": data.get("text"),
             "score": float(score)
         })
@@ -96,46 +95,85 @@ async def get_timeline(
         "chunk_id": r["chunk_id"],
         "service": r["source_service"],
         "level": r["log_level"],
-        "timestamp": r["timestamp_start"].isoformat() if r["timestamp_start"] else None,
+        "timestamp": DateHandler.to_iso(r["timestamp_start"]),
         "text": r["text"]
     } for r in rows]
 
-async def find_co_occurring(
+async def scan_window(
     pool: asyncpg.Pool,
-    chunk_ids: list[str],
-    window_seconds: int = 300,
+    time_from: str,
+    time_to: str,
+    level: list[str] | None = None,
+    services: list[str] | None = None,
+    top_k: int = 50,
 ) -> dict:
-    """Find pairs of chunks from different services that occurred near each other."""
-    if not chunk_ids:
-        return {"results": []}
-        
-    # Bug 4 Fix: UUID validation
-    invalid = [cid for cid in chunk_ids if not _is_valid_uuid(cid)]
-    if invalid:
-        return {
-            "warning": (
-                f"chunk_ids must be UUID strings returned by search_logs or get_timeline. "
-                f"Invalid values received: {invalid}. "
-                f"Call search_logs first and use the 'chunk_id' field from those results."
-            ),
-            "results": []
-        }
-
-    sql = """
-    SELECT a.chunk_id as chunk_a_id, b.chunk_id as chunk_b_id,
-           a.source_service as service_a, b.source_service as service_b,
-           a.timestamp_start as time_a, b.timestamp_start as time_b,
-           ABS(EXTRACT(EPOCH FROM (a.timestamp_start - b.timestamp_start))) as time_delta_seconds
-    FROM log_chunks a
-    JOIN log_chunks b
-      ON a.source_service != b.source_service
-      AND ABS(EXTRACT(EPOCH FROM (a.timestamp_start - b.timestamp_start))) < $1
-    WHERE a.chunk_id = ANY($2)
-      AND b.chunk_id = ANY($2)
     """
-    
-    rows = await pool.fetch(sql, window_seconds, chunk_ids)
-    return {"results": [dict(row) for row in rows]}
+    Scan a time window: returns authoritative per-service ERROR/WARNING counts (summary)
+    plus full log text (logs) in one call. Default level filter is ERROR+WARNING; pass
+    broader list (e.g. ["ERROR","WARNING","INFO"]) when surrounding context is needed.
+    """
+    time_from_dt = _parse_iso_timestamp(time_from)
+    time_to_dt = _parse_iso_timestamp(time_to)
+
+    if time_from_dt is None or time_to_dt is None:
+        return {"error": "time_from and time_to are required ISO8601 strings", "summary": {}, "logs": [], "total": 0}
+
+    effective_level = level if level else ["ERROR", "WARNING"]
+
+    summary_sql = """
+        SELECT source_service,
+               COUNT(*) FILTER (WHERE log_level = 'ERROR')                     AS errors,
+               COUNT(*) FILTER (WHERE log_level = 'WARNING')                   AS warnings,
+               MIN(timestamp_start) FILTER (WHERE log_level = 'ERROR')         AS first_error
+        FROM log_chunks
+        WHERE timestamp_start BETWEEN $1 AND $2
+          AND log_level IN ('ERROR', 'WARNING')
+          AND ($3::text[] IS NULL OR source_service = ANY($3))
+        GROUP BY source_service
+        ORDER BY first_error NULLS LAST
+    """
+
+    logs_sql = """
+        SELECT chunk_id, source_service, log_level, timestamp_start, text
+        FROM log_chunks
+        WHERE timestamp_start BETWEEN $1 AND $2
+          AND log_level = ANY($3)
+          AND ($4::text[] IS NULL OR source_service = ANY($4))
+        ORDER BY timestamp_start
+        LIMIT $5
+    """
+
+    summary_rows, log_rows = await asyncio.gather(
+        pool.fetch(summary_sql, time_from_dt, time_to_dt, services),
+        pool.fetch(logs_sql, time_from_dt, time_to_dt, effective_level, services, top_k),
+    )
+
+    summary = {
+        r["source_service"]: {
+            "errors": r["errors"],
+            "warnings": r["warnings"],
+            "first_error": DateHandler.to_iso(r["first_error"]),
+        }
+        for r in summary_rows
+    }
+
+    logs = [
+        {
+            "chunk_id": str(r["chunk_id"]),
+            "service": r["source_service"],
+            "level": r["log_level"],
+            "timestamp": DateHandler.to_iso(r["timestamp_start"]),
+            "text": r["text"],
+        }
+        for r in log_rows
+    ]
+
+    return {
+        "window": [time_from, time_to],
+        "summary": summary,
+        "logs": logs,
+        "total": len(logs),
+    }
 
 async def get_service_summary(
     pool: asyncpg.Pool,
@@ -172,8 +210,8 @@ async def get_service_summary(
         "error_count": row["error_count"],
         "warning_count": row["warning_count"],
         "info_count": row["info_count"],
-        "earliest": row["earliest"].isoformat() if row["earliest"] else None,
-        "latest": row["latest"].isoformat() if row["latest"] else None,
+        "earliest": DateHandler.to_iso(row["earliest"]),
+        "latest": DateHandler.to_iso(row["latest"]),
     }
 
 async def get_all_services(pool: asyncpg.Pool) -> list[str]:
@@ -183,9 +221,12 @@ async def get_all_services(pool: asyncpg.Pool) -> list[str]:
 
 TOOL_SCHEMAS = {
     "search_logs": {
-        "description": "Search log chunks by query, service, time range, and level",
+        "description": (
+            "Search log chunks by semantic query, service, time range, and level. "
+            "Pass an empty query to filter by service/level/time only (skips semantic ranking, returns most recent first)."
+        ),
         "args": {
-            "query": "string (required)",
+            "query": "string (pass empty string to filter-only)",
             "service": "string | null",
             "time_from": "ISO8601 string | null",
             "time_to": "ISO8601 string | null",
@@ -194,16 +235,28 @@ TOOL_SCHEMAS = {
         }
     },
     "get_timeline": {
-        "description": "Get a chronologically ordered list of events from specific chunk IDs",
+        "description": (
+            "Re-sort a set of already-found chunk IDs into strict chronological order. "
+            "Use after collecting chunks from search_logs or scan_window to reconstruct the event sequence."
+        ),
         "args": {
             "chunk_ids": "list[string] (required)"
         }
     },
-    "find_co_occurring": {
-        "description": "Find chunks across different services that occurred within a time window of each other",
+    "scan_window": {
+        "description": (
+            "Scan a time window: returns (1) authoritative per-service ERROR/WARNING counts in 'summary' "
+            "and (2) full log text ordered chronologically in 'logs'. "
+            "Default level is ['ERROR','WARNING']. Pass a broader list (e.g. ['ERROR','WARNING','INFO']) "
+            "only when you need surrounding context — INFO/DEBUG windows can be large. "
+            "Use this as your first call whenever investigating a time window you haven't seen before."
+        ),
         "args": {
-            "chunk_ids": "list[string] (required)",
-            "window_seconds": "int (default 300)"
+            "time_from": "ISO8601 string (required)",
+            "time_to": "ISO8601 string (required)",
+            "level": "list[ERROR|WARNING|INFO|DEBUG] | null (default ['ERROR','WARNING'])",
+            "services": "list[string] | null — filter to specific services, or null for all",
+            "top_k": "int (default 50)",
         }
     },
     "get_service_summary": {
@@ -212,6 +265,20 @@ TOOL_SCHEMAS = {
             "service": "string (required)",
             "time_from": "ISO8601 string | null",
             "time_to": "ISO8601 string | null"
+        }
+    },
+    "submit_answer": {
+        "description": "Submit the final investigation answer once the root cause is identified. MUST follow the structured schema.",
+        "args": {
+            "root_cause": "string (required)",
+            "incident_window": {"start": "ISO8601", "end": "ISO8601"},
+            "affected_services": "list[string]",
+            "trigger_event": {"service": "string", "timestamp": "ISO8601", "log_line": "string", "chunk_id": "string"},
+            "propagation_chain": "list[{'ts': 'ISO8601', 'service': 'string', 'what': 'string', 'chunk_id': 'string'}]",
+            "ruled_out_hypotheses": "list[{'hypothesis': 'string', 'why_ruled_out': 'string'}]",
+            "assumptions": "list[string]",
+            "confidence": "low | medium | high",
+            "gaps": "list[string]"
         }
     }
 }

@@ -69,10 +69,17 @@ export function InvestigationList() {
                       {inv.query}
                     </span>
                     <Badge 
-                      variant={inv.status === 'completed' ? 'default' : inv.status === 'failed' ? 'destructive' : 'secondary'}
-                      className="text-[10px] px-1 h-4"
+                      variant={
+                        inv.status === 'completed' ? 'default' : 
+                        inv.status === 'failed' ? 'destructive' : 
+                        inv.status === 'awaiting_clarification' ? 'outline' : 'secondary'
+                      }
+                      className={cn(
+                        "text-[10px] px-1 h-4 uppercase",
+                        inv.status === 'awaiting_clarification' ? "border-amber-500 text-amber-500" : ""
+                      )}
                     >
-                      {inv.status}
+                      {inv.status.replace('_', ' ')}
                     </Badge>
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground">

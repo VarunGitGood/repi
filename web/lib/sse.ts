@@ -17,6 +17,8 @@ export function useSSE(url: string | null) {
   const [answer, setAnswer] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+  const [clarificationQuestion, setClarificationQuestion] = useState<string | null>(null)
+  const [awaitingClarification, setAwaitingClarification] = useState(false)
 
   const connect = useCallback(() => {
     if (!url) return
@@ -25,6 +27,8 @@ export function useSSE(url: string | null) {
     setAnswer(null)
     setError(null)
     setDone(false)
+    setClarificationQuestion(null)
+    setAwaitingClarification(false)
 
     const eventSource = new EventSource(url)
 
@@ -43,6 +47,10 @@ export function useSSE(url: string | null) {
         setAnswer(data.answer)
         setDone(true)
         eventSource.close()
+      } else if (type === "clarification_request") {
+        setClarificationQuestion(data.question)
+        setAwaitingClarification(true)
+        setDone(false) // Stay open for more steps later
       } else if (type === "error") {
         setError(data.message)
         setDone(true)
@@ -67,5 +75,5 @@ export function useSSE(url: string | null) {
     }
   }, [connect])
 
-  return { steps, answer, error, done }
+  return { steps, answer, error, done, clarificationQuestion, awaitingClarification }
 }

@@ -16,7 +16,7 @@ from repi.retrieval.query_expander import QueryExpander
 from repi.investigation.react_loop import ReactInvestigationLoop
 from repi.investigation.store import InvestigationStore
 from repi.investigation.tools import (
-    search_logs, get_timeline, find_co_occurring, get_service_summary, get_all_services
+    search_logs, get_timeline, scan_window, get_service_summary, get_all_services
 )
 import asyncpg
 from sentence_transformers import SentenceTransformer
@@ -77,9 +77,18 @@ class Container:
         logger.info("Database and Cache initialized")
 
     async def init_known_services(self) -> list[str]:
-        """Query distinct services from DB."""
+        """Query services from watcher_configs, fallback to log_chunks."""
         async with self.async_session_maker() as session:
-            self.known_services = await get_all_services(self.pool)
+            # Try watcher_configs first
+            from repi.models.schema import WatcherConfig
+            stmt = select(WatcherConfig.service_name).where(WatcherConfig.enabled == True)
+            res = await session.exec(stmt)
+            services = list(res.all())
+            
+            if not services:
+                services = await get_all_services(self.pool)
+            
+            self.known_services = services
             logger.info(f"Loaded known services: {self.known_services}")
         return self.known_services
 
@@ -114,18 +123,18 @@ class Container:
             await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
             return res
 
-        async def cached_find_co_occurring(**kwargs):
-            key = cache.make_key("find_co_occurring", **kwargs)
+        async def cached_scan_window(**kwargs):
+            key = cache.make_key("scan_window", **kwargs)
             hit = await cache.get(key)
             if hit: return hit
-            res = await find_co_occurring(self.pool, **kwargs)
+            res = await scan_window(self.pool, **kwargs)
             await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
             return res
 
         tools = {
             "search_logs": cached_search_logs,
             "get_timeline": lambda **kwargs: get_timeline(self.pool, **kwargs),
-            "find_co_occurring": cached_find_co_occurring,
+            "scan_window": cached_scan_window,
             "get_service_summary": cached_service_summary,
         }
         
@@ -133,6 +142,7 @@ class Container:
             llm=self.llm_provider,
             tools=tools,
             known_services=self.known_services,
+            pool=self.pool,
             store=store
         )
 

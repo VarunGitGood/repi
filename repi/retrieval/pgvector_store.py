@@ -2,9 +2,10 @@ from datetime import datetime
 from typing import List, Tuple, Dict, Any, Optional
 from sqlmodel import select, Session, and_
 from sqlmodel.ext.asyncio.session import AsyncSession
+from repi.core.dates import DateHandler
 from repi.models.schema import LogChunk
 from repi.models.filters import RetrievalFilters
-from repi.retrieval.filter_builder import build_filter_expressions, _to_naive_utc
+from repi.retrieval.filter_builder import build_filter_expressions
 import numpy as np
 import logging
 
@@ -30,8 +31,8 @@ class PgVectorStore:
             chunk.source_service = source_service
             chunk.source_env = source_env
             chunk.log_level = log_level
-            chunk.timestamp_start = _to_naive_utc(timestamp_start)
-            chunk.timestamp_end = _to_naive_utc(timestamp_end)
+            chunk.timestamp_start = DateHandler.to_utc_naive(timestamp_start)
+            chunk.timestamp_end = DateHandler.to_utc_naive(timestamp_end)
             chunk.log_metadata = log_metadata
         else:
             chunk = LogChunk(
@@ -41,8 +42,8 @@ class PgVectorStore:
                 source_service=source_service,
                 source_env=source_env,
                 log_level=log_level,
-                timestamp_start=_to_naive_utc(timestamp_start),
-                timestamp_end=_to_naive_utc(timestamp_end),
+                timestamp_start=DateHandler.to_utc_naive(timestamp_start),
+                timestamp_end=DateHandler.to_utc_naive(timestamp_end),
                 log_metadata=log_metadata
             )
             self.session.add(chunk)
@@ -86,6 +87,17 @@ class PgVectorStore:
         # score from max_inner_product is actually - (a . b)
         # We might want to return the actual inner product
         return [(row[0], -row[1]) for row in rows]
+
+    async def filter_search(self, filters: RetrievalFilters | None, top_k: int = 10) -> List[Tuple[str, float]]:
+        """Return chunks matching filters only, ordered by recency. Used when no semantic query is given."""
+        statement = select(LogChunk.chunk_id)
+        if filters:
+            exprs = build_filter_expressions(filters)
+            if exprs:
+                statement = statement.where(and_(*exprs))
+        statement = statement.order_by(LogChunk.timestamp_start.desc()).limit(top_k)
+        result = await self.session.exec(statement)
+        return [(row, 1.0) for row in result.all()]
 
     async def get_chunks_by_ids(self, chunk_ids: List[str]) -> Dict[str, Dict[str, Any]]:
         """Retrieve chunks by their IDs."""
