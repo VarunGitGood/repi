@@ -50,10 +50,12 @@ class DateHandler:
     # ── Conversion: any input → naive UTC ────────────────────────────────────
 
     @staticmethod
-    def to_utc_naive(dt: datetime) -> datetime:
-        """Convert any datetime to naive UTC. No-op if already naive (assumed UTC)."""
+    def to_utc_naive(dt: datetime | None) -> datetime | None:
+        """Convert any datetime to naive UTC. Returns None if input is None."""
+        if dt is None:
+            return None
         if dt.tzinfo is None:
-            return dt  # already naive UTC
+            return dt
         return dt.astimezone(_UTC).replace(tzinfo=None)
 
     @staticmethod

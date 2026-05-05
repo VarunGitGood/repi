@@ -1,8 +1,7 @@
 "use client"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { AlertCircle, Clock, Database, Layers, ShieldCheck, Zap } from "lucide-react"
+import { Clock, Database, Layers, ShieldCheck, Zap } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 
 interface StructuredAnswer {
