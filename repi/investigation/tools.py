@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import logging
 import asyncpg
 from typing import List, Dict, Any, Optional, Tuple
@@ -98,56 +99,80 @@ async def get_timeline(
         "text": r["text"]
     } for r in rows]
 
-async def find_co_occurring(
+async def scan_window(
     pool: asyncpg.Pool,
     time_from: str,
     time_to: str,
+    level: list[str] | None = None,
     services: list[str] | None = None,
-    level: str | None = None,
     top_k: int = 50,
 ) -> dict:
     """
-    Fetch all log chunks across services in a time window, ordered chronologically.
-    Use this to see exactly what was happening across the system at a specific moment.
-    Unlike sweep_window (which gives counts/first-errors only), this returns full log text.
+    Scan a time window: returns authoritative per-service ERROR/WARNING counts (summary)
+    plus full log text (logs) in one call. Default level filter is ERROR+WARNING; pass
+    broader list (e.g. ["ERROR","WARNING","INFO"]) when surrounding context is needed.
     """
     time_from_dt = _parse_iso_timestamp(time_from)
     time_to_dt = _parse_iso_timestamp(time_to)
 
     if time_from_dt is None or time_to_dt is None:
-        return {"error": "time_from and time_to are required ISO8601 strings", "results": []}
+        return {"error": "time_from and time_to are required ISO8601 strings", "summary": {}, "logs": [], "total": 0}
 
-    conditions = ["timestamp_start BETWEEN $1 AND $2"]
-    params: list = [time_from_dt, time_to_dt]
+    effective_level = level if level else ["ERROR", "WARNING"]
 
-    if services:
-        params.append(services)
-        conditions.append(f"source_service = ANY(${len(params)})")
-
-    if level:
-        params.append(level)
-        conditions.append(f"log_level = ${len(params)}")
-
-    params.append(top_k)
-    sql = f"""
-        SELECT chunk_id, source_service, log_level, timestamp_start, text
+    summary_sql = """
+        SELECT source_service,
+               COUNT(*) FILTER (WHERE log_level = 'ERROR')                     AS errors,
+               COUNT(*) FILTER (WHERE log_level = 'WARNING')                   AS warnings,
+               MIN(timestamp_start) FILTER (WHERE log_level = 'ERROR')         AS first_error
         FROM log_chunks
-        WHERE {" AND ".join(conditions)}
-        ORDER BY timestamp_start
-        LIMIT ${len(params)}
+        WHERE timestamp_start BETWEEN $1 AND $2
+          AND log_level IN ('ERROR', 'WARNING')
+          AND ($3::text[] IS NULL OR source_service = ANY($3))
+        GROUP BY source_service
+        ORDER BY first_error NULLS LAST
     """
 
-    rows = await pool.fetch(sql, *params)
-    return {
-        "window": [time_from, time_to],
-        "total": len(rows),
-        "results": [{
+    logs_sql = """
+        SELECT chunk_id, source_service, log_level, timestamp_start, text
+        FROM log_chunks
+        WHERE timestamp_start BETWEEN $1 AND $2
+          AND log_level = ANY($3)
+          AND ($4::text[] IS NULL OR source_service = ANY($4))
+        ORDER BY timestamp_start
+        LIMIT $5
+    """
+
+    summary_rows, log_rows = await asyncio.gather(
+        pool.fetch(summary_sql, time_from_dt, time_to_dt, services),
+        pool.fetch(logs_sql, time_from_dt, time_to_dt, effective_level, services, top_k),
+    )
+
+    summary = {
+        r["source_service"]: {
+            "errors": r["errors"],
+            "warnings": r["warnings"],
+            "first_error": DateHandler.to_iso(r["first_error"]),
+        }
+        for r in summary_rows
+    }
+
+    logs = [
+        {
             "chunk_id": str(r["chunk_id"]),
             "service": r["source_service"],
             "level": r["log_level"],
             "timestamp": DateHandler.to_iso(r["timestamp_start"]),
             "text": r["text"],
-        } for r in rows]
+        }
+        for r in log_rows
+    ]
+
+    return {
+        "window": [time_from, time_to],
+        "summary": summary,
+        "logs": logs,
+        "total": len(logs),
     }
 
 async def get_service_summary(
@@ -194,22 +219,6 @@ async def get_all_services(pool: asyncpg.Pool) -> list[str]:
     rows = await pool.fetch("SELECT DISTINCT source_service FROM log_chunks")
     return [r["source_service"] for r in rows]
 
-from repi.investigation.sweep import auto_sweep
-
-async def sweep_window(
-    pool: asyncpg.Pool,
-    time_from: str,
-    time_to: str,
-    exclude_services: list[str] | None = None,
-) -> dict:
-    """Sweep a time window for errors and warnings."""
-    return await auto_sweep(
-        pool=pool,
-        time_from=_parse_iso_timestamp(time_from),
-        time_to=_parse_iso_timestamp(time_to),
-        exclude_services=exclude_services
-    )
-
 TOOL_SCHEMAS = {
     "search_logs": {
         "description": (
@@ -228,23 +237,25 @@ TOOL_SCHEMAS = {
     "get_timeline": {
         "description": (
             "Re-sort a set of already-found chunk IDs into strict chronological order. "
-            "Use after collecting chunks from search_logs or sweep_window to reconstruct the event sequence."
+            "Use after collecting chunks from search_logs or scan_window to reconstruct the event sequence."
         ),
         "args": {
             "chunk_ids": "list[string] (required)"
         }
     },
-    "find_co_occurring": {
+    "scan_window": {
         "description": (
-            "Fetch all log chunks across services in a time window, ordered chronologically. "
-            "Use this to see full log text for everything happening across the system at a specific moment. "
-            "Unlike sweep_window (counts + first-errors only), this returns actual log content."
+            "Scan a time window: returns (1) authoritative per-service ERROR/WARNING counts in 'summary' "
+            "and (2) full log text ordered chronologically in 'logs'. "
+            "Default level is ['ERROR','WARNING']. Pass a broader list (e.g. ['ERROR','WARNING','INFO']) "
+            "only when you need surrounding context — INFO/DEBUG windows can be large. "
+            "Use this as your first call whenever investigating a time window you haven't seen before."
         ),
         "args": {
             "time_from": "ISO8601 string (required)",
             "time_to": "ISO8601 string (required)",
+            "level": "list[ERROR|WARNING|INFO|DEBUG] | null (default ['ERROR','WARNING'])",
             "services": "list[string] | null — filter to specific services, or null for all",
-            "level": "ERROR | WARNING | INFO | DEBUG | null",
             "top_k": "int (default 50)",
         }
     },
@@ -254,14 +265,6 @@ TOOL_SCHEMAS = {
             "service": "string (required)",
             "time_from": "ISO8601 string | null",
             "time_to": "ISO8601 string | null"
-        }
-    },
-    "sweep_window": {
-        "description": "Sweep a time window across all services to find errors and warnings. Returns buckets by service and the chronological first errors.",
-        "args": {
-            "time_from": "ISO8601 string (required)",
-            "time_to": "ISO8601 string (required)",
-            "exclude_services": "list[string] | null"
         }
     },
     "submit_answer": {
