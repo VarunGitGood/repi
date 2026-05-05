@@ -16,7 +16,7 @@ from repi.retrieval.query_expander import QueryExpander
 from repi.investigation.react_loop import ReactInvestigationLoop
 from repi.investigation.store import InvestigationStore
 from repi.investigation.tools import (
-    search_logs, get_timeline, find_co_occurring, get_service_summary, get_all_services
+    search_logs, get_timeline, scan_window, get_service_summary, get_all_services
 )
 import asyncpg
 from sentence_transformers import SentenceTransformer
@@ -123,22 +123,19 @@ class Container:
             await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
             return res
 
-        async def cached_find_co_occurring(**kwargs):
-            key = cache.make_key("find_co_occurring", **kwargs)
+        async def cached_scan_window(**kwargs):
+            key = cache.make_key("scan_window", **kwargs)
             hit = await cache.get(key)
             if hit: return hit
-            res = await find_co_occurring(self.pool, **kwargs)
+            res = await scan_window(self.pool, **kwargs)
             await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
             return res
 
-        from repi.investigation.tools import sweep_window
-        
         tools = {
             "search_logs": cached_search_logs,
             "get_timeline": lambda **kwargs: get_timeline(self.pool, **kwargs),
-            "find_co_occurring": cached_find_co_occurring,
+            "scan_window": cached_scan_window,
             "get_service_summary": cached_service_summary,
-            "sweep_window": lambda **kwargs: sweep_window(self.pool, **kwargs),
         }
         
         return ReactInvestigationLoop(

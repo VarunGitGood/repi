@@ -469,7 +469,7 @@ Final Answer: {{ "thought": "...", "answer": <InvestigationAnswer> }}
 
 CRITICAL RULES:
 1. Every chunk_id used in trigger_event or propagation_chain MUST have been retrieved by a tool first.
-2. ALWAYS correlate logs cross-service. Use sweep_window or find_co_occurring.
+2. ALWAYS correlate logs cross-service. Use scan_window.
 3. If confidence is not 'high', you MUST explain what is missing in 'gaps'.
 4. Do not hand-wave. Citing specific log lines and chunk_ids is mandatory.
 
