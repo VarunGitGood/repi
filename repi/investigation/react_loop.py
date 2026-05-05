@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 import asyncpg
 
+from repi.core.dates import DateHandler, default_date_handler as _dh
 from repi.llm.provider import LLMProvider, Message
 from repi.investigation.tools import ToolCall, ToolResult, TOOL_SCHEMAS
 from repi.retrieval.heuristics import cluster_logs
@@ -98,7 +99,7 @@ class InvestigationStep:
     thought: Thought
     action: Optional[Action] = None
     observation: Optional[Observation] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=_dh.now)
 
 @dataclass
 class InvestigationResult:
@@ -207,7 +208,7 @@ class ReactInvestigationLoop:
 
         # Resolve if fresh OR if we just clarified
         if not existing_steps or post_clarification:
-            now = datetime.utcnow()
+            now = _dh.now()
             resolution = resolve_intent(clarified_query, self.known_services, now)
             logger.info(f"Intent Resolution for '{clarified_query}': {resolution}")
 
@@ -219,8 +220,8 @@ class ReactInvestigationLoop:
                         "Proceeding with widest-default window (last 24h)."
                     )
                     resolution = ResolvedIntent(
-                        time_from=datetime.utcnow() - timedelta(days=1),
-                        time_to=datetime.utcnow(),
+                        time_from=_dh.ago(days=1),
+                        time_to=_dh.now(),
                         services=[],
                         symptoms=[],
                         assumed=[
@@ -472,7 +473,7 @@ CRITICAL RULES:
 3. If confidence is not 'high', you MUST explain what is missing in 'gaps'.
 4. Do not hand-wave. Citing specific log lines and chunk_ids is mandatory.
 
-Current UTC: {datetime.utcnow().isoformat()}
+Current UTC: {_dh.to_iso(_dh.now())}
 """
 
 def asdict(obj):

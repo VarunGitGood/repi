@@ -1,10 +1,10 @@
 from __future__ import annotations
 import logging
 from uuid import UUID
-from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlmodel import select, desc
 from sqlmodel.ext.asyncio.session import AsyncSession
+from repi.core.dates import DateHandler, default_date_handler as _dh
 from repi.models.schema import Investigation, InvestigationStep, InvestigationChunk
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ class InvestigationStore:
         result = await self.session.exec(statement)
         investigation = result.one()
         investigation.current_step = step_number + 1
-        investigation.updated_at = datetime.utcnow()
+        investigation.updated_at = _dh.now()
         self.session.add(investigation)
         
         await self.session.commit()
@@ -97,10 +97,7 @@ class InvestigationStore:
             if cid and cid not in existing_ids:
                 ts = c.get("timestamp_start") or c.get("timestamp")
                 if isinstance(ts, str):
-                    try:
-                        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    except (ValueError, TypeError):
-                        ts = None
+                    ts = DateHandler.parse_iso(ts)
                 
                 chunk = InvestigationChunk(
                     investigation_id=investigation_id,
@@ -127,7 +124,7 @@ class InvestigationStore:
         investigation = result.one()
         investigation.answer = answer
         investigation.status = status
-        investigation.updated_at = datetime.utcnow()
+        investigation.updated_at = _dh.now()
         self.session.add(investigation)
         await self.session.commit()
 

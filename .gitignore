@@ -21,3 +21,7 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
+
+# Docs
+docs
+

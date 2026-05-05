@@ -5,6 +5,8 @@ from typing import Optional
 
 import asyncpg
 
+from repi.core.dates import DateHandler
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +66,7 @@ async def auto_sweep(
             "service": svc,
             "errors": b["errors"],
             "warnings": b["warnings"],
-            "first_error": first.isoformat() if first else None,
+            "first_error": DateHandler.to_iso(first),
             "chunk_ids": b["chunk_ids"],
         })
 
@@ -77,7 +79,7 @@ async def auto_sweep(
             ordered_first_errors.append(f"{s['service']}@{ts_str}")
 
     return {
-        "window": [time_from.isoformat(), time_to.isoformat()],
+        "window": [DateHandler.to_iso(time_from), DateHandler.to_iso(time_to)],
         "services_with_errors": services_with_errors,
         "ordered_first_errors": ordered_first_errors,
         "total_chunks_found": len(rows),
