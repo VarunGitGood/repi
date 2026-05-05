@@ -23,11 +23,11 @@ from repi.investigation.schema import InvestigationAnswer, validate_answer
 logger = logging.getLogger(__name__)
 
 def _strip_js_comments(text: str) -> str:
-    """Remove // line comments and /* block comments */ from JSON-like text."""
-    # Block comments first
+    """Remove /* block comments */ and // line comments from JSON-like text.
+    Only strips // when it starts a line (after optional whitespace) to avoid
+    corrupting URLs like http:// inside string values."""
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    # Line comments (only outside strings — naive but covers the common LLM pattern)
-    text = re.sub(r"//[^\n]*", "", text)
+    text = re.sub(r"^\s*//[^\n]*", "", text, flags=re.MULTILINE)
     return text
 
 
@@ -266,7 +266,7 @@ class ReactInvestigationLoop:
             Message(role="user", content=query)
         ]
 
-        if resolved_intent and (not existing_steps or post_clarification):
+        if resolved_intent and self.pool and (not existing_steps or post_clarification):
             sweep_results = await auto_sweep(
                 pool=self.pool,
                 time_from=resolved_intent.time_from,

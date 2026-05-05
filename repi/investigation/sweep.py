@@ -75,8 +75,7 @@ async def auto_sweep(
     ordered_first_errors = []
     for s in services_with_errors:
         if s["first_error"]:
-            ts_str = s["first_error"][11:19] + "Z"
-            ordered_first_errors.append(f"{s['service']}@{ts_str}")
+            ordered_first_errors.append(f"{s['service']}@{s['first_error']}")
 
     return {
         "window": [DateHandler.to_iso(time_from), DateHandler.to_iso(time_to)],
