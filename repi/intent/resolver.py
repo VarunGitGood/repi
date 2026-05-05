@@ -2,8 +2,9 @@ from __future__ import annotations
 import re
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, time as dtime
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import datetime, timedelta
+
+from repi.core.dates import DateHandler
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +55,6 @@ def _levenshtein(a: str, b: str) -> int:
     return row[-1]
 
 
-def _tz(timezone_str: str) -> ZoneInfo:
-    try:
-        return ZoneInfo(timezone_str)
-    except (ZoneInfoNotFoundError, Exception):
-        logger.warning(f"Unknown timezone {timezone_str!r}, falling back to UTC")
-        return ZoneInfo("UTC")
-
-
-def _to_utc(dt: datetime, tz: ZoneInfo) -> datetime:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=tz)
-    return dt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-
-
 def _most_recent_weekday(target_dow: int, now_local: datetime, force_last_week: bool = False) -> datetime:
     """Return midnight (local) of the most recent occurrence of target_dow."""
     days_back = (now_local.weekday() - target_dow) % 7
@@ -84,8 +71,9 @@ def resolve(
     now: datetime,
     timezone_str: str = "UTC",
 ) -> ResolvedIntent | ClarificationNeeded:
-    tz = _tz(timezone_str)
-    now_local = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz) if now.tzinfo is None else now.astimezone(tz)
+    dh = DateHandler(timezone_str)
+    # now is always passed in as naive UTC from the caller
+    now_local = dh.to_user_tz(now) if now.tzinfo is None else now.astimezone(dh.user_tz)
     q = query.lower()
 
     time_from: datetime | None = None
@@ -98,41 +86,40 @@ def resolve(
     # last N minutes
     m = re.search(r"last\s+(\d+)\s+(?:minutes?|mins?)", q)
     if m:
-        time_from = _to_utc(now_local - timedelta(minutes=int(m.group(1))), tz)
-        time_to = _to_utc(now_local, tz)
+        time_from = dh.local_to_utc(now_local - timedelta(minutes=int(m.group(1))))
+        time_to = dh.local_to_utc(now_local)
 
     # last N hours
     if time_from is None:
         m = re.search(r"last\s+(\d+)\s+(?:hours?|h\b)", q)
         if m:
-            time_from = _to_utc(now_local - timedelta(hours=int(m.group(1))), tz)
-            time_to = _to_utc(now_local, tz)
+            time_from = dh.local_to_utc(now_local - timedelta(hours=int(m.group(1))))
+            time_to = dh.local_to_utc(now_local)
 
     # last N days
     if time_from is None:
         m = re.search(r"last\s+(\d+)\s+days?", q)
         if m:
-            time_from = _to_utc(now_local - timedelta(days=int(m.group(1))), tz)
-            time_to = _to_utc(now_local, tz)
+            time_from = dh.local_to_utc(now_local - timedelta(days=int(m.group(1))))
+            time_to = dh.local_to_utc(now_local)
 
     # today
     if time_from is None and re.search(r"\btoday\b", q):
         midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-        time_from = _to_utc(midnight, tz)
-        time_to = _to_utc(now_local, tz)
+        time_from = dh.local_to_utc(midnight)
+        time_to = dh.local_to_utc(now_local)
 
     # yesterday
     if time_from is None and re.search(r"\byesterday\b", q):
         yesterday = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        time_from = _to_utc(yesterday, tz)
-        time_to = _to_utc(yesterday.replace(hour=23, minute=59, second=59), tz)
+        time_from = dh.local_to_utc(yesterday)
+        time_to = dh.local_to_utc(yesterday.replace(hour=23, minute=59, second=59))
 
     # this weekend
     if time_from is None and re.search(r"\bthis\s+weekend\b", q):
-        saturday_dow = 5
-        sat = _most_recent_weekday(saturday_dow, now_local)
-        time_from = _to_utc(sat, tz)
-        time_to = _to_utc(sat.replace(hour=23, minute=59, second=59) + timedelta(days=1), tz)
+        sat = _most_recent_weekday(5, now_local)
+        time_from = dh.local_to_utc(sat)
+        time_to = dh.local_to_utc(sat.replace(hour=23, minute=59, second=59) + timedelta(days=1))
 
     # since HH:MM
     if time_from is None:
@@ -142,18 +129,16 @@ def resolve(
             candidate = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
             if candidate > now_local:
                 candidate -= timedelta(days=1)
-            time_from = _to_utc(candidate, tz)
-            time_to = _to_utc(now_local, tz)
+            time_from = dh.local_to_utc(candidate)
+            time_to = dh.local_to_utc(now_local)
 
     # last night
     if time_from is None and re.search(r"\blast\s+night\b", q):
         yesterday = now_local - timedelta(days=1)
         night_start = yesterday.replace(hour=22, minute=0, second=0, microsecond=0)
         night_end = now_local.replace(hour=6, minute=0, second=0, microsecond=0)
-        if night_end < now_local:
-            pass  # still before 06:00 today — window is fine
-        time_from = _to_utc(night_start, tz)
-        time_to = _to_utc(night_end, tz)
+        time_from = dh.local_to_utc(night_start)
+        time_to = dh.local_to_utc(night_end)
         assumed.append(
             f"'last night' interpreted as {time_from.strftime('%Y-%m-%d %H:%M')} – "
             f"{time_to.strftime('%Y-%m-%d %H:%M')} UTC"
@@ -167,8 +152,8 @@ def resolve(
             centre = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
             if centre > now_local:
                 centre -= timedelta(days=1)
-            time_from = _to_utc(centre - timedelta(minutes=15), tz)
-            time_to = _to_utc(centre + timedelta(minutes=15), tz)
+            time_from = dh.local_to_utc(centre - timedelta(minutes=15))
+            time_to = dh.local_to_utc(centre + timedelta(minutes=15))
 
     # between HH:MM and HH:MM
     if time_from is None:
@@ -180,8 +165,8 @@ def resolve(
             if start > now_local:
                 start -= timedelta(days=1)
                 end -= timedelta(days=1)
-            time_from = _to_utc(start, tz)
-            time_to = _to_utc(end, tz)
+            time_from = dh.local_to_utc(start)
+            time_to = dh.local_to_utc(end)
 
     # weekday [+ part-of-day] [+ around H/HH:MM or around Xam/pm]
     # e.g. "last friday night", "wednesday around 3am", "last thursday around 03:00"
@@ -193,13 +178,12 @@ def resolve(
         )
         if m_wd:
             force_last = bool(m_wd.group(1) and "last" in m_wd.group(1))
-            ambiguous_weekday = not m_wd.group(1)  # no "last"/"this" prefix
+            ambiguous_weekday = not m_wd.group(1)
             dow = WEEKDAY_MAP[m_wd.group(2)]
             pod = m_wd.group(3)
 
             day_midnight = _most_recent_weekday(dow, now_local, force_last_week=force_last)
 
-            # Ambiguity: no prefix and today is the same weekday
             if ambiguous_weekday and now_local.weekday() == dow:
                 missing_dims.append("time")
             else:
@@ -210,27 +194,27 @@ def resolve(
                         end = (day_midnight + timedelta(days=1)).replace(hour=end_h - 24, minute=0, second=0)
                     else:
                         end = day_midnight.replace(hour=end_h, minute=0, second=0)
-                    time_from = _to_utc(start, tz)
-                    time_to = _to_utc(end, tz)
+                    time_from = dh.local_to_utc(start)
+                    time_to = dh.local_to_utc(end)
                     assumed.append(
                         f"'{m_wd.group(2)} {pod}' interpreted as {time_from.strftime('%Y-%m-%d %H:%M')} – "
                         f"{time_to.strftime('%Y-%m-%d %H:%M')} UTC"
                     )
                 else:
-                    time_from = _to_utc(day_midnight, tz)
-                    time_to = _to_utc(day_midnight.replace(hour=23, minute=59, second=59), tz)
+                    time_from = dh.local_to_utc(day_midnight)
+                    time_to = dh.local_to_utc(day_midnight.replace(hour=23, minute=59, second=59))
                     assumed.append(
                         f"'{m_wd.group(2)}' interpreted as {time_from.strftime('%Y-%m-%d')} UTC"
                     )
 
-                # Optional: refine with "around HH:MM" or "around Xam/pm" on the same date
+                # Refine with "around HH:MM" or "around Xam/pm" on the same date
                 m_around_hm = re.search(r"\baround\s+(\d{1,2}):(\d{2})\b", q)
                 m_around_ap = re.search(r"\baround\s+(\d{1,2})\s*(am|pm)\b", q)
                 if m_around_hm:
                     hh, mm = int(m_around_hm.group(1)), int(m_around_hm.group(2))
                     centre = day_midnight.replace(hour=hh, minute=mm, second=0)
-                    time_from = _to_utc(centre - timedelta(minutes=30), tz)
-                    time_to = _to_utc(centre + timedelta(minutes=30), tz)
+                    time_from = dh.local_to_utc(centre - timedelta(minutes=30))
+                    time_to = dh.local_to_utc(centre + timedelta(minutes=30))
                 elif m_around_ap:
                     hh = int(m_around_ap.group(1))
                     if m_around_ap.group(2) == "pm" and hh != 12:
@@ -238,10 +222,10 @@ def resolve(
                     elif m_around_ap.group(2) == "am" and hh == 12:
                         hh = 0
                     centre = day_midnight.replace(hour=hh, minute=0, second=0)
-                    time_from = _to_utc(centre - timedelta(minutes=30), tz)
-                    time_to = _to_utc(centre + timedelta(minutes=30), tz)
+                    time_from = dh.local_to_utc(centre - timedelta(minutes=30))
+                    time_to = dh.local_to_utc(centre + timedelta(minutes=30))
 
-    # around Xam / Xpm standalone (e.g. "around 3am") — only if no weekday already set a window
+    # around Xam / Xpm standalone — only if no weekday already set a window
     if time_from is None:
         m = re.search(r"\baround\s+(\d{1,2})\s*(am|pm)\b", q)
         if m:
@@ -253,8 +237,8 @@ def resolve(
             centre = now_local.replace(hour=hh, minute=0, second=0, microsecond=0)
             if centre > now_local:
                 centre -= timedelta(days=1)
-            time_from = _to_utc(centre - timedelta(minutes=30), tz)
-            time_to = _to_utc(centre + timedelta(minutes=30), tz)
+            time_from = dh.local_to_utc(centre - timedelta(minutes=30))
+            time_to = dh.local_to_utc(centre + timedelta(minutes=30))
 
     # ── Service matching ──────────────────────────────────────────────────────
     found_services: list[str] = []
@@ -290,14 +274,13 @@ def resolve(
         question = _build_question(missing_dims, known_services)
         return ClarificationNeeded(question=question, missing_dims=missing_dims)
 
-    # If time_from is still None but we have symptoms, use a sensible default window
     if time_from is None:
-        time_from = _to_utc(now_local - timedelta(hours=1), tz)
-        time_to = _to_utc(now_local, tz)
+        time_from = dh.local_to_utc(now_local - timedelta(hours=1))
+        time_to = dh.local_to_utc(now_local)
         assumed.append("no time specified — defaulting to last 1 hour")
 
     if time_to is None:
-        time_to = _to_utc(now_local, tz)
+        time_to = dh.local_to_utc(now_local)
 
     return ResolvedIntent(
         time_from=time_from,

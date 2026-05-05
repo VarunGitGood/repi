@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Dict, Tuple, Any
-from datetime import datetime
+from repi.core.dates import default_date_handler as _dh
 from repi.retrieval.pgvector_store import PgVectorStore
 from repi.retrieval.pg_fts_retriever import PgFTSRetriever
 from repi.models.filters import RetrievalFilters
@@ -55,7 +55,7 @@ class RRFRetrievalService:
         # 4. Apply recency boost if requested
         if recency_boost:
             logger.debug("Applying recency boost")
-            now = datetime.utcnow()
+            now = _dh.now()
             chunk_ids = list(rrf_scores.keys())
             chunks_data = await self.vector_store.get_chunks_by_ids(chunk_ids)
             
@@ -64,7 +64,7 @@ class RRFRetrievalService:
                 if chunk and chunk.get("timestamp_start"):
                     ts = chunk["timestamp_start"]
                     if isinstance(ts, str):
-                        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        ts = _dh.parse_iso(ts)
                     
                     age_hours = (now - ts).total_seconds() / 3600
                     recency_factor = 1.0 / (1.0 + 0.1 * max(0, age_hours))

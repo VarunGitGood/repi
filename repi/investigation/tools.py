@@ -5,25 +5,13 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 
+from repi.core.dates import DateHandler
 from repi.models.filters import RetrievalFilters
 from repi.retrieval.rrf import RRFRetrievalService
 
 logger = logging.getLogger(__name__)
 
-def _parse_iso_timestamp(ts: str | None) -> datetime | None:
-    """Parse ISO8601 string to naive UTC datetime (asyncpg requires naive timestamps)."""
-    if not ts:
-        return None
-    try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        # Strip tzinfo — DB stores naive UTC timestamps
-        if dt.tzinfo is not None:
-            from datetime import timezone
-            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt
-    except ValueError:
-        logger.warning(f"Failed to parse timestamp: {ts}")
-        return None
+_parse_iso_timestamp = DateHandler.parse_iso
 
 @dataclass
 class ToolCall:
@@ -63,22 +51,27 @@ async def search_logs(
         time_from=_parse_iso_timestamp(time_from),
         time_to=_parse_iso_timestamp(time_to)
     )
-    
-    results = await rrf_service.search(query=query, top_k=top_k, filters=filters)
-    
-    # Enrich with text and metadata
+
+    if query and query.strip():
+        results = await rrf_service.search(query=query, top_k=top_k, filters=filters)
+    else:
+        # No semantic query — skip RRF and do a direct filter+recency sort
+        results = await rrf_service.vector_store.filter_search(filters=filters, top_k=top_k)
+
     chunk_ids = [res[0] for res in results]
     chunks_data = await rrf_service.vector_store.get_chunks_by_ids(chunk_ids)
-    
+
     output = []
     for chunk_id, score in results:
         data = chunks_data.get(chunk_id, {})
+        ts_start = data.get("timestamp_start")
+        ts_end = data.get("timestamp_end")
         output.append({
             "chunk_id": chunk_id,
             "service": data.get("source_service"),
             "level": data.get("log_level"),
-            "timestamp_start": data.get("timestamp_start").isoformat() if hasattr(data.get("timestamp_start"), "isoformat") else data.get("timestamp_start"),
-            "timestamp_end": data.get("timestamp_end").isoformat() if hasattr(data.get("timestamp_end"), "isoformat") else data.get("timestamp_end"),
+            "timestamp_start": DateHandler.to_iso(ts_start) if hasattr(ts_start, "isoformat") else ts_start,
+            "timestamp_end": DateHandler.to_iso(ts_end) if hasattr(ts_end, "isoformat") else ts_end,
             "text": data.get("text"),
             "score": float(score)
         })
@@ -101,46 +94,61 @@ async def get_timeline(
         "chunk_id": r["chunk_id"],
         "service": r["source_service"],
         "level": r["log_level"],
-        "timestamp": r["timestamp_start"].isoformat() if r["timestamp_start"] else None,
+        "timestamp": DateHandler.to_iso(r["timestamp_start"]),
         "text": r["text"]
     } for r in rows]
 
 async def find_co_occurring(
     pool: asyncpg.Pool,
-    chunk_ids: list[str],
-    window_seconds: int = 300,
+    time_from: str,
+    time_to: str,
+    services: list[str] | None = None,
+    level: str | None = None,
+    top_k: int = 50,
 ) -> dict:
-    """Find pairs of chunks from different services that occurred near each other."""
-    if not chunk_ids:
-        return {"results": []}
-        
-    # Bug 4 Fix: UUID validation
-    invalid = [cid for cid in chunk_ids if not _is_valid_uuid(cid)]
-    if invalid:
-        return {
-            "warning": (
-                f"chunk_ids must be UUID strings returned by search_logs or get_timeline. "
-                f"Invalid values received: {invalid}. "
-                f"Call search_logs first and use the 'chunk_id' field from those results."
-            ),
-            "results": []
-        }
-
-    sql = """
-    SELECT a.chunk_id as chunk_a_id, b.chunk_id as chunk_b_id,
-           a.source_service as service_a, b.source_service as service_b,
-           a.timestamp_start as time_a, b.timestamp_start as time_b,
-           ABS(EXTRACT(EPOCH FROM (a.timestamp_start - b.timestamp_start))) as time_delta_seconds
-    FROM log_chunks a
-    JOIN log_chunks b
-      ON a.source_service != b.source_service
-      AND ABS(EXTRACT(EPOCH FROM (a.timestamp_start - b.timestamp_start))) < $1
-    WHERE a.chunk_id = ANY($2)
-      AND b.chunk_id = ANY($2)
     """
-    
-    rows = await pool.fetch(sql, window_seconds, chunk_ids)
-    return {"results": [dict(row) for row in rows]}
+    Fetch all log chunks across services in a time window, ordered chronologically.
+    Use this to see exactly what was happening across the system at a specific moment.
+    Unlike sweep_window (which gives counts/first-errors only), this returns full log text.
+    """
+    time_from_dt = _parse_iso_timestamp(time_from)
+    time_to_dt = _parse_iso_timestamp(time_to)
+
+    if time_from_dt is None or time_to_dt is None:
+        return {"error": "time_from and time_to are required ISO8601 strings", "results": []}
+
+    conditions = ["timestamp_start BETWEEN $1 AND $2"]
+    params: list = [time_from_dt, time_to_dt]
+
+    if services:
+        params.append(services)
+        conditions.append(f"source_service = ANY(${len(params)})")
+
+    if level:
+        params.append(level)
+        conditions.append(f"log_level = ${len(params)}")
+
+    params.append(top_k)
+    sql = f"""
+        SELECT chunk_id, source_service, log_level, timestamp_start, text
+        FROM log_chunks
+        WHERE {" AND ".join(conditions)}
+        ORDER BY timestamp_start
+        LIMIT ${len(params)}
+    """
+
+    rows = await pool.fetch(sql, *params)
+    return {
+        "window": [time_from, time_to],
+        "total": len(rows),
+        "results": [{
+            "chunk_id": str(r["chunk_id"]),
+            "service": r["source_service"],
+            "level": r["log_level"],
+            "timestamp": DateHandler.to_iso(r["timestamp_start"]),
+            "text": r["text"],
+        } for r in rows]
+    }
 
 async def get_service_summary(
     pool: asyncpg.Pool,
@@ -177,8 +185,8 @@ async def get_service_summary(
         "error_count": row["error_count"],
         "warning_count": row["warning_count"],
         "info_count": row["info_count"],
-        "earliest": row["earliest"].isoformat() if row["earliest"] else None,
-        "latest": row["latest"].isoformat() if row["latest"] else None,
+        "earliest": DateHandler.to_iso(row["earliest"]),
+        "latest": DateHandler.to_iso(row["latest"]),
     }
 
 async def get_all_services(pool: asyncpg.Pool) -> list[str]:
@@ -204,9 +212,12 @@ async def sweep_window(
 
 TOOL_SCHEMAS = {
     "search_logs": {
-        "description": "Search log chunks by query, service, time range, and level",
+        "description": (
+            "Search log chunks by semantic query, service, time range, and level. "
+            "Pass an empty query to filter by service/level/time only (skips semantic ranking, returns most recent first)."
+        ),
         "args": {
-            "query": "string (required)",
+            "query": "string (pass empty string to filter-only)",
             "service": "string | null",
             "time_from": "ISO8601 string | null",
             "time_to": "ISO8601 string | null",
@@ -215,16 +226,26 @@ TOOL_SCHEMAS = {
         }
     },
     "get_timeline": {
-        "description": "Get a chronologically ordered list of events from specific chunk IDs",
+        "description": (
+            "Re-sort a set of already-found chunk IDs into strict chronological order. "
+            "Use after collecting chunks from search_logs or sweep_window to reconstruct the event sequence."
+        ),
         "args": {
             "chunk_ids": "list[string] (required)"
         }
     },
     "find_co_occurring": {
-        "description": "Find chunks across different services that occurred within a time window of each other",
+        "description": (
+            "Fetch all log chunks across services in a time window, ordered chronologically. "
+            "Use this to see full log text for everything happening across the system at a specific moment. "
+            "Unlike sweep_window (counts + first-errors only), this returns actual log content."
+        ),
         "args": {
-            "chunk_ids": "list[string] (required)",
-            "window_seconds": "int (default 300)"
+            "time_from": "ISO8601 string (required)",
+            "time_to": "ISO8601 string (required)",
+            "services": "list[string] | null — filter to specific services, or null for all",
+            "level": "ERROR | WARNING | INFO | DEBUG | null",
+            "top_k": "int (default 50)",
         }
     },
     "get_service_summary": {

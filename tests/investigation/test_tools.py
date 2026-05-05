@@ -27,26 +27,26 @@ class TestIsValidUuid:
 
 class TestFindCoOccurring:
     @pytest.mark.asyncio
-    async def test_rejects_non_uuid_chunk_ids(self):
+    async def test_returns_error_on_missing_time_params(self):
         result = await find_co_occurring(
-            pool=MagicMock(), # not used if invalid
-            chunk_ids=["Auth failure", "some log text"],
-            window_seconds=300,
+            pool=MagicMock(),
+            time_from=None,
+            time_to=None,
         )
-        assert "warning" in result
+        assert "error" in result
         assert result["results"] == []
-        assert "chunk_id" in result["warning"].lower() or "uuid" in result["warning"].lower()
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_when_no_co_occurring(self):
+    async def test_returns_empty_results_when_no_chunks(self):
         mock_pool = AsyncMock()
         mock_pool.fetch.return_value = []
         result = await find_co_occurring(
             pool=mock_pool,
-            chunk_ids=["550e8400-e29b-41d4-a716-446655440000"],
-            window_seconds=300,
+            time_from="2026-04-30T22:00:00",
+            time_to="2026-04-30T22:05:00",
         )
-        assert result == {"results": []}
+        assert result["results"] == []
+        assert result["total"] == 0
 
 
 class TestSearchLogsReturnShape:
@@ -73,12 +73,10 @@ class TestSearchLogsReturnShape:
 
     @pytest.fixture
     def mock_rrf_service(self):
-        from repi.models.domain import SearchResult
         mock = AsyncMock()
-        # Mock vector_store
-        mock.vector_store = AsyncMock()
-        mock.vector_store.get_chunks_by_ids.return_value = {
-            "550e8400-e29b-41d4-a716-446655440000": {
+        chunk_id = "550e8400-e29b-41d4-a716-446655440000"
+        chunks = {
+            chunk_id: {
                 "source_service": "auth-service",
                 "log_level": "ERROR",
                 "timestamp_start": "2026-04-28T00:44:00",
@@ -86,7 +84,8 @@ class TestSearchLogsReturnShape:
                 "text": "2026-04-28 00:44:00 ERROR auth-service Auth failure"
             }
         }
-        mock.search.return_value = [
-            ("550e8400-e29b-41d4-a716-446655440000", 0.9)
-        ]
+        mock.vector_store = AsyncMock()
+        mock.vector_store.get_chunks_by_ids.return_value = chunks
+        mock.vector_store.filter_search.return_value = [(chunk_id, 1.0)]
+        mock.search.return_value = [(chunk_id, 0.9)]
         return mock
