@@ -45,8 +45,19 @@ app.include_router(config_router, tags=["config"])
 @app.get("/services", tags=["services"])
 async def list_services():
     container = get_container()
-    await container.init_known_services()
-    return {"services": container.known_services}
+    async with container.async_session_maker() as session:
+        from repi.models.schema import WatcherConfig
+        from sqlmodel import select
+        stmt = select(WatcherConfig)
+        res = await session.exec(stmt)
+        configs = list(res.all())
+    
+    if not configs:
+        # Fallback to names from log_chunks if no configs
+        await container.init_known_services()
+        return {"services": [{"name": s, "env": "unknown", "enabled": True} for s in container.known_services]}
+        
+    return {"services": [{"name": c.service_name, "env": c.env, "enabled": c.enabled} for c in configs]}
 
 
 if __name__ == "__main__":

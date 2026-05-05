@@ -23,6 +23,12 @@ async def main() -> None:
     container = get_container()
     total = 0
     async with container.get_session() as session:
+        # Cleanup first
+        from sqlalchemy import text
+        print("Cleaning up existing chunks...")
+        await session.execute(text("TRUNCATE TABLE log_chunks RESTART IDENTITY CASCADE"))
+        await session.commit()
+        
         ingestor = container.get_ingestor(session)
         for filename, service in SERVICES.items():
             path = LOGS_DIR / filename

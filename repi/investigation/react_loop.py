@@ -4,20 +4,44 @@ import logging
 import asyncio
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+from uuid import UUID
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 from dataclasses import dataclass, field
 
+import asyncpg
+
+from repi.core.dates import DateHandler, default_date_handler as _dh
 from repi.llm.provider import LLMProvider, Message
 from repi.investigation.tools import ToolCall, ToolResult, TOOL_SCHEMAS
-from repi.retrieval.heuristics import extract_time_range, progressive_search, cluster_logs
+from repi.retrieval.heuristics import cluster_logs
 from repi.investigation.store import InvestigationStore
+from repi.intent.resolver import resolve as resolve_intent, ResolvedIntent, ClarificationNeeded
+from repi.investigation.sweep import auto_sweep
+from repi.investigation.schema import InvestigationAnswer, validate_answer
 
 logger = logging.getLogger(__name__)
 
+def _strip_js_comments(text: str) -> str:
+    """Remove /* block comments */ and // line comments from JSON-like text.
+    Only strips // when it starts a line (after optional whitespace) to avoid
+    corrupting URLs like http:// inside string values."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    text = re.sub(r"^\s*//[^\n]*", "", text, flags=re.MULTILINE)
+    return text
+
+
 def parse_llm_response(raw: str) -> dict:
     """Extract and parse JSON from LLM response, supporting multiple blocks and markdown fences."""
+    # Remove markdown fences
     cleaned = re.sub(r"```json|```", "", raw).strip()
+
+    # Remove common prefixes like "Tool Call:" or "Final Answer:"
+    cleaned = re.sub(r"^(?:Tool Call|Final Answer):\s*", "", cleaned, flags=re.IGNORECASE)
+
+    # Strip JS-style comments that LLMs sometimes emit
+    cleaned = _strip_js_comments(cleaned)
+
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
@@ -25,9 +49,12 @@ def parse_llm_response(raw: str) -> dict:
 
     objects = _extract_json_objects(cleaned)
     if not objects:
-        raise ValueError(f"No valid JSON found in LLM response: {raw[:200]}")
+        logger.error(f"Failed to parse JSON from LLM response. Raw length: {len(raw)}. Raw content: {raw}")
+        raise ValueError(f"No valid JSON found in LLM response. Check logs for full content.")
+    
     if len(objects) == 1:
         return objects[0]
+    
     merged = {}
     for obj in objects:
         merged.update(obj)
@@ -72,7 +99,7 @@ class InvestigationStep:
     thought: Thought
     action: Optional[Action] = None
     observation: Optional[Observation] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=_dh.now)
 
 @dataclass
 class InvestigationResult:
@@ -91,6 +118,7 @@ class ReactInvestigationLoop:
         llm: LLMProvider,
         tools: dict[str, Callable],
         known_services: list[str],
+        pool: Optional[asyncpg.Pool] = None,
         store: Optional[InvestigationStore] = None,
         max_iterations: int = 10,
         min_iteration_delay: float = 2.0,
@@ -98,6 +126,7 @@ class ReactInvestigationLoop:
         self.llm = llm
         self.tools = tools
         self.known_services = known_services
+        self.pool = pool
         self.max_iterations = max_iterations
         self.min_iteration_delay = min_iteration_delay
         self.store = store
@@ -128,6 +157,7 @@ class ReactInvestigationLoop:
     async def investigate(
         self,
         query: str,
+        investigation_id: Optional[UUID] = None,
         on_step: Optional[Callable[[InvestigationStep], Awaitable[None]]] = None,
         known_services: list[str] | None = None,
         resume: bool = True,
@@ -143,7 +173,9 @@ class ReactInvestigationLoop:
         evidence_chunks = []
         
         if self.store:
-            if resume:
+            if investigation_id:
+                investigation_obj = await self.store.get_by_id(investigation_id)
+            elif resume:
                 investigation_obj = await self.store.get_or_create(query)
             else:
                 investigation_obj = await self.store.create(query)
@@ -158,23 +190,116 @@ class ReactInvestigationLoop:
                 } for c in chunks_obj
             ]
         
+        # --- 1. INTENT RESOLUTION ---
+        # Resolve intent to ground the search window and services.
+        resolved_intent = None
+        
+        # If we have existing steps, check if we just came from a clarification
+        last_step = existing_steps[-1] if existing_steps else None
+        clarified_query = query
+        if last_step and last_step.action and (last_step.action.get("name") == "ask_user" or last_step.action.get("tool") == "ask_user"):
+            if last_step.observation and last_step.observation.get("result"):
+                reply = last_step.observation["result"].get("reply", "")
+                clarified_query = f"{query} (User Clarification: {reply})"
+                logger.info(f"Resuming with clarified query: {clarified_query}")
+
+        # True if we're resuming after a clarification round
+        post_clarification = clarified_query != query
+
+        # Resolve if fresh OR if we just clarified
+        if not existing_steps or post_clarification:
+            now = _dh.now()
+            resolution = resolve_intent(clarified_query, self.known_services, now)
+            logger.info(f"Intent Resolution for '{clarified_query}': {resolution}")
+
+            if isinstance(resolution, ClarificationNeeded):
+                if post_clarification:
+                    # Single-round guarantee: already clarified once — commit with widest defaults
+                    logger.warning(
+                        f"Still ambiguous after clarification ({resolution.missing_dims}). "
+                        "Proceeding with widest-default window (last 24h)."
+                    )
+                    resolution = ResolvedIntent(
+                        time_from=_dh.ago(days=1),
+                        time_to=_dh.now(),
+                        services=[],
+                        symptoms=[],
+                        assumed=[
+                            f"time could not be resolved after clarification — defaulting to last 24 hours",
+                            f"clarification was: {clarified_query}",
+                        ],
+                    )
+                    # fall through with this ResolvedIntent
+                else:
+                    thought_text = "I need to clarify the request before I can proceed."
+                    action_data = {"name": "ask_user", "args": {"question": resolution.question}}
+
+                    if self.store:
+                        # Only add if it's not already the same question (to avoid loops)
+                        if not last_step or last_step.action.get("args", {}).get("question") != resolution.question:
+                            await self.store.add_step(
+                                investigation_id=investigation_obj.id,
+                                step_number=len(existing_steps) + 1,
+                                thought=thought_text,
+                                action=action_data
+                            )
+                        await self.store.set_awaiting_clarification(investigation_obj.id, resolution.question)
+
+                    step = InvestigationStep(len(existing_steps) + 1, Thought(thought_text), Action(ToolCall(name="ask_user", args=action_data["args"])))
+                    if on_step: await on_step(step)
+
+                    return InvestigationResult(
+                        id=str(investigation_obj.id),
+                        query=query,
+                        steps=[step],
+                        answer="Awaiting clarification...",
+                        evidence_chunk_ids=[],
+                        confidence="low",
+                        duration_seconds=time.time() - start_time
+                    )
+
+            resolved_intent = resolution
+
+        # --- 2. AUTO SWEEP ---
         messages = [
             Message(role="system", content=self._build_system_prompt()),
             Message(role="user", content=query)
         ]
+
+        if resolved_intent and self.pool and (not existing_steps or post_clarification):
+            sweep_results = await auto_sweep(
+                pool=self.pool,
+                time_from=resolved_intent.time_from,
+                time_to=resolved_intent.time_to,
+                exclude_services=[]
+            )
+            
+            # Record assumptions and sweep results
+            sweep_msg = f"SWEEP CONTEXT:\n{json.dumps(sweep_results, indent=2)}\n\n"
+            if resolved_intent.assumed:
+                sweep_msg += "ASSUMPTIONS:\n" + "\n".join(f"- {a}" for a in resolved_intent.assumed) + "\n"
+            
+            messages.append(Message(role="user", content=sweep_msg))
+            
+            # Persist sweep chunks as evidence
+            if self.store:
+                sweep_chunks = []
+                for svc_data in sweep_results.get("services_with_errors", []):
+                    # We only have chunk_ids, we'd need to fetch text to store it if needed.
+                    # But add_chunks handles basic dicts. 
+                    # For now, we trust the LLM will fetch what it needs.
+                    pass
 
         # Reconstruct state from existing steps
         processed_steps = []
         start_at_iteration = 0
         
         for s in existing_steps:
-            # Reconstruct Step objects for the result
             thought = Thought(content=s.thought)
             action = None
             observation = None
             
             if s.action:
-                # Store used 'name' from ToolCall dataclass asdict
                 action = Action(tool_call=ToolCall(name=s.action.get("name") or s.action.get("tool"), args=s.action["args"]))
             if s.observation:
                 observation = Observation(tool_result=ToolResult(
@@ -187,7 +312,6 @@ class ReactInvestigationLoop:
             step = InvestigationStep(s.step_number, thought, action, observation, s.created_at)
             processed_steps.append(step)
             
-            # Reconstruct messages for LLM context
             llm_payload = {"thought": s.thought}
             if action:
                 llm_payload["action"] = {"tool": action.tool_call.name, "args": action.tool_call.args}
@@ -199,30 +323,8 @@ class ReactInvestigationLoop:
             
             start_at_iteration = max(start_at_iteration, s.step_number)
 
-        # Pre-investigation if starting fresh
-        if not processed_steps:
-            now = datetime.utcnow()
-            time_hint = extract_time_range(query, now)
-            if time_hint and "search_logs" in self.tools:
-                initial_logs = await self.tools["search_logs"](
-                    query="error OR timeout OR failure OR exception",
-                    time_from=time_hint[0].isoformat(),
-                    time_to=time_hint[1].isoformat(),
-                    top_k=15
-                )
-                if initial_logs:
-                    clustered = cluster_logs(initial_logs)
-                    obs_text = json.dumps(clustered, indent=2, default=str)
-                    msg_content = f"PRE-INVESTIGATION SIGNAL FOUND:\n{obs_text}"
-                    messages.append(Message(role="user", content=msg_content))
-                    # Store evidence
-                    if self.store:
-                        await self.store.add_chunks(investigation_obj.id, initial_logs)
-                        # Refresh evidence_chunks
-                        chunks_obj = await self.store.get_chunks(investigation_obj.id)
-                        evidence_chunks = [{"chunk_id": c.chunk_id, "text": c.message} for c in chunks_obj]
-
         final_answer_dict = {}
+        validation_retries = 0
         
         for i in range(start_at_iteration, self.max_iterations):
             if i > start_at_iteration:
@@ -243,54 +345,70 @@ class ReactInvestigationLoop:
                     tool_name = parsed["action"].get("tool")
                     tool_args = parsed["action"].get("args", {})
                     
-                    # Handle LLM occasionally trying to use a 'final_answer' tool
-                    if tool_name == "final_answer":
-                        final_answer_dict = tool_args or {"summary": thought.content}
-                        if self.store:
-                            await self.store.finalize(investigation_obj.id, json.dumps(final_answer_dict))
-                        break
-
-                    action = Action(tool_call=ToolCall(name=tool_name, args=tool_args))
-                    
-                    if tool_name in self.tools:
-                        try:
-                            result = await self.tools[tool_name](**tool_args)
-                            observation = Observation(tool_result=ToolResult(
-                                tool_name=tool_name,
-                                args=tool_args,
-                                result=result
-                            ))
-                            # Persistence
-                            if self.store:
-                                new_chunks = self._extract_chunks(result)
-                                await self.store.add_chunks(investigation_obj.id, new_chunks)
-                        except Exception as e:
-                            logger.error(f"Tool failed: {e}")
-                            observation = Observation(tool_result=ToolResult(
-                                tool_name=tool_name, args=tool_args, result=None, error=str(e)
-                            ))
+                    # Handle common LLM aliases for finishing
+                    if tool_name in ["Final Answer", "FinalAnswer", "submit", "finish", "submit_answer"]:
+                        # Route into the "answer in parsed" validation path below
+                        parsed["answer"] = tool_args
                     else:
-                        observation = Observation(tool_result=ToolResult(
-                            tool_name=tool_name, args=tool_args, result=None, error=f"Unknown tool '{tool_name}'"
-                        ))
+                        action = Action(tool_call=ToolCall(name=tool_name, args=tool_args))
+                        
+                        if tool_name in self.tools:
+                            try:
+                                result = await self.tools[tool_name](**tool_args)
+                                observation = Observation(tool_result=ToolResult(
+                                    tool_name=tool_name,
+                                    args=tool_args,
+                                    result=result
+                                ))
+                                if self.store:
+                                    new_chunks = self._extract_chunks(result)
+                                    await self.store.add_chunks(investigation_obj.id, new_chunks)
+                            except Exception as e:
+                                logger.error(f"Tool failed: {e}")
+                                observation = Observation(tool_result=ToolResult(
+                                    tool_name=tool_name, args=tool_args, result=None, error=str(e)
+                                ))
+                        else:
+                            observation = Observation(tool_result=ToolResult(
+                                tool_name=tool_name, args=tool_args, result=None, error=f"Unknown tool '{tool_name}'"
+                            ))
                     
-                step = InvestigationStep(i + 1, thought, action, observation)
-                processed_steps.append(step)
-                
-                # Persistence: Store Step
-                if self.store:
-                    await self.store.add_step(
-                        investigation_id=investigation_obj.id,
-                        step_number=i + 1,
-                        thought=thought.content,
-                        action=asdict(action.tool_call) if action else None,
-                        observation=asdict(observation.tool_result) if observation else None
-                    )
+                if action or thought.content:
+                    step = InvestigationStep(i + 1, thought, action, observation)
+                    processed_steps.append(step)
+                    
+                    if self.store:
+                        await self.store.add_step(
+                            investigation_id=investigation_obj.id,
+                            step_number=i + 1,
+                            thought=thought.content,
+                            action=asdict(action.tool_call) if action else None,
+                            observation=asdict(observation.tool_result) if observation else None
+                        )
 
-                if on_step: await on_step(step)
+                    if on_step: await on_step(step)
                 
                 if "answer" in parsed:
-                    final_answer_dict = parsed["answer"]
+                    ans_dict = parsed["answer"]
+                    
+                    # Schema Validation
+                    chunks_obj = await self.store.get_chunks(investigation_obj.id) if self.store else []
+                    evidence_ids = {c.chunk_id for c in chunks_obj}
+                    
+                    is_valid, errors = validate_answer(ans_dict, evidence_ids)
+                    
+                    if not is_valid and validation_retries < 1:
+                        validation_retries += 1
+                        error_msg = f"VALIDATION ERROR: Your final answer did not match the required schema or references missing chunk_ids.\nErrors: {errors}\nPlease correct the final answer and try again."
+                        messages.append(Message(role="user", content=error_msg))
+                        continue
+                    
+                    if not is_valid:
+                        # Failed twice, accept but downgrade
+                        ans_dict["confidence"] = "low"
+                        ans_dict.setdefault("gaps", []).append(f"Schema validation failed: {errors}")
+                    
+                    final_answer_dict = ans_dict
                     if self.store:
                         await self.store.finalize(investigation_obj.id, json.dumps(final_answer_dict))
                     break
@@ -322,21 +440,40 @@ class ReactInvestigationLoop:
 
     def _build_system_prompt(self) -> str:
         return f"""You are a senior SRE. Postgres is the source of truth for this investigation.
-        
+
 KNOWN SERVICES: {self.known_services}
 TOOLS: {json.dumps(TOOL_SCHEMAS, indent=2)}
 
-RULES:
-1. ALWAYS identify root cause and correlate logs cross-service.
-2. NEVER assume missing logs = failure. Expand time/query.
-3. Every claim MUST be backed by logs in 'evidence'.
-4. Ground your conclusion in investigation_chunks.
+GOAL: Identify the root cause of the reported issue using evidence from logs.
 
 FORMAT:
 Tool Call: {{ "thought": "...", "action": {{ "tool": "...", "args": {{...}} }} }}
-Final Answer: {{ "thought": "...", "answer": {{ "summary": "...", "root_cause": "...", "evidence": [...], "confidence": "..." }} }}
+Final Answer: {{ "thought": "...", "answer": <InvestigationAnswer> }}
 
-Current UTC: {datetime.utcnow().isoformat()}
+<InvestigationAnswer> Schema:
+{{
+  "incident_window": {{"start": "ISO8601", "end": "ISO8601"}},
+  "affected_services": ["service-a", "service-b"],
+  "trigger_event": {{"chunk_id": "uuid", "service": "...", "timestamp": "...", "log_line": "..."}},
+  "propagation_chain": [
+    {{"service": "...", "chunk_id": "...", "ts": "...", "what": "..."}}
+  ],
+  "root_cause": "one-sentence verdict",
+  "ruled_out_hypotheses": [
+    {{"hypothesis": "...", "why_ruled_out": "..."}}
+  ],
+  "assumptions": ["e.g. assumed 'Friday night' = ..."],
+  "confidence": "high | medium | low",
+  "gaps": ["missing logs for service-x", ...]
+}}
+
+CRITICAL RULES:
+1. Every chunk_id used in trigger_event or propagation_chain MUST have been retrieved by a tool first.
+2. ALWAYS correlate logs cross-service. Use scan_window.
+3. If confidence is not 'high', you MUST explain what is missing in 'gaps'.
+4. Do not hand-wave. Citing specific log lines and chunk_ids is mandatory.
+
+Current UTC: {_dh.to_iso(_dh.now())}
 """
 
 def asdict(obj):

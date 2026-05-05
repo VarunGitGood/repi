@@ -4,26 +4,48 @@ import { useParams } from "next/navigation"
 import { useSSE } from "@/lib/sse"
 import { InvestigationStepCard } from "@/components/investigation-step"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, CheckCircle2, Loader2, Search } from "lucide-react"
-import ReactMarkdown from "react-markdown"
-import { useEffect, useRef } from "react"
+import { AlertCircle, CheckCircle2, Loader2, Search, ShieldCheck } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { StructuredAnswerView } from "@/components/structured-answer"
+import { Input } from "@/components/ui/input"
+import { api } from "@/lib/api"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { toast } from "sonner"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function InvestigationDetailPage() {
   const { id } = useParams()
   const streamUrl = id ? `${API_BASE}/investigations/${id}/stream` : null
-  const { steps, answer, error, done } = useSSE(streamUrl)
+  const { steps, answer, error, done, clarificationQuestion, awaitingClarification } = useSSE(streamUrl)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [reply, setReply] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (!done) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" })
     }
-  }, [steps, done])
+  }, [steps, done, awaitingClarification])
+
+  const handleClarify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!reply.trim() || submitting) return
+
+    setSubmitting(true)
+    try {
+      await api.investigations.clarify(id as string, reply)
+      setReply("")
+      toast.success("Clarification sent. Investigation resuming...")
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   if (!id) return null
 
@@ -36,11 +58,15 @@ export default function InvestigationDetailPage() {
             Investigation ID: {id.toString().slice(0, 8)}...
           </Badge>
           <div className="flex items-center gap-2">
-            {!done ? (
+            {!done && !awaitingClarification ? (
               <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>Investigation in progress...</span>
               </div>
+            ) : awaitingClarification ? (
+              <Badge variant="outline" className="flex items-center gap-1 border-amber-500 text-amber-500 animate-pulse">
+                <Loader2 className="h-3 w-3 animate-spin" /> Awaiting Clarification
+              </Badge>
             ) : error ? (
               <Badge variant="destructive" className="flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" /> Failed
@@ -76,15 +102,45 @@ export default function InvestigationDetailPage() {
         {/* Final Answer */}
         {answer && (
           <div className="mt-12 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-            <div className="rounded-xl border bg-card p-8 shadow-sm ring-1 ring-primary/20">
-              <div className="flex items-center gap-2 mb-4 text-primary font-bold">
-                <CheckCircle2 className="h-5 w-5" />
-                <h3>Final Analysis</h3>
+            <div className="rounded-xl border bg-card p-8 shadow-md ring-1 ring-primary/20 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-6 text-primary font-bold border-b border-white/5 pb-4">
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                   <ShieldCheck className="h-5 w-5" />
+                </div>
+                <h3 className="text-lg">Investigation Report</h3>
               </div>
-              <div className="prose prose-sm prose-invert max-w-none">
-                <ReactMarkdown>{answer}</ReactMarkdown>
-              </div>
+              <StructuredAnswerView data={answer} />
             </div>
+          </div>
+        )}
+
+        {/* Clarification Form */}
+        {awaitingClarification && clarificationQuestion && (
+          <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <Card className="border-amber-500/50 bg-amber-500/5 backdrop-blur-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-bold flex items-center gap-2 text-amber-500">
+                  <AlertCircle className="h-4 w-4" />
+                  Clarification Required
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-foreground/90 italic">
+                  &quot;{clarificationQuestion}&quot;
+                </p>
+                <form onSubmit={handleClarify} className="flex gap-2">
+                  <Input 
+                    placeholder="Your reply..." 
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    className="flex-1 bg-background/50"
+                  />
+                  <Button type="submit" disabled={!reply.trim() || submitting} size="sm" className="bg-amber-500 hover:bg-amber-600 text-black font-bold">
+                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume"}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
           </div>
         )}
 

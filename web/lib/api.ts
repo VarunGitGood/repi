@@ -33,5 +33,6 @@ export const api = {
     list: () => fetchApi("/investigations"),
     get: (id: string) => fetchApi(`/investigations/${id}`),
     create: (query: string) => fetchApi("/investigate", { method: "POST", body: JSON.stringify({ query }) }),
+    clarify: (id: string, reply: string) => fetchApi(`/investigations/${id}/clarify`, { method: "POST", body: JSON.stringify({ reply }) }),
   },
 };

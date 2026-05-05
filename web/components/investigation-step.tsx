@@ -26,7 +26,11 @@ export function InvestigationStepCard({ step }: { step: Step }) {
       <div className="space-y-4">
         {/* Thought */}
         <div className="flex items-start gap-3">
-          <Brain className="h-5 w-5 mt-0.5 text-blue-400" />
+          {step.action?.tool === "ask_user" ? (
+            <Brain className="h-5 w-5 mt-0.5 text-amber-400" />
+          ) : (
+            <Brain className="h-5 w-5 mt-0.5 text-blue-400" />
+          )}
           <div className="flex-1 text-sm leading-relaxed text-foreground/90 bg-muted/30 p-3 rounded-lg border border-border/50">
             <ReactMarkdown>{step.thought}</ReactMarkdown>
           </div>
@@ -71,7 +75,9 @@ export function InvestigationStepCard({ step }: { step: Step }) {
                 <Search className="h-3 w-3" />
                 <span className="font-bold">observation:</span>
                 <span className="text-muted-foreground italic">
-                  {Array.isArray(step.observation) ? `${step.observation.length} items` : 'Result received'}
+                  {step.action?.tool === "ask_user" && step.observation?.result?.reply 
+                    ? `Reply: ${step.observation.result.reply}`
+                    : Array.isArray(step.observation) ? `${step.observation.length} items` : 'Result received'}
                 </span>
               </div>
               {showObservation ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
