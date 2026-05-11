@@ -31,10 +31,8 @@ class RRFRetrievalService:
         
         logger.debug(f"RRF Search started with {len(queries)} query variants")
 
-        # Gather all rankings
         tasks = []
         for q in queries:
-            # Generate embedding for each query variant
             q_emb = self.embedding_func([q])[0]
             if hasattr(q_emb, 'tolist'):
                 q_emb = q_emb.tolist()
@@ -43,8 +41,7 @@ class RRFRetrievalService:
             tasks.append(self.fts_retriever.search(query=q, top_k=20, filters=filters))
         
         all_results = await asyncio.gather(*tasks)
-        
-        # 3. Fuse rankings (RRF)
+
         rrf_scores = {}
         k = 60
         for ranking_results in all_results:
@@ -52,7 +49,6 @@ class RRFRetrievalService:
             for rank, chunk_id in enumerate(ranking):
                 rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0) + 1.0 / (k + rank)
 
-        # 4. Apply recency boost if requested
         if recency_boost:
             logger.debug("Applying recency boost")
             now = _dh.now()
@@ -71,7 +67,6 @@ class RRFRetrievalService:
                     rrf_scores[chunk_id] = score * recency_factor
                     logger.debug(f"Chunk {chunk_id}: score={score:.4f}, age_hours={age_hours:.2f}, factor={recency_factor:.4f}")
 
-        # 5. Sort and return top_k
         final_ranking = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
         logger.debug(f"RRF Search completed: returned {len(final_ranking)} chunks")
         return final_ranking

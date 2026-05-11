@@ -56,16 +56,7 @@ class PgVectorStore:
         Search for similar chunks using vector similarity and metadata filters.
         Using inner product similarity (<#>).
         """
-        # In pgvector <#> is negative inner product, so lower is better for inner product
-        # but for select we want to order by it.
-        # However, the user said "Use embedding <#> $1 operator (inner product) for similarity"
-        # and "Return (chunk_id, score) tuples".
-        
-        # SQLModel/SQLAlchemy doesn't have a direct operator for <#> in the standard DSL,
-        # but we can use .op() or sa.func.
-        # Actually pgvector-python provides a .l2_distance() etc.
-        # For inner product, it's .max_inner_product().
-        
+        # pgvector <#> is negative inner product; max_inner_product() returns it pre-negated for ORDER BY ASC
         from sqlalchemy import func
         
         statement = select(LogChunk.chunk_id, (LogChunk.embedding.max_inner_product(embedding)).label("score"))

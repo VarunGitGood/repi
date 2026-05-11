@@ -25,3 +25,6 @@ Thumbs.db
 # Docs
 docs
 
+# Local smoke tests / dev scripts
+scripts/
+

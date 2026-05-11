@@ -57,7 +57,7 @@ async def list_investigations(limit: int = 20):
                 status=inv.status,
                 answer=inv.answer,
                 created_at=inv.created_at,
-                steps=[] # Don't load steps for the list
+                steps=[]
             ))
         return results
 
@@ -70,12 +70,8 @@ async def investigate(request: InvestigateRequest):
     async with container.get_session() as session:
         store = container.get_investigation_store(session)
         investigation = await store.get_or_create(request.query)
-        
-    # We don't start the loop here; the /stream endpoint will start it if it's not finished.
-    # Alternatively, we could start it in a background task. 
-    # The spec says "SSE: replay from DB if done, stream live if running".
-    # This implies the /stream endpoint handles the execution.
-    
+
+    # /stream handles execution: replays from DB if done, runs the loop live if not.
     return SimpleInvestigationResponse(
         id=str(investigation.id),
         status=investigation.status
@@ -130,7 +126,6 @@ async def stream_investigation(investigation_id: str):
                 yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Investigation not found'}})}\n\n"
                 return
 
-            # 1. Replay existing steps
             steps = await store.get_steps(uuid_obj)
             for s in steps:
                 step_data = {
@@ -141,18 +136,15 @@ async def stream_investigation(investigation_id: str):
                 }
                 yield f"data: {json.dumps({'type': 'step', 'data': step_data})}\n\n"
 
-            # 2. If already done, send done and exit
             if investigation.status in ("completed", "failed"):
                 yield f"data: {json.dumps({'type': 'done', 'data': {'answer': investigation.answer}})}\n\n"
                 return
 
-            # 2b. If paused for clarification, emit clarification_request and stop
             if investigation.status == "awaiting_clarification":
                 question = investigation.pending_question or ""
                 yield f"data: {json.dumps({'type': 'clarification_request', 'data': {'question': question, 'investigation_id': investigation_id}})}\n\n"
                 return
 
-            # 3. If not done, run the loop and stream new steps
             queue = asyncio.Queue()
 
             async def on_step(step: InvestigationStep):
@@ -164,7 +156,6 @@ async def stream_investigation(investigation_id: str):
                 }
                 await queue.put({"type": "step", "data": step_data})
 
-            # Run investigation in a separate task
             task = asyncio.create_task(loop.investigate(
                 investigation.query,
                 investigation_id=uuid_obj,
@@ -173,12 +164,10 @@ async def stream_investigation(investigation_id: str):
             ))
 
             while True:
-                # Check if task is done and queue is empty
                 if task.done() and queue.empty():
                     break
-                
+
                 try:
-                    # Wait for a step or timeout to check task status
                     event = await asyncio.wait_for(queue.get(), timeout=1.0)
                     yield f"data: {json.dumps(event)}\n\n"
                 except asyncio.TimeoutError:

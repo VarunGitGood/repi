@@ -72,8 +72,7 @@ class InvestigationStore:
             observation=observation
         )
         self.session.add(step)
-        
-        # Update investigation state
+
         statement = select(Investigation).where(Investigation.id == investigation_id)
         result = await self.session.exec(statement)
         investigation = result.one()
@@ -147,7 +146,6 @@ class InvestigationStore:
 
     async def resume_from_clarification(self, investigation_id: UUID, reply: str) -> None:
         """Write user's reply as observation on the pending ask_user step, then set status=running."""
-        # Find the pending ask_user step (latest step with ask_user tool and no observation)
         steps = await self.get_steps(investigation_id)
         ask_user_step = next(
             (s for s in reversed(steps) if s.action and s.action.get("name") == "ask_user" and not s.observation),

@@ -191,10 +191,8 @@ class ReactInvestigationLoop:
             ]
         
         # --- 1. INTENT RESOLUTION ---
-        # Resolve intent to ground the search window and services.
         resolved_intent = None
-        
-        # If we have existing steps, check if we just came from a clarification
+
         last_step = existing_steps[-1] if existing_steps else None
         clarified_query = query
         if last_step and last_step.action and (last_step.action.get("name") == "ask_user" or last_step.action.get("tool") == "ask_user"):
@@ -203,10 +201,8 @@ class ReactInvestigationLoop:
                 clarified_query = f"{query} (User Clarification: {reply})"
                 logger.info(f"Resuming with clarified query: {clarified_query}")
 
-        # True if we're resuming after a clarification round
         post_clarification = clarified_query != query
 
-        # Resolve if fresh OR if we just clarified
         if not existing_steps or post_clarification:
             now = _dh.now()
             resolution = resolve_intent(clarified_query, self.known_services, now)
@@ -229,7 +225,6 @@ class ReactInvestigationLoop:
                             f"clarification was: {clarified_query}",
                         ],
                     )
-                    # fall through with this ResolvedIntent
                 else:
                     thought_text = "I need to clarify the request before I can proceed."
                     action_data = {"name": "ask_user", "args": {"question": resolution.question}}
@@ -273,24 +268,13 @@ class ReactInvestigationLoop:
                 time_to=resolved_intent.time_to,
                 exclude_services=[]
             )
-            
-            # Record assumptions and sweep results
+
             sweep_msg = f"SWEEP CONTEXT:\n{json.dumps(sweep_results, indent=2)}\n\n"
             if resolved_intent.assumed:
                 sweep_msg += "ASSUMPTIONS:\n" + "\n".join(f"- {a}" for a in resolved_intent.assumed) + "\n"
             
             messages.append(Message(role="user", content=sweep_msg))
             
-            # Persist sweep chunks as evidence
-            if self.store:
-                sweep_chunks = []
-                for svc_data in sweep_results.get("services_with_errors", []):
-                    # We only have chunk_ids, we'd need to fetch text to store it if needed.
-                    # But add_chunks handles basic dicts. 
-                    # For now, we trust the LLM will fetch what it needs.
-                    pass
-
-        # Reconstruct state from existing steps
         processed_steps = []
         start_at_iteration = 0
         
@@ -345,9 +329,7 @@ class ReactInvestigationLoop:
                     tool_name = parsed["action"].get("tool")
                     tool_args = parsed["action"].get("args", {})
                     
-                    # Handle common LLM aliases for finishing
                     if tool_name in ["Final Answer", "FinalAnswer", "submit", "finish", "submit_answer"]:
-                        # Route into the "answer in parsed" validation path below
                         parsed["answer"] = tool_args
                     else:
                         action = Action(tool_call=ToolCall(name=tool_name, args=tool_args))
@@ -390,8 +372,7 @@ class ReactInvestigationLoop:
                 
                 if "answer" in parsed:
                     ans_dict = parsed["answer"]
-                    
-                    # Schema Validation
+
                     chunks_obj = await self.store.get_chunks(investigation_obj.id) if self.store else []
                     evidence_ids = {c.chunk_id for c in chunks_obj}
                     
@@ -404,7 +385,6 @@ class ReactInvestigationLoop:
                         continue
                     
                     if not is_valid:
-                        # Failed twice, accept but downgrade
                         ans_dict["confidence"] = "low"
                         ans_dict.setdefault("gaps", []).append(f"Schema validation failed: {errors}")
                     
@@ -422,7 +402,6 @@ class ReactInvestigationLoop:
                 logger.error(f"Iteration {i+1} failed: {e}")
                 messages.append(Message(role="user", content=f"Internal error: {str(e)}. Please retry or summarize."))
 
-        # Final Ans Enhancement from DB evidence if available
         if self.store:
             chunks_obj = await self.store.get_chunks(investigation_obj.id)
             evidence_chunks = [{"service": c.service, "timestamp": c.timestamp, "message": c.message} for c in chunks_obj]

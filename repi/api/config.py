@@ -17,15 +17,12 @@ async def get_config():
 async def update_config(new_config: dict):
     """Update the configuration and save to config.json."""
     try:
-        # Validate against Settings model
         from repi.core.config import Settings
         validated = Settings(**new_config)
-        
-        # Write to file
+
         with open(CONFIG_PATH, "w") as f:
             json.dump(validated.model_dump(), f, indent=2)
-        
-        # Hot reload
+
         settings.reload()
         
         return {"status": "success", "message": "Configuration updated and reloaded"}
