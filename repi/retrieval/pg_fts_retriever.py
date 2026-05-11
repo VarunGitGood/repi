@@ -19,23 +19,17 @@ class PgFTSRetriever:
         Search for logs using Postgres Full-Text Search.
         Uses ts_rank for scoring.
         """
-        # score = ts_rank(to_tsvector('english', text), plainto_tsquery('english', query))
-        
         from sqlalchemy import func, literal_column
-        
-        # We need to use text() or func for ts_rank since it's Postgres specific
+
         ts_vector = func.to_tsvector('english', LogChunk.text)
         ts_query = func.plainto_tsquery('english', query)
         rank = func.ts_rank(ts_vector, ts_query)
-        
+
         statement = select(LogChunk.chunk_id, rank.label("score"))
-        
-        # Apply filters
+
         where_exprs = []
         if filters:
             where_exprs.extend(build_filter_expressions(filters))
-            
-        # Also filter by matching the query
         where_exprs.append(ts_vector.op('@@')(ts_query))
         
         statement = statement.where(and_(*where_exprs))

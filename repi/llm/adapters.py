@@ -111,14 +111,12 @@ class GeminiProvider(LLMProvider):
     def __init__(self, api_key: str, model: str = "gemini-1.5-pro"):
         self._api_key = api_key
         self._model = model
-        # Base URL for Gemini API
         self._url_tmpl = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
     async def complete(self, messages: List[Message], max_tokens: int = 2000, temperature: float = 0.0) -> str:
         try:
             contents = []
             for m in messages:
-                # Gemini role mapping
                 role = "user" if m.role in ["user", "system"] else "model"
                 contents.append({"role": role, "parts": [{"text": m.content}]})
             

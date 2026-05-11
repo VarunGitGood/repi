@@ -74,8 +74,6 @@ class InvestigationChunk(SQLModel, table=True):
     timestamp: Optional[datetime] = None
     message: Optional[str] = Field(default=None, sa_column=Column(TEXT))
 
-    # Add GIN index for FTS manually if needed, but SQLModel doesn't have an easy way for GIN tsvector
-    # We will use the migration script for that.
 
 class WatcherConfig(SQLModel, table=True):
     __tablename__ = "watcher_configs"

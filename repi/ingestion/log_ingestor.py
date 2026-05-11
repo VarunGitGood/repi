@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class LogIngestor:
     def __init__(self, vector_store: PgVectorStore, embedding_func) -> None:
         self.vector_store = vector_store
-        self.embedding_func = embedding_func # Function that takes list of strings and returns embeddings
+        self.embedding_func = embedding_func
 
     async def ingest(self, logs: str | List[str], source_service: str, source_env: str = "production") -> int:
         """
@@ -28,7 +28,6 @@ class LogIngestor:
         parsed_logs = [parse_log_line(line) for line in lines if line.strip()]
         chunks = chunk_logs(parsed_logs)
 
-        # Prepare for vector store
         chunk_texts = [f"Signature: {c.signature}\nExamples: {' '.join(c.examples)}" for c in chunks]
         
         if not chunk_texts:

@@ -41,12 +41,10 @@ class Container:
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
         self.pool: Optional[asyncpg.Pool] = None
-        
-        # Load embedding model once
+
         self.model = SentenceTransformer("all-MiniLM-L6-v2")
         self.known_services: list[str] = []
-        
-        # LLM Foundation
+
         self.llm_provider = create_provider_from_env()
         self.query_expander = QueryExpander(llm=self.llm_provider)
 
@@ -60,7 +58,7 @@ class Container:
     async def init_db(self) -> None:
         """Initialize pgvector extension and create tables."""
         from sqlalchemy import text
-        from repi.models.schema import LogChunk # Ensure models are registered
+        from repi.models.schema import LogChunk
         
         async with self.engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -70,8 +68,7 @@ class Container:
         if not self.pool:
             dsn = self.db_url.replace("postgresql+asyncpg://", "postgresql://")
             self.pool = await asyncpg.create_pool(dsn)
-            
-        # Initialize Cache
+
         await cache.connect()
         
         logger.info("Database and Cache initialized")
@@ -79,7 +76,6 @@ class Container:
     async def init_known_services(self) -> list[str]:
         """Query services from watcher_configs, fallback to log_chunks."""
         async with self.async_session_maker() as session:
-            # Try watcher_configs first
             from repi.models.schema import WatcherConfig
             stmt = select(WatcherConfig.service_name).where(WatcherConfig.enabled == True)
             res = await session.exec(stmt)
@@ -105,8 +101,7 @@ class Container:
         """Create a ReAct loop with tools and persistence store."""
         retrieval_service = self.get_retrieval_service(session)
         store = InvestigationStore(session)
-        
-        # Wrapped tools with caching
+
         async def cached_search_logs(**kwargs):
             key = cache.make_key("search_logs", **kwargs)
             hit = await cache.get(key)
@@ -150,7 +145,6 @@ class Container:
         return InvestigationStore(session)
 
 def get_container() -> Container:
-    # Use global singleton pattern for API if needed, or just return instance
     if not hasattr(get_container, "_instance"):
         get_container._instance = Container()
     return get_container._instance

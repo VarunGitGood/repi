@@ -35,13 +35,9 @@ class IngestionWorker:
             results = await session.exec(statement)
             configs = results.all()
             
-            # Map path -> config
             self.watcher_configs = {c.watch_path: c for c in configs}
             logger.info(f"Loaded {len(self.watcher_configs)} enabled watchers")
 
-            # Pre-load offsets for all files in watched paths
-            # This is slightly expensive if there are many files, but okay for dev.
-            # We'll also load offsets on demand during file events.
             statement_offsets = select(WatcherOffset)
             results_offsets = await session.exec(statement_offsets)
             offsets = results_offsets.all()
@@ -57,8 +53,7 @@ class IngestionWorker:
         
         if db_offset:
             return db_offset.offset
-        
-        # Create new offset entry
+
         new_offset = WatcherOffset(
             watcher_config_id=watcher_config_id,
             file_path=file_path,
@@ -92,7 +87,6 @@ class IngestionWorker:
         self.offsets[file_path] = new_offset
 
     async def handle_file_change(self, file_path: str):
-        # Find which watcher config this belongs to
         config = None
         for path, c in self.watcher_configs.items():
             if file_path.startswith(path):
@@ -108,7 +102,7 @@ class IngestionWorker:
             try:
                 file_size = os.path.getsize(file_path)
                 if file_size <= current_offset:
-                    return # No new bytes
+                    return
 
                 with open(file_path, "r") as f:
                     f.seek(current_offset)
@@ -117,12 +111,10 @@ class IngestionWorker:
                 if not new_content.strip():
                     return
 
-                # Ingest
                 ingestor = self.container.get_ingestor(session)
                 count = await ingestor.ingest(new_content, config.service_name)
                 logger.info(f"Ingested {count} chunks from {file_path}")
 
-                # Update offset
                 await self.update_offset(session, config.id, file_path, file_size)
                 
             except Exception as e:
@@ -136,8 +128,7 @@ class IngestionWorker:
     async def run(self):
         self.running = True
         await self.setup()
-        
-        # Start config polling in background
+
         asyncio.create_task(self.config_poll_loop())
 
         logger.info("Worker started, watching paths...")

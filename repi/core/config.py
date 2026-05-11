@@ -27,8 +27,7 @@ class Settings(BaseSettings):
     # TIME WINDOWS
     # Starting window for investigation (minutes)
     TIME_WINDOW_INITIAL_MINUTES: int = 10
-    # List of minutes for progressive expansion
-    # Example: "60,360,1440" for 1h, 6h, 24h
+    # Comma-separated expansion windows — "60,360,1440" = 1h, 6h, 24h
     TIME_WINDOW_EXPANSIONS: str = "60,360,1440"
 
     # INVESTIGATION
@@ -69,7 +68,6 @@ class Settings(BaseSettings):
             try:
                 with open(CONFIG_PATH, "r") as f:
                     data = json.load(f)
-                # Update attributes in place
                 for key, value in data.items():
                     if hasattr(self, key):
                         setattr(self, key, value)
