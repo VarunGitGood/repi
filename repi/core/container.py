@@ -56,22 +56,29 @@ class Container:
         return self.async_session_maker()
 
     async def init_db(self) -> None:
-        """Initialize pgvector extension and create tables."""
-        from sqlalchemy import text
-        from repi.models.schema import LogChunk
-        
-        async with self.engine.begin() as conn:
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            from sqlmodel import SQLModel
-            await conn.run_sync(SQLModel.metadata.create_all)
-            
+        """Apply db/schema.sql then open the connection pool.
+
+        asyncpg executes the full file natively — no statement splitting needed.
+        Every statement in schema.sql is idempotent (IF NOT EXISTS), so this is
+        safe to run on every startup.
+        """
+        import pathlib
+
+        schema_file = pathlib.Path(__file__).resolve().parent.parent.parent / "db" / "schema.sql"
+        sql = schema_file.read_text()
+
+        dsn = self.db_url.replace("postgresql+asyncpg://", "postgresql://")
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(sql)
+        finally:
+            await conn.close()
+
         if not self.pool:
-            dsn = self.db_url.replace("postgresql+asyncpg://", "postgresql://")
             self.pool = await asyncpg.create_pool(dsn)
 
         await cache.connect()
-        
-        logger.info("Database and Cache initialized")
+        logger.info("Database initialized")
 
     async def init_known_services(self) -> list[str]:
         """Query services from watcher_configs, fallback to log_chunks."""

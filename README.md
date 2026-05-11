@@ -41,14 +41,9 @@ LLM_PROVIDER=anthropic          # openai | anthropic | mistral | gemini | ollama
 ANTHROPIC_API_KEY=sk-ant-...    # or OPENAI_API_KEY / MISTRAL_API_KEY / GEMINI_API_KEY
 ```
 
-### 4. Apply DB migrations
+### 4. Start the API
 
-```bash
-make migrate           # creates log_chunks, investigations tables
-make migrate-watchers  # creates watcher_configs, watcher_offsets tables
-```
-
-### 5. Start the API
+Migrations run automatically on startup.
 
 ```bash
 make serve

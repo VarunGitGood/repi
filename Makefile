@@ -1,4 +1,4 @@
-.PHONY: migrate migrate-watchers run query-test
+.PHONY: migrate run query-test
 
 -include .env
 export
@@ -6,11 +6,9 @@ export
 # Strip the +asyncpg driver prefix so psql can parse the URL
 PSQL_URL := $(shell echo "$(DATABASE_URL)" | sed 's|postgresql+asyncpg://|postgresql://|')
 
+# Runs automatically on `make serve`; only needed to apply schema outside the app.
 migrate:
-	psql $(PSQL_URL) -f db/migrations/001_init.sql
-
-migrate-watchers:
-	psql $(PSQL_URL) -f db/migrations/002_watchers.sql
+	psql $(PSQL_URL) -f db/schema.sql
 
 serve:
 	poetry run uvicorn repi.api:app --host 0.0.0.0 --port 8000 --reload
