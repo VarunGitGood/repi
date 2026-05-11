@@ -22,8 +22,6 @@ Thumbs.db
 # Git worktrees
 .worktrees/
 
-# Docs
-docs
 
 # Local smoke tests / dev scripts
 scripts/
