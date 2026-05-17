@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -24,7 +25,8 @@ console = Console()
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_FILE = REPO_ROOT / "db" / "schema.sql"
-CONFIG_JSON = REPO_ROOT / "config.json"
+CONFIG_DIR = REPO_ROOT / ".repi"
+CONFIG_FILE = CONFIG_DIR / "config.json"
 
 PROVIDERS = ["openai", "anthropic", "mistral", "gemini", "ollama"]
 PROVIDER_KEY_ENV = {
@@ -39,7 +41,15 @@ DEFAULT_REDIS_URL = "redis://localhost:6379"
 
 
 def _is_prod() -> bool:
-    return os.environ.get("REPI_ENV", "production").lower() != "development"
+    # Shell env var wins (for one-off overrides / CI). Fall back to .repi/config.json.
+    env = os.environ.get("REPI_ENV")
+    if env is None:
+        try:
+            data = json.loads(CONFIG_FILE.read_text())
+            env = data.get("REPI_ENV", "production")
+        except (OSError, json.JSONDecodeError):
+            env = "production"
+    return str(env).lower() != "development"
 
 
 def _setup_logging() -> None:
@@ -60,16 +70,16 @@ def _setup_logging() -> None:
             logging.getLogger(name).setLevel(logging.WARNING)
 
 
-def _env_template(provider: str, api_key: str | None) -> str:
-    lines = [
-        "REPI_ENV=production",
-        f"DATABASE_URL={DEFAULT_DB_URL}",
-        f"REDIS_URL={DEFAULT_REDIS_URL}",
-        f"LLM_PROVIDER={provider}",
-    ]
+def _config_payload(provider: str, api_key: str | None) -> dict:
+    payload: dict = {
+        "REPI_ENV": "production",
+        "DATABASE_URL": DEFAULT_DB_URL,
+        "REDIS_URL": DEFAULT_REDIS_URL,
+        "LLM_PROVIDER": provider,
+    }
     if api_key and provider in PROVIDER_KEY_ENV:
-        lines.append(f"{PROVIDER_KEY_ENV[provider]}={api_key}")
-    return "\n".join(lines) + "\n"
+        payload[PROVIDER_KEY_ENV[provider]] = api_key
+    return payload
 
 
 def _to_psql_url(db_url: str) -> str:
@@ -122,13 +132,14 @@ async def _apply_schema(db_url: str) -> None:
         await conn.close()
 
 
-def _read_db_url(env_path: Path) -> str:
-    if not env_path.exists():
+def _read_db_url() -> str:
+    if not CONFIG_FILE.exists():
         return DEFAULT_DB_URL
-    for line in env_path.read_text().splitlines():
-        if line.startswith("DATABASE_URL="):
-            return line.split("=", 1)[1].strip()
-    return DEFAULT_DB_URL
+    try:
+        data = json.loads(CONFIG_FILE.read_text())
+        return data.get("DATABASE_URL", DEFAULT_DB_URL)
+    except (OSError, json.JSONDecodeError):
+        return DEFAULT_DB_URL
 
 
 @app.command()
@@ -137,17 +148,12 @@ def init(
         False, "--with-docker", help="Run `docker compose up -d db redis`."
     ),
     force: bool = typer.Option(
-        False, "--force", help="Overwrite an existing .env file."
-    ),
-    env_path: Path = typer.Option(
-        Path(".env"), "--env-path", help="Where to write the .env file."
+        False, "--force", help="Overwrite an existing .repi/config.json."
     ),
 ) -> None:
-    """Bootstrap repi: write .env, start infra, apply migrations."""
-    env_path = env_path.resolve()
-
-    if env_path.exists() and not force:
-        console.print(f"[yellow]Existing {env_path} found — keeping it.[/yellow]")
+    """Bootstrap repi: write .repi/config.json, start infra, apply migrations."""
+    if CONFIG_FILE.exists() and not force:
+        console.print(f"[yellow]Existing {CONFIG_FILE.relative_to(REPO_ROOT)} found — keeping it.[/yellow]")
         console.print("[dim]Pass --force to overwrite.[/dim]")
     else:
         provider = typer.prompt(
@@ -163,16 +169,14 @@ def init(
                 default="",
                 show_default=False,
             ) or None
-        env_path.write_text(_env_template(provider, api_key))
-        console.print(f"[green]Wrote {env_path}[/green]")
 
-    if CONFIG_JSON.exists():
-        console.print(
-            f"[yellow]Note:[/yellow] {CONFIG_JSON.name} exists and overrides .env at runtime "
-            "(the web UI writes to it via PUT /config). Remove it if you want .env to take effect."
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_FILE.write_text(
+            json.dumps(_config_payload(provider, api_key), indent=2) + "\n"
         )
+        console.print(f"[green]Wrote {CONFIG_FILE.relative_to(REPO_ROOT)}[/green]")
 
-    db_url = _read_db_url(env_path)
+    db_url = _read_db_url()
 
     if with_docker:
         cmd = _docker_compose_cmd()
