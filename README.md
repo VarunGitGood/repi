@@ -28,7 +28,7 @@ docker-compose up -d db redis
 ### 2. Install dependencies
 
 ```bash
-poetry install
+uv sync
 ```
 
 ### 3. Configure environment
@@ -91,7 +91,7 @@ curl -X POST http://localhost:8000/watchers \
 2. Start the worker:
 
 ```bash
-poetry run python -m repi.worker
+uv run python -m repi.worker
 ```
 
 The worker polls `watcher_configs` every 30s (`WATCHER_CONFIG_REFRESH_SECS`) and uses `watchfiles` to detect new bytes, seeking forward from the last stored offset.
@@ -115,13 +115,13 @@ The worker polls `watcher_configs` every 30s (`WATCHER_CONFIG_REFRESH_SECS`) and
 
 ```bash
 # Run all tests
-poetry run pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run worker tests only
-poetry run pytest tests/worker/ -v
+uv run pytest tests/worker/ -v
 
 # Run investigation tests
-poetry run pytest tests/investigation/ -v
+uv run pytest tests/investigation/ -v
 ```
 
 ## License
