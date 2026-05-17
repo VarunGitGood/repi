@@ -19,37 +19,29 @@ worker.py           # Background file watcher — polls watcher_configs, ingests
 
 ## Quick Start
 
-### 1. Start infrastructure
+```bash
+uv sync
+uv run repi init --with-docker   # prompts for provider + key, starts db+redis, applies schema
+uv run repi serve                # → http://localhost:8000 (Swagger UI at /docs)
+```
+
+`repi init` is idempotent — re-running keeps an existing `.env`. Pass `--force` to overwrite.
+
+### Manual setup (if you prefer)
 
 ```bash
 docker-compose up -d db redis
-```
-
-### 2. Install dependencies
-
-```bash
 uv sync
-```
-
-### 3. Configure environment
-
-Create a `.env` file:
-
-```env
+cat > .env <<EOF
 DATABASE_URL=postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg
-LLM_PROVIDER=anthropic          # openai | anthropic | mistral | gemini | ollama
-ANTHROPIC_API_KEY=sk-ant-...    # or OPENAI_API_KEY / MISTRAL_API_KEY / GEMINI_API_KEY
-```
-
-### 4. Start the API
-
-Migrations run automatically on startup.
-
-```bash
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+EOF
 make serve
-# → http://localhost:8000
-# → http://localhost:8000/docs  (Swagger UI)
 ```
+
+> **Config precedence:** if `config.json` exists in the repo root, it overrides `.env` at runtime
+> (the web UI writes it via `PUT /config`). Remove `config.json` if you want `.env` to take effect.
 
 ## Usage
 
