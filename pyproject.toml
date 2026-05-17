@@ -1,43 +1,44 @@
-[tool.poetry]
+[project]
 name = "repi"
 version = "0.1.0"
 description = "repi: Log Investigation Engine"
-authors = ["Varun Singh <varun7singh10@gmail.com>"]
 readme = "README.md"
-packages = [{include = "repi"}]
-
-[tool.poetry.dependencies]
-python = "^3.11"
-fastapi = "^0.111.0"
-uvicorn = {extras = ["standard"], version = "^0.30.1"}
-python-multipart = "^0.0.9"
-rich = "^13.7.1"
-rank-bm25 = "^0.2.2"
-sentence-transformers = "^3.0.1"
-faiss-cpu = "^1.8.0.post1"
-llama-index = "^0.10.50"
-pydantic = "^2.7.4"
-sqlalchemy = "^2.0.31"
-python-dotenv = "^1.0.1"
-tqdm = "^4.66.4"
-numpy = "^1.26.4"
-sqlmodel = "^0.0.38"
-pgvector = "^0.4.2"
-asyncpg = "^0.31.0"
-redis = "^5.0.4"
-pydantic-settings = "^2.14.0"
-click = "8.1.7"
-watchfiles = "^0.21.0"
-
-[tool.poetry.scripts]
-# repi = "repi.cli:main"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires-python = ">=3.11,<4"
+authors = [
+    { name = "Varun Singh", email = "varun7singh10@gmail.com" }
+]
+dependencies = [
+    "fastapi>=0.111.0,<0.112.0",
+    "uvicorn[standard]>=0.30.1,<0.31.0",
+    "python-multipart>=0.0.9,<0.0.10",
+    "rich>=13.7.1,<14",
+    "rank-bm25>=0.2.2,<0.3",
+    "sentence-transformers>=3.0.1,<4",
+    "faiss-cpu>=1.8.0.post1,<2",
+    "llama-index>=0.10.50,<0.11",
+    "pydantic>=2.7.4,<3",
+    "sqlalchemy>=2.0.31,<3",
+    "python-dotenv>=1.0.1,<2",
+    "tqdm>=4.66.4,<5",
+    "numpy>=1.26.4,<2",
+    "sqlmodel>=0.0.38,<0.0.39",
+    "pgvector>=0.4.2,<0.5",
+    "asyncpg>=0.31.0,<0.32",
+    "redis>=5.0.4,<6",
+    "pydantic-settings>=2.14.0,<3",
+    "click==8.1.7",
+    "watchfiles>=0.21.0,<0.22",
+]
 
 [dependency-groups]
 dev = [
-    "pytest (>=9.0.3,<10.0.0)",
-    "pytest-asyncio (>=1.3.0,<2.0.0)"
+    "pytest>=9.0.3,<10",
+    "pytest-asyncio>=1.3.0,<2",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["repi"]

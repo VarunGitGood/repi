@@ -25,7 +25,7 @@ services:
   # api:
   #   build: .
   #   container_name: repi-api
-  #   command: poetry run uvicorn repi.api:app --host 0.0.0.0 --port 8000
+  #   command: uv run uvicorn repi.api:app --host 0.0.0.0 --port 8000
   #   ports:
   #     - "8000:8000"
   #   env_file: .env
@@ -38,7 +38,7 @@ services:
   # worker:
   #   build: .
   #   container_name: repi-worker
-  #   command: poetry run python -m repi.worker
+  #   command: uv run python -m repi.worker
   #   env_file: .env
   #   depends_on:
   #     db:

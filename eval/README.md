@@ -25,7 +25,7 @@ eval/
 make migrate
 
 # 2. Seed
-poetry run python eval/dataset_1_cascading_inventory_migration/seed.py
+uv run python eval/dataset_1_cascading_inventory_migration/seed.py
 
 # 3. Fire the starter query through the API (or web UI)
 curl -X POST localhost:8000/investigate \

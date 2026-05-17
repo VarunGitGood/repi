@@ -34,7 +34,7 @@ Vague on time. The overhauled resolver should ask which night.
 
 ```bash
 make migrate
-poetry run python eval/dataset_2_insufficient_logging/seed.py
+uv run python eval/dataset_2_insufficient_logging/seed.py
 ```
 
 ## Expected outcome
