@@ -9,6 +9,11 @@ from pydantic import Field
 CONFIG_PATH = Path("config.json")
 
 class Settings(BaseSettings):
+    # ENV
+    # "production" (default) → quiet CLI output, uvicorn log_level=warning, no reload.
+    # "development" → verbose CLI output, uvicorn log_level=info, reload allowed.
+    REPI_ENV: str = Field(default="production", description="Runtime environment")
+
     # DATABASE
     DATABASE_URL: str = Field(
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/lograg",
@@ -48,6 +53,9 @@ class Settings(BaseSettings):
 
     # WORKER
     WATCHER_CONFIG_REFRESH_SECS: int = 30
+
+    # WEB UI
+    UI_PORT: int = 3000
 
     MAX_RETRIES_PER_STEP: int = 2
     BACKOFF_BASE_SECONDS: int = 5

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import subprocess
 import sys
@@ -37,8 +38,31 @@ DEFAULT_DB_URL = "postgresql+asyncpg://lograg_user:password_here@localhost:5432/
 DEFAULT_REDIS_URL = "redis://localhost:6379"
 
 
+def _is_prod() -> bool:
+    return os.environ.get("REPI_ENV", "production").lower() != "development"
+
+
+def _setup_logging() -> None:
+    import logging
+
+    prod = _is_prod()
+    level = logging.WARNING if prod else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+    if prod:
+        # Third-party libraries that set their own logger level via setLevel
+        # need to be quieted explicitly — basicConfig only affects loggers
+        # without an explicit level.
+        for name in ("sentence_transformers", "httpx", "asyncio"):
+            logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def _env_template(provider: str, api_key: str | None) -> str:
     lines = [
+        "REPI_ENV=production",
         f"DATABASE_URL={DEFAULT_DB_URL}",
         f"REDIS_URL={DEFAULT_REDIS_URL}",
         f"LLM_PROVIDER={provider}",
@@ -191,19 +215,44 @@ def serve(
     """Start the FastAPI server."""
     import uvicorn
 
-    uvicorn.run("repi.api:app", host=host, port=port, reload=reload)
+    _setup_logging()
+    prod = _is_prod()
+    log_level = "warning" if prod else "info"
+    # In production, reload is always off regardless of the flag.
+    effective_reload = False if prod else reload
+
+    if prod:
+        console.print(f"[green]repi serve on http://{host}:{port}[/green]")
+    uvicorn.run(
+        "repi.api:app",
+        host=host,
+        port=port,
+        reload=effective_reload,
+        log_level=log_level,
+    )
 
 
 @app.command()
 def ui(
-    port: int = typer.Option(3000, "--port", "-p", help="Port for the Next.js dev server."),
-    prod: bool = typer.Option(False, "--prod", help="Run a production build instead of dev."),
-    no_open: bool = typer.Option(False, "--no-open", help="Don't auto-open the browser."),
+    port: int = typer.Option(
+        None,
+        "--port",
+        "-p",
+        help="Port for the UI. Defaults to UI_PORT from config (3000).",
+    ),
+    build: bool = typer.Option(
+        False, "--build", help="Run a Next.js production build instead of dev."
+    ),
     install: bool = typer.Option(False, "--install", help="Run `npm install` before starting."),
 ) -> None:
-    """Start the local web UI (Next.js app under web/)."""
-    import threading
-    import webbrowser
+    """Start the local web UI (Next.js app under web/).
+
+    Wraps `npm run dev` (or `npm run start` with --build). Next.js logs stream
+    to stdout as usual — Ctrl+C stops the server.
+    """
+    if port is None:
+        from repi.core.config import settings
+        port = settings.UI_PORT
 
     web_dir = REPO_ROOT / "web"
     if not web_dir.exists():
@@ -218,13 +267,11 @@ def ui(
     if install or not node_modules.exists():
         if not node_modules.exists():
             console.print(f"[yellow]{node_modules.name} missing — running npm install...[/yellow]")
-        else:
-            console.print("[cyan]Running npm install...[/cyan]")
         result = subprocess.run(["npm", "install"], cwd=web_dir)
         if result.returncode != 0:
             raise typer.Exit(code=result.returncode)
 
-    if prod:
+    if build:
         console.print("[cyan]Building production bundle...[/cyan]")
         result = subprocess.run(["npm", "run", "build"], cwd=web_dir)
         if result.returncode != 0:
@@ -234,19 +281,14 @@ def ui(
         cmd = ["npm", "run", "dev", "--", "-p", str(port)]
 
     url = f"http://localhost:{port}"
-    console.print(f"[green]Starting UI at {url}[/green]")
-    console.print(
-        "[dim]The UI calls the API at http://localhost:8000 by default — "
-        "run [bold]repi serve[/bold] in another terminal if it isn't already.[/dim]"
-    )
-
-    if not no_open:
-        threading.Timer(3.0, lambda: webbrowser.open(url)).start()
+    console.print(f"[bold green]repi UI will be available at {url}[/bold green]")
 
     try:
-        subprocess.run(cmd, cwd=web_dir)
+        result = subprocess.run(cmd, cwd=web_dir)
     except KeyboardInterrupt:
-        pass
+        return
+    if result.returncode != 0:
+        raise typer.Exit(code=result.returncode)
 
 
 def main() -> None:
