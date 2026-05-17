@@ -74,25 +74,24 @@ const QUICKSTART_STEPS: Array<{
   language?: string
 }> = [
   {
-    title: "Start infrastructure",
-    code: "docker-compose up -d db redis",
-  },
-  {
     title: "Install dependencies",
-    code: "poetry install",
+    note: "Resolves the lockfile into a local virtualenv via uv.",
+    code: "uv sync",
   },
   {
-    title: "Configure environment",
-    note: "Create a .env file at the project root:",
-    language: "bash",
-    code: `DATABASE_URL=postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg
-LLM_PROVIDER=anthropic          # openai | anthropic | mistral | gemini | ollama
-ANTHROPIC_API_KEY=sk-ant-...    # or OPENAI_API_KEY / MISTRAL_API_KEY / GEMINI_API_KEY`,
+    title: "Bootstrap",
+    note: "Starts Postgres + Redis in Docker, prompts for an LLM provider and API key, writes .env, applies the schema. Idempotent — safe to re-run.",
+    code: "uv run repi init --with-docker",
   },
   {
     title: "Start the API",
-    note: "Migrations run automatically on startup. The API will be available at http://localhost:8000 — visit /docs for the Swagger UI.",
-    code: "make serve",
+    note: "Runs on http://localhost:8000. Swagger UI at /docs.",
+    code: "uv run repi serve",
+  },
+  {
+    title: "Start the UI",
+    note: "Runs on http://localhost:3000 (configurable via UI_PORT). Open this in a second terminal.",
+    code: "uv run repi ui",
   },
 ]
 
@@ -102,8 +101,13 @@ const REGISTER_WATCHER_CODE = `curl -X POST http://localhost:8000/watchers \\
 
 const ENV_VARS = [
   {
+    name: "REPI_ENV",
+    default: "production",
+    description: "production | development. Production is quiet (uvicorn log_level=warning, no reload). Development is verbose.",
+  },
+  {
     name: "DATABASE_URL",
-    default: "postgresql+asyncpg://postgres:postgres@localhost:5432/lograg",
+    default: "postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg",
     description: "PostgreSQL asyncpg connection URL",
   },
   {
@@ -140,6 +144,11 @@ const ENV_VARS = [
     name: "TIME_WINDOW_EXPANSIONS",
     default: "60,360,1440",
     description: "Progressive window expansion in minutes (1h → 6h → 24h)",
+  },
+  {
+    name: "UI_PORT",
+    default: "3000",
+    description: "Port the web UI binds to (read by `repi ui`)",
   },
   {
     name: "WATCHER_CONFIG_REFRESH_SECS",
@@ -241,7 +250,7 @@ export default function DocsPage() {
             <div className="absolute inset-0 bg-foreground/20 blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
             <div className="relative font-mono text-sm bg-muted/50 backdrop-blur-sm border border-foreground/5 px-6 py-3.5 rounded-2xl text-muted-foreground flex items-center gap-3">
               <span className="opacity-40 select-none">$</span>
-              docker-compose up -d db redis
+              uv run repi init --with-docker
             </div>
           </div>
         </section>
@@ -278,7 +287,7 @@ export default function DocsPage() {
             <div className="text-center mb-24">
               <h2 className="text-5xl font-black tracking-tight mb-6">Up and running in 5m</h2>
               <p className="text-lg text-muted-foreground font-medium">
-                Prerequisites: Docker, Python 3.11+, Poetry.
+                Prerequisites: Docker, Python 3.11+, uv, Node.js (for the web UI).
               </p>
             </div>
             <div className="relative space-y-24">
@@ -331,7 +340,7 @@ export default function DocsPage() {
                   <h3 className="text-xl font-bold">Start the worker</h3>
                 </div>
                 <div className="rounded-2xl overflow-hidden border border-foreground/[0.03] shadow-lg shadow-foreground/[0.01]">
-                  <CodeBlock code="poetry run python -m repi.worker" language="bash" />
+                  <CodeBlock code="uv run python -m repi.worker" language="bash" />
                 </div>
               </div>
             </div>
@@ -398,7 +407,7 @@ export default function DocsPage() {
               <div className="absolute inset-0 bg-background/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative font-mono text-base bg-background/10 border border-background/20 px-8 py-4 rounded-2xl inline-block backdrop-blur-md">
                 <span className="opacity-40 mr-3 select-none">$</span>
-                docker-compose up -d db redis
+                uv run repi init --with-docker
               </div>
             </div>
           </div>
