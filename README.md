@@ -19,30 +19,32 @@ worker.py           # Background file watcher — polls watcher_configs, ingests
 
 ## Local development (contributors)
 
-This is the flow for hacking on repi locally from a fresh clone. End users who `pipx install repi` would call the commands without the `uv run` prefix — see `/repi/docs` for the install-and-run path.
+Flow for hacking on repi from a fresh clone. End users who `pipx install repi` (once D1 lands) call the same commands without the `uv run` prefix — see `/repi/docs` for the install-and-run path.
 
 **Prerequisites:** Docker, Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js (for the web UI).
 
 ```bash
 uv sync                                 # resolve lockfile into .venv
-uv run repi init --with-docker          # db + redis up, prompts provider/key, writes .env, applies schema
-uv run repi serve                       # terminal 1: API on :8000 (auto-reload in dev — see REPI_ENV below)
+uv run repi init --with-docker          # db + redis up, prompts provider/key, writes .repi/config.json, applies schema
+uv run repi serve                       # terminal 1: API on :8000
 uv run repi ui                          # terminal 2: web UI on :3000
 uv run repi stop                        # when done: tear down docker stack
 ```
 
-**Environment flags:**
-- `REPI_ENV` defaults to `production` (quiet logs, no auto-reload). For active development:
-  ```bash
-  echo 'REPI_ENV=development' >> .env
-  ```
-  Then `repi serve` runs with `--reload` and verbose info logs.
-- `repi init` writes `REPI_ENV=production` by default and is idempotent (`--force` to overwrite the existing `.env`).
+### Configuration
 
-**Manual setup** (skip `repi init`): see `.env.example` for the variable list and run `docker compose up -d db redis` + `make serve` yourself.
+repi has **one source of truth**: `.repi/config.json`. It's created by `repi init` and mutated by the web UI's Config page (`PUT /config`). The file is gitignored.
 
-> **Config precedence:** if `config.json` exists in the repo root, it overrides `.env` at runtime
-> (the web UI writes it via `PUT /config`). Remove `config.json` if you want `.env` to take effect.
+Three ways to edit it, in order of convenience:
+1. **Web UI** — visit the Config page; changes save immediately and the API hot-reloads them.
+2. **Re-run `repi init --force`** — re-prompts for provider + key and rewrites the file.
+3. **Edit the JSON directly** — `.repi/config.json` is plain JSON; restart the API after editing.
+
+Shell env vars (e.g. `REPI_ENV=development uv run repi serve`) override values from `config.json` at runtime — handy for one-off commands or CI.
+
+`REPI_ENV` defaults to `production`. Flip to `development` in `.repi/config.json` (or via the UI) for verbose logs + `--reload`.
+
+> **Coming from an older checkout?** If you have a legacy `config.json` at the repo root, move it: `mkdir -p .repi && mv config.json .repi/config.json`. The root `config.json` is no longer read.
 
 ## Usage
 
