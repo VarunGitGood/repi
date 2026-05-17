@@ -177,7 +177,9 @@ def init(
 
     console.print()
     console.print("[bold green]Setup complete.[/bold green]")
-    console.print("Next: [bold]repi serve[/bold] to start the API on http://localhost:8000")
+    console.print("Next:")
+    console.print("  • [bold]repi serve[/bold] — start the API on http://localhost:8000")
+    console.print("  • [bold]repi ui[/bold]    — start the web UI on http://localhost:3000")
 
 
 @app.command()
@@ -190,6 +192,61 @@ def serve(
     import uvicorn
 
     uvicorn.run("repi.api:app", host=host, port=port, reload=reload)
+
+
+@app.command()
+def ui(
+    port: int = typer.Option(3000, "--port", "-p", help="Port for the Next.js dev server."),
+    prod: bool = typer.Option(False, "--prod", help="Run a production build instead of dev."),
+    no_open: bool = typer.Option(False, "--no-open", help="Don't auto-open the browser."),
+    install: bool = typer.Option(False, "--install", help="Run `npm install` before starting."),
+) -> None:
+    """Start the local web UI (Next.js app under web/)."""
+    import threading
+    import webbrowser
+
+    web_dir = REPO_ROOT / "web"
+    if not web_dir.exists():
+        console.print(f"[red]Web app not found at {web_dir}.[/red]")
+        raise typer.Exit(code=1)
+
+    if shutil.which("npm") is None:
+        console.print("[red]npm not found on PATH. Install Node.js first.[/red]")
+        raise typer.Exit(code=1)
+
+    node_modules = web_dir / "node_modules"
+    if install or not node_modules.exists():
+        if not node_modules.exists():
+            console.print(f"[yellow]{node_modules.name} missing — running npm install...[/yellow]")
+        else:
+            console.print("[cyan]Running npm install...[/cyan]")
+        result = subprocess.run(["npm", "install"], cwd=web_dir)
+        if result.returncode != 0:
+            raise typer.Exit(code=result.returncode)
+
+    if prod:
+        console.print("[cyan]Building production bundle...[/cyan]")
+        result = subprocess.run(["npm", "run", "build"], cwd=web_dir)
+        if result.returncode != 0:
+            raise typer.Exit(code=result.returncode)
+        cmd = ["npm", "run", "start", "--", "-p", str(port)]
+    else:
+        cmd = ["npm", "run", "dev", "--", "-p", str(port)]
+
+    url = f"http://localhost:{port}"
+    console.print(f"[green]Starting UI at {url}[/green]")
+    console.print(
+        "[dim]The UI calls the API at http://localhost:8000 by default — "
+        "run [bold]repi serve[/bold] in another terminal if it isn't already.[/dim]"
+    )
+
+    if not no_open:
+        threading.Timer(3.0, lambda: webbrowser.open(url)).start()
+
+    try:
+        subprocess.run(cmd, cwd=web_dir)
+    except KeyboardInterrupt:
+        pass
 
 
 def main() -> None:
