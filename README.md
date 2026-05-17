@@ -23,6 +23,7 @@ worker.py           # Background file watcher — polls watcher_configs, ingests
 uv sync
 uv run repi init --with-docker   # prompts for provider + key, starts db+redis, applies schema
 uv run repi serve                # → http://localhost:8000 (Swagger UI at /docs)
+uv run repi ui                   # → http://localhost:3000 (web app, in another terminal)
 ```
 
 `repi init` is idempotent — re-running keeps an existing `.env`. Pass `--force` to overwrite.
