@@ -204,6 +204,33 @@ def init(
     console.print("Next:")
     console.print("  • [bold]repi serve[/bold] — start the API on http://localhost:8000")
     console.print("  • [bold]repi ui[/bold]    — start the web UI on http://localhost:3000")
+    console.print("  • [bold]repi stop[/bold]  — tear down the docker stack when you're done")
+
+
+@app.command()
+def stop(
+    volumes: bool = typer.Option(
+        False,
+        "--volumes",
+        "-v",
+        help="Also remove the Postgres volume (DESTROYS ingested data).",
+    ),
+) -> None:
+    """Stop the docker stack (db + redis, and api/worker if running)."""
+    cmd = _docker_compose_cmd()
+    if cmd is None:
+        console.print("[red]docker compose not found on PATH.[/red]")
+        raise typer.Exit(code=1)
+
+    args = cmd + ["down"]
+    if volumes:
+        console.print("[yellow]--volumes: this will delete the Postgres volume.[/yellow]")
+        args.append("-v")
+
+    result = subprocess.run(args, cwd=REPO_ROOT)
+    if result.returncode != 0:
+        raise typer.Exit(code=result.returncode)
+    console.print("[green]Stopped.[/green]")
 
 
 @app.command()
