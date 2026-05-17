@@ -11,7 +11,7 @@ migrate:
 	psql $(PSQL_URL) -f db/schema.sql
 
 serve:
-	poetry run uvicorn repi.api:app --host 0.0.0.0 --port 8000 --reload
+	uv run uvicorn repi.api:app --host 0.0.0.0 --port 8000 --reload
 
 test-api:
 	@echo "Testing API health..."

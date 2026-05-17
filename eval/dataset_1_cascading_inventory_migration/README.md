@@ -36,7 +36,7 @@ Vague on time ("friday night" — 8-hour window) and vague on service ("checkout
 
 ```bash
 make migrate
-poetry run python eval/dataset_1_cascading_inventory_migration/seed.py
+uv run python eval/dataset_1_cascading_inventory_migration/seed.py
 # Then fire the query via /investigate and POST clarification reply via /investigations/{id}/clarify
 ```
 
