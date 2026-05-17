@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     # LLM & RETRY
     LLM_PROVIDER: str = "openai"
     LLM_MODEL: Optional[str] = None
+    LLM_MAX_CALLS_PER_MIN: int = 60
+    LLM_MAX_CALLS_PER_MIN_OPENAI: Optional[int] = None
+    LLM_MAX_CALLS_PER_MIN_ANTHROPIC: Optional[int] = None
+    LLM_MAX_CALLS_PER_MIN_MISTRAL: Optional[int] = None
+    LLM_MAX_CALLS_PER_MIN_GEMINI: Optional[int] = None
+    LLM_MAX_CALLS_PER_MIN_OLLAMA: Optional[int] = None
     LLM_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     MISTRAL_API_KEY: Optional[str] = None
@@ -61,6 +67,18 @@ class Settings(BaseSettings):
     @property
     def time_expansions_list(self) -> List[int]:
         return [int(x.strip()) for x in self.TIME_WINDOW_EXPANSIONS.split(",") if x.strip()]
+
+    def llm_max_calls_per_min_for_provider(self, provider: Optional[str] = None) -> int:
+        selected_provider = (provider or self.LLM_PROVIDER).lower()
+        provider_overrides = {
+            "openai": self.LLM_MAX_CALLS_PER_MIN_OPENAI,
+            "anthropic": self.LLM_MAX_CALLS_PER_MIN_ANTHROPIC,
+            "mistral": self.LLM_MAX_CALLS_PER_MIN_MISTRAL,
+            "gemini": self.LLM_MAX_CALLS_PER_MIN_GEMINI,
+            "ollama": self.LLM_MAX_CALLS_PER_MIN_OLLAMA,
+        }
+        override = provider_overrides.get(selected_provider)
+        return override if override is not None else self.LLM_MAX_CALLS_PER_MIN
 
     def reload(self):
         """Hot-reload settings from config.json."""

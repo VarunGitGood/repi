@@ -145,7 +145,8 @@ class Container:
             tools=tools,
             known_services=self.known_services,
             pool=self.pool,
-            store=store
+            store=store,
+            llm_max_calls_per_min=settings.llm_max_calls_per_min_for_provider(),
         )
 
     def get_investigation_store(self, session: AsyncSession) -> InvestigationStore:

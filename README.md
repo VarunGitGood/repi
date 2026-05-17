@@ -103,6 +103,8 @@ The worker polls `watcher_configs` every 30s (`WATCHER_CONFIG_REFRESH_SECS`) and
 | `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/lograg` | PostgreSQL asyncpg URL |
 | `LLM_PROVIDER` | `openai` | `openai` \| `anthropic` \| `mistral` \| `gemini` \| `ollama` |
 | `LLM_MODEL` | provider default | Override model name |
+| `LLM_MAX_CALLS_PER_MIN` | `60` | Global per-minute call cap for investigation LLM requests |
+| `LLM_MAX_CALLS_PER_MIN_OPENAI` / `..._ANTHROPIC` / `..._MISTRAL` / `..._GEMINI` / `..._OLLAMA` | — | Optional provider-specific override of `LLM_MAX_CALLS_PER_MIN` |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / … | — | Provider API key |
 | `REDIS_URL` | `redis://localhost:6379` | Redis for caching |
 | `ENABLE_REDIS_CACHE` | `true` | Set `false` to disable Redis |
@@ -110,6 +112,12 @@ The worker polls `watcher_configs` every 30s (`WATCHER_CONFIG_REFRESH_SECS`) and
 | `TIME_WINDOW_EXPANSIONS` | `60,360,1440` | Progressive window expansion (minutes) |
 | `WATCHER_CONFIG_REFRESH_SECS` | `30` | How often the worker polls for config changes |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint |
+
+### Recommended LLM rate-limit values
+
+- OpenAI / Anthropic / Gemini (paid tiers): keep `LLM_MAX_CALLS_PER_MIN=60` or raise as needed by your quota.
+- Mistral free tier: set `LLM_MAX_CALLS_PER_MIN_MISTRAL=3` (or set global `LLM_MAX_CALLS_PER_MIN=3`) to reduce 429s.
+- Ollama (local): use a higher limit if your hardware supports it (for example `120`).
 
 ## Development
 
