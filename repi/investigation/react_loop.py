@@ -23,6 +23,12 @@ from repi.investigation.schema import InvestigationAnswer, validate_answer
 logger = logging.getLogger(__name__)
 
 
+# The canonical (and only) tool name for finalizing an investigation. The LLM
+# is taught this in the system prompt; the dispatcher recognises it at the
+# action site. No aliases — product is pre-prod, prompt drift isn't a concern.
+FINAL_ANSWER_TOOL = "submit_answer"
+
+
 # Reflection turn injected every N action steps. The LLM is asked to step back,
 # summarize hypotheses + evidence, and pick the highest-value next action.
 # Pure thought — no tool call expected on this turn.
@@ -500,7 +506,7 @@ class ReactInvestigationLoop:
                     tool_name = parsed["action"].get("tool")
                     tool_args = parsed["action"].get("args", {})
 
-                    if tool_name in ["Final Answer", "FinalAnswer", "submit", "finish", "submit_answer"]:
+                    if tool_name == FINAL_ANSWER_TOOL:
                         parsed["answer"] = tool_args
                     else:
                         action = Action(tool_call=ToolCall(name=tool_name, args=tool_args))
@@ -647,9 +653,15 @@ TOOLS: {json.dumps(TOOL_SCHEMAS, indent=2)}
 
 GOAL: Identify the root cause of the reported issue using evidence from logs.
 
-FORMAT:
-Tool Call: {{ "thought": "...", "action": {{ "tool": "...", "args": {{...}} }} }}
-Final Answer: {{ "thought": "...", "answer": <InvestigationAnswer> }}
+RESPONSE FORMAT (use exactly this shape on every turn — no exceptions):
+{{ "thought": "...", "action": {{ "tool": "<tool_name>", "args": {{...}} }} }}
+
+When you are ready to finalize, call the `submit_answer` tool:
+{{ "thought": "...", "action": {{ "tool": "submit_answer", "args": <InvestigationAnswer> }} }}
+
+There is exactly one way to submit a final answer: the `submit_answer` tool.
+Do NOT emit a top-level "answer" key, "Final Answer:" prefix, or any other
+finalize convention.
 
 <InvestigationAnswer> Schema:
 {{
@@ -675,7 +687,7 @@ CRITICAL RULES:
 4. Do not hand-wave. Citing specific log lines and chunk_ids is mandatory.
 5. `ruled_out_hypotheses` MUST explicitly name every known service that appeared in scan_window/auto_sweep but is NOT in your `affected_services` — give a one-line rationale per service (e.g. "no errors in this window", "only downstream symptom", "coincidental but causally unrelated"). Generic hypotheses like "network outage" are not a substitute.
 6. `root_cause` MUST describe the FULL mechanism end-to-end, not just the trigger. Include the cascade chain (e.g. retry storm, pool exhaustion, key-distribution failure) so a reader understands WHY the trigger produced the user-visible symptom.
-7. If your tool calls return no data in the resolved time window, do NOT return an empty answer. Still call submit_answer with confidence='low' and put "no logs found in the resolved time window — possible misalignment between query phrasing and seeded data" in `gaps`.
+7. If your tool calls return no data in the resolved time window, do NOT return an empty answer. Still call `submit_answer` with confidence='low' and put "no logs found in the resolved time window — possible misalignment between query phrasing and seeded data" in `gaps`.
 
 Current UTC: {_dh.to_iso(_dh.now())}
 """
