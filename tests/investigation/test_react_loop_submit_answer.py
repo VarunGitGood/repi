@@ -1,15 +1,14 @@
 """Tests for the unified submit_answer convention (issue #15).
 
 The ReAct loop accepts ONE canonical finalize convention: the LLM calls the
-`submit_answer` tool with the answer dict as `args`. Legacy aliases
-(`Final Answer`, `FinalAnswer`, `submit`, `finish`) still work for one release
-but emit a warning. The undocumented top-level `"answer"` fallback also still
-finalizes — it's a safety net for malformed LLM output.
+`submit_answer` tool with the answer dict as `args`. No legacy aliases —
+product is pre-prod so prompt-drift compatibility isn't a concern. The
+undocumented top-level `"answer"` fallback still finalizes as a safety net
+for malformed LLM output.
 """
 from __future__ import annotations
 
 import json
-import logging
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -18,7 +17,6 @@ import pytest
 from repi.investigation.react_loop import (
     FINAL_ANSWER_TOOL,
     ReactInvestigationLoop,
-    _LEGACY_FINAL_ANSWER_ALIASES,
 )
 
 
@@ -127,21 +125,29 @@ class TestSubmitAnswerUnified:
         finalized = json.loads(loop.store.finalized["answer"])
         assert finalized["root_cause"] == "test"
 
-    @pytest.mark.parametrize("legacy_alias", sorted(_LEGACY_FINAL_ANSWER_ALIASES))
+    @pytest.mark.parametrize(
+        "rejected_name",
+        ["Final Answer", "FinalAnswer", "submit", "finish"],
+    )
     @pytest.mark.asyncio
-    async def test_legacy_alias_still_finalizes_with_warning(self, legacy_alias, caplog):
-        """Each pre-existing alias remains accepted for one release and emits a
-        deprecation warning so we can detect when the LLM has stopped using it."""
-        loop = _build_loop([_submit_tool_response(legacy_alias)])
-        with caplog.at_level(logging.WARNING, logger="repi.investigation.react_loop"):
-            await loop.investigate(QUERY, resume=False)
+    async def test_legacy_names_no_longer_finalize(self, rejected_name):
+        """The old aliases are gone — emitting them as a tool name MUST NOT
+        finalize. They fall through to the unknown-tool path; the loop should
+        keep iterating until it either gets a real submit_answer or exhausts."""
+        # Sequence: bad alias (treated as unknown tool, observation carries
+        # error), then a proper submit_answer that finalizes. If the alias had
+        # finalized prematurely, the second response would never be consumed.
+        loop = _build_loop([
+            _submit_tool_response(rejected_name),
+            _submit_tool_response(FINAL_ANSWER_TOOL),
+        ])
 
-        # Finalized correctly.
+        await loop.investigate(QUERY, resume=False)
+
+        # Loop ran the alias turn AND the canonical turn — both LLM calls consumed.
+        assert loop.llm.complete.await_count == 2
+        # Finalize happened on the canonical turn, not the alias turn.
         assert loop.store.finalized is not None
-        # Warning naming the alias was emitted exactly once.
-        warnings = [r for r in caplog.records if "Legacy final-answer alias" in r.message]
-        assert len(warnings) == 1
-        assert legacy_alias in warnings[0].message
 
     @pytest.mark.asyncio
     async def test_system_prompt_teaches_only_submit_answer(self):

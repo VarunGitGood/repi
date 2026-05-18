@@ -23,19 +23,10 @@ from repi.investigation.schema import InvestigationAnswer, validate_answer
 logger = logging.getLogger(__name__)
 
 
-# The canonical tool name for finalizing an investigation. The LLM is taught
-# this in the system prompt; the dispatcher recognises it at the action site.
+# The canonical (and only) tool name for finalizing an investigation. The LLM
+# is taught this in the system prompt; the dispatcher recognises it at the
+# action site. No aliases — product is pre-prod, prompt drift isn't a concern.
 FINAL_ANSWER_TOOL = "submit_answer"
-
-# Legacy aliases tolerated for one release so prompt drift doesn't break
-# in-flight investigations. Each hit is logged so we can verify they've gone
-# extinct before removing this set entirely.
-_LEGACY_FINAL_ANSWER_ALIASES = frozenset({
-    "Final Answer",
-    "FinalAnswer",
-    "submit",
-    "finish",
-})
 
 
 # Reflection turn injected every N action steps. The LLM is asked to step back,
@@ -516,13 +507,6 @@ class ReactInvestigationLoop:
                     tool_args = parsed["action"].get("args", {})
 
                     if tool_name == FINAL_ANSWER_TOOL:
-                        parsed["answer"] = tool_args
-                    elif tool_name in _LEGACY_FINAL_ANSWER_ALIASES:
-                        logger.warning(
-                            f"Legacy final-answer alias '{tool_name}' used by LLM; "
-                            f"canonical name is '{FINAL_ANSWER_TOOL}'. Accepting for "
-                            "now — alias will be removed in a future release."
-                        )
                         parsed["answer"] = tool_args
                     else:
                         action = Action(tool_call=ToolCall(name=tool_name, args=tool_args))
