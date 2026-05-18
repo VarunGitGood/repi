@@ -53,8 +53,13 @@ CREATE TABLE IF NOT EXISTS investigation_steps (
     thought          TEXT NOT NULL,
     action           JSONB,
     observation      JSONB,
+    kind             TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- kind classifies the step ("reflection" for forced re-plan turns, NULL for normal
+-- thought→action→observation steps). Added idempotently for older DBs.
+ALTER TABLE investigation_steps ADD COLUMN IF NOT EXISTS kind TEXT;
 
 CREATE INDEX IF NOT EXISTS investigation_steps_inv_idx ON investigation_steps (investigation_id);
 
