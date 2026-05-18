@@ -1,0 +1,68 @@
+2026-05-04T09:00:01Z [INFO] auth-svc started, version 3.14.2
+2026-05-04T09:00:01Z [INFO] JWT signing keys loaded: active=k-2025, secondary=k-2024
+2026-05-04T09:00:01Z [INFO] OIDC provider configured, issuer=https://auth.internal
+2026-05-04T09:00:01Z [INFO] Token cache initialized (capacity=50000)
+2026-05-04T09:02:01Z [INFO] Health check ok
+2026-05-04T09:02:01Z [INFO] Tokens issued: 94 in last 2min
+2026-05-04T09:04:01Z [INFO] Health check ok
+2026-05-04T09:04:01Z [INFO] Tokens issued: 101 in last 2min
+2026-05-04T09:05:04Z [INFO] Token cache pruned: 2847 expired entries removed
+2026-05-04T09:06:01Z [INFO] Health check ok
+2026-05-04T09:06:01Z [INFO] Tokens issued: 98 in last 2min
+2026-05-04T09:08:01Z [INFO] Health check ok
+2026-05-04T09:08:01Z [INFO] Tokens issued: 105 in last 2min
+2026-05-04T09:10:01Z [INFO] Health check ok
+2026-05-04T09:10:01Z [INFO] Tokens issued: 97 in last 2min
+2026-05-04T09:10:02Z [INFO] Metrics export: tokens_issued=478, errors=0, p50_ms=2, p99_ms=8, key=k-2025
+2026-05-04T09:12:01Z [INFO] Health check ok
+2026-05-04T09:12:01Z [INFO] Tokens issued: 103 in last 2min
+2026-05-04T09:14:01Z [INFO] Health check ok
+2026-05-04T09:14:01Z [INFO] Tokens issued: 99 in last 2min
+2026-05-04T09:15:01Z [INFO] Tokens issued: 52 in last 1min
+2026-05-04T09:15:02Z [INFO] JWT key rotation triggered: scheduled policy rotate-every-90d
+2026-05-04T09:15:02Z [INFO] Generated new RSA-256 signing key, key_id=k-2026-05
+2026-05-04T09:15:02Z [INFO] Active signing key changed: k-2025 → k-2026-05
+2026-05-04T09:15:02Z [INFO] Previous key k-2025 retained in secondary slot (grace=86400s)
+2026-05-04T09:15:02Z [WARNING] Public key push to verification-svc timed out after 3000ms — will retry
+2026-05-04T09:16:01Z [INFO] Health check ok
+2026-05-04T09:16:01Z [INFO] Tokens issued: 104 in last 2min (signed with k-2026-05)
+2026-05-04T09:18:01Z [INFO] Health check ok
+2026-05-04T09:18:01Z [INFO] Tokens issued: 108 in last 2min
+2026-05-04T09:18:02Z [WARNING] Public key push to verification-svc: retry 2/5 timed out
+2026-05-04T09:20:01Z [INFO] Health check ok
+2026-05-04T09:20:01Z [INFO] Tokens issued: 96 in last 2min
+2026-05-04T09:20:02Z [INFO] Metrics export: tokens_issued=521, errors=0, p50_ms=2, p99_ms=9, key=k-2026-05
+2026-05-04T09:21:02Z [WARNING] Public key push to verification-svc: retry 3/5 timed out
+2026-05-04T09:22:01Z [INFO] Health check ok
+2026-05-04T09:22:01Z [INFO] Tokens issued: 102 in last 2min
+2026-05-04T09:24:01Z [INFO] Health check ok
+2026-05-04T09:24:01Z [INFO] Tokens issued: 99 in last 2min
+2026-05-04T09:25:04Z [INFO] Token cache pruned: 3102 expired entries removed
+2026-05-04T09:26:01Z [INFO] Health check ok
+2026-05-04T09:26:01Z [INFO] Tokens issued: 107 in last 2min
+2026-05-04T09:28:01Z [INFO] Health check ok
+2026-05-04T09:28:01Z [INFO] Tokens issued: 100 in last 2min
+2026-05-04T09:30:01Z [INFO] Health check ok
+2026-05-04T09:30:01Z [INFO] Tokens issued: 95 in last 2min
+2026-05-04T09:30:02Z [INFO] Metrics export: tokens_issued=498, errors=0, p50_ms=2, p99_ms=8, key=k-2026-05
+2026-05-04T09:30:03Z [WARNING] Public key push to verification-svc: retry 4/5 timed out — key sync degraded
+2026-05-04T09:32:01Z [INFO] Health check ok
+2026-05-04T09:32:01Z [INFO] Tokens issued: 103 in last 2min
+2026-05-04T09:34:01Z [INFO] Health check ok
+2026-05-04T09:34:01Z [INFO] Tokens issued: 98 in last 2min
+2026-05-04T09:36:01Z [INFO] Health check ok
+2026-05-04T09:36:01Z [INFO] Tokens issued: 106 in last 2min
+2026-05-04T09:38:01Z [INFO] Health check ok
+2026-05-04T09:38:01Z [INFO] Tokens issued: 101 in last 2min
+2026-05-04T09:40:01Z [INFO] Health check ok
+2026-05-04T09:40:01Z [INFO] Tokens issued: 99 in last 2min
+2026-05-04T09:40:02Z [INFO] Metrics export: tokens_issued=507, errors=0, p50_ms=2, p99_ms=9, key=k-2026-05
+2026-05-04T09:42:01Z [INFO] Health check ok
+2026-05-04T09:44:01Z [INFO] Health check ok
+2026-05-04T09:45:01Z [INFO] Tokens issued: 104 in last 2min
+2026-05-04T09:45:02Z [INFO] Operator action: manual key sync initiated for verification-svc
+2026-05-04T09:45:04Z [INFO] Public key k-2026-05 pushed successfully to verification-svc
+2026-05-04T09:45:04Z [INFO] Key sync confirmed: verification-svc acknowledged key_id=k-2026-05
+2026-05-04T09:45:05Z [INFO] Token cache pruned: 2991 expired entries removed
+2026-05-04T09:46:01Z [INFO] Health check ok
+2026-05-04T09:46:01Z [INFO] Tokens issued: 108 in last 2min

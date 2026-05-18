@@ -230,7 +230,7 @@ TOOL_SCHEMAS = {
             "service": "string | null",
             "time_from": "ISO8601 string | null",
             "time_to": "ISO8601 string | null",
-            "level": "ERROR | WARNING | INFO | DEBUG | null",
+            "level": "ERROR | WARNING | INFO | DEBUG | list of those | null",
             "top_k": "int (default 10)",
         }
     },
