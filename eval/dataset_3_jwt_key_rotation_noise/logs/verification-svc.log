@@ -1,0 +1,58 @@
+2026-05-04T09:00:00Z [INFO] verification-svc started, version 1.8.4
+2026-05-04T09:00:00Z [INFO] Public keys loaded: k-2025 (primary), k-2024 (secondary)
+2026-05-04T09:00:00Z [INFO] gRPC server listening on :9090
+2026-05-04T09:02:00Z [INFO] Health check ok
+2026-05-04T09:02:00Z [INFO] JWT verifications: 187 ok, 0 failed (last 2min)
+2026-05-04T09:04:00Z [INFO] Health check ok
+2026-05-04T09:04:00Z [INFO] JWT verifications: 194 ok, 0 failed (last 2min)
+2026-05-04T09:06:00Z [INFO] Health check ok
+2026-05-04T09:06:00Z [INFO] JWT verifications: 201 ok, 0 failed (last 2min)
+2026-05-04T09:08:00Z [INFO] Health check ok
+2026-05-04T09:08:00Z [INFO] JWT verifications: 189 ok, 0 failed (last 2min)
+2026-05-04T09:10:00Z [INFO] Health check ok
+2026-05-04T09:10:00Z [INFO] JWT verifications: 196 ok, 0 failed (last 2min)
+2026-05-04T09:10:01Z [INFO] Metrics: verify_p50=0.4ms, verify_p99=1.2ms, keys_known=2
+2026-05-04T09:12:00Z [INFO] Health check ok
+2026-05-04T09:12:00Z [INFO] JWT verifications: 203 ok, 0 failed (last 2min)
+2026-05-04T09:14:00Z [INFO] Health check ok
+2026-05-04T09:14:00Z [INFO] JWT verifications: 191 ok, 0 failed (last 2min)
+2026-05-04T09:15:30Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2a1)
+2026-05-04T09:15:31Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2a3)
+2026-05-04T09:15:33Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2a5)
+2026-05-04T09:16:00Z [INFO] Health check ok
+2026-05-04T09:16:00Z [INFO] JWT verifications: 88 ok, 14 failed (last 2min)
+2026-05-04T09:16:01Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2b1)
+2026-05-04T09:16:02Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2b3)
+2026-05-04T09:16:05Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2b7)
+2026-05-04T09:16:09Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2c1)
+2026-05-04T09:18:00Z [INFO] Health check ok
+2026-05-04T09:18:00Z [INFO] JWT verifications: 77 ok, 29 failed (last 2min)
+2026-05-04T09:18:01Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2d2)
+2026-05-04T09:18:04Z [ERROR] JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway, token=tok_m2d4)
+2026-05-04T09:20:00Z [INFO] Health check ok
+2026-05-04T09:20:00Z [INFO] JWT verifications: 74 ok, 31 failed (last 2min)
+2026-05-04T09:20:01Z [INFO] Metrics: verify_p50=0.4ms, verify_p99=1.1ms, keys_known=2
+2026-05-04T09:22:00Z [INFO] Health check ok
+2026-05-04T09:22:00Z [INFO] JWT verifications: 71 ok, 34 failed (last 2min)
+2026-05-04T09:24:00Z [INFO] Health check ok
+2026-05-04T09:24:00Z [INFO] JWT verifications: 68 ok, 37 failed (last 2min)
+2026-05-04T09:26:00Z [INFO] Health check ok
+2026-05-04T09:26:00Z [INFO] JWT verifications: 65 ok, 40 failed (last 2min)
+2026-05-04T09:28:00Z [INFO] Health check ok
+2026-05-04T09:28:00Z [INFO] JWT verifications: 63 ok, 43 failed (last 2min)
+2026-05-04T09:30:00Z [INFO] Health check ok
+2026-05-04T09:30:00Z [INFO] JWT verifications: 61 ok, 45 failed (last 2min)
+2026-05-04T09:30:01Z [INFO] Metrics: verify_p50=0.5ms, verify_p99=1.3ms, keys_known=2
+2026-05-04T09:32:00Z [INFO] Health check ok
+2026-05-04T09:32:00Z [INFO] JWT verifications: 58 ok, 47 failed (last 2min)
+2026-05-04T09:34:00Z [INFO] Health check ok
+2026-05-04T09:36:00Z [INFO] Health check ok
+2026-05-04T09:38:00Z [INFO] Health check ok
+2026-05-04T09:40:00Z [INFO] Health check ok
+2026-05-04T09:40:01Z [INFO] Metrics: verify_p50=0.4ms, verify_p99=1.2ms, keys_known=2
+2026-05-04T09:42:00Z [INFO] Health check ok
+2026-05-04T09:44:00Z [INFO] Health check ok
+2026-05-04T09:45:05Z [INFO] New public key received: key_id=k-2026-05 (pushed by auth-svc)
+2026-05-04T09:45:05Z [INFO] Public keys updated: k-2026-05 (primary), k-2025 (secondary), k-2024 (tertiary)
+2026-05-04T09:46:00Z [INFO] Health check ok
+2026-05-04T09:46:00Z [INFO] JWT verifications: 198 ok, 0 failed (last 2min)

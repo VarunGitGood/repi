@@ -406,6 +406,29 @@ class ReactInvestigationLoop:
             chunks_obj = await self.store.get_chunks(investigation_obj.id)
             evidence_chunks = [{"service": c.service, "timestamp": c.timestamp, "message": c.message} for c in chunks_obj]
 
+        # Defensive fallback: if the loop exited without a finalized answer
+        # (max iterations reached, repeated parse failures, etc.) emit a
+        # low-confidence stub instead of an empty {} so downstream consumers
+        # always see a valid shape with explicit gaps.
+        if not final_answer_dict:
+            final_answer_dict = {
+                "incident_window": {},
+                "affected_services": [],
+                "trigger_event": {},
+                "propagation_chain": [],
+                "root_cause": "unable_to_determine — investigation exited without a finalized answer",
+                "ruled_out_hypotheses": [],
+                "assumptions": [],
+                "confidence": "low",
+                "gaps": [
+                    "ReAct loop exhausted max_iterations without submitting an answer — "
+                    "no data may have been found in the resolved time window, or the LLM "
+                    "looped on tool calls without converging."
+                ],
+            }
+            if self.store and investigation_obj:
+                await self.store.finalize(investigation_obj.id, json.dumps(final_answer_dict))
+
         return InvestigationResult(
             id=str(investigation_obj.id) if investigation_obj else "unknown",
             query=query,
@@ -451,6 +474,9 @@ CRITICAL RULES:
 2. ALWAYS correlate logs cross-service. Use scan_window.
 3. If confidence is not 'high', you MUST explain what is missing in 'gaps'.
 4. Do not hand-wave. Citing specific log lines and chunk_ids is mandatory.
+5. `ruled_out_hypotheses` MUST explicitly name every known service that appeared in scan_window/auto_sweep but is NOT in your `affected_services` — give a one-line rationale per service (e.g. "no errors in this window", "only downstream symptom", "coincidental but causally unrelated"). Generic hypotheses like "network outage" are not a substitute.
+6. `root_cause` MUST describe the FULL mechanism end-to-end, not just the trigger. Include the cascade chain (e.g. retry storm, pool exhaustion, key-distribution failure) so a reader understands WHY the trigger produced the user-visible symptom.
+7. If your tool calls return no data in the resolved time window, do NOT return an empty answer. Still call submit_answer with confidence='low' and put "no logs found in the resolved time window — possible misalignment between query phrasing and seeded data" in `gaps`.
 
 Current UTC: {_dh.to_iso(_dh.now())}
 """
