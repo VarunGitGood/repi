@@ -17,19 +17,63 @@ repi/
 worker.py           # Background file watcher — polls watcher_configs, ingests new log bytes
 ```
 
-## Local development (contributors)
+## Install & run
 
-Flow for hacking on repi from a fresh clone. End users who `pipx install repi` (once D1 lands) call the same commands without the `uv run` prefix — see `/repi/docs` for the install-and-run path.
+Four distribution paths. Only **1. Local flow** works today — the rest are placeholders for future releases.
+
+### 1. Local flow (from a fresh clone)
+
+The supported path right now. Use this for contributing or for running against your own data while the package distributions are still WIP.
 
 **Prerequisites:** Docker, Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js (for the web UI).
 
 ```bash
+git clone https://github.com/VarunGitGood/repi.git
+cd repi
 uv sync                                 # resolve lockfile into .venv
 uv run repi init --with-docker          # db + redis up, prompts provider/key, writes .repi/config.json, applies schema
 uv run repi serve                       # terminal 1: API on :8000
 uv run repi ui                          # terminal 2: web UI on :3000
 uv run repi stop                        # when done: tear down docker stack
 ```
+
+### 2. Homebrew — 🚧 WIP
+
+Planned formula: `brew install repi`. Will bundle the CLI and bring up the Postgres + Redis dependencies via `brew services` rather than Docker.
+
+Not available yet.
+
+### 3. Docker image — 🚧 WIP
+
+Planned: a published image on a registry (`ghcr.io/varungitgood/repi`) so a single `docker compose up` brings up `repi-api`, `repi-worker`, Postgres (pgvector), and Redis without needing the source tree.
+
+Not available yet. The local `docker-compose.yml` in this repo currently only provisions Postgres + Redis for the local flow above — it does not run the API itself.
+
+### 4. PyPI package — 🚧 WIP
+
+Planned end-user flow once published:
+
+```bash
+pipx install repi               # or: uv tool install repi
+repi init --with-docker
+repi serve
+repi ui
+```
+
+**Steps to publish (todo):**
+
+1. Pin `pyproject.toml` metadata (`version`, `description`, `authors`, `license`, `readme`, `classifiers`, `urls`).
+2. Verify `[project.scripts] repi = "repi.cli:main"` resolves with `uv build`.
+3. Audit bundled assets — `web/` (Next.js) is currently not packaged; decide whether to ship it inside the wheel, fetch it on first `repi ui`, or split into a separate `repi-ui` package.
+4. `uv build` → produces `dist/repi-<version>.tar.gz` + wheel.
+5. Smoke-test in a clean venv: `pipx install ./dist/repi-*.whl && repi --help`.
+6. Tag the release (`vX.Y.Z`) and push.
+7. `uv publish --token <PYPI_API_TOKEN>` (or via a GitHub Action triggered on tag).
+8. Verify `pipx install repi` works end-to-end from PyPI.
+
+Not available yet.
+
+---
 
 ### Configuration
 
