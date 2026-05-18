@@ -62,7 +62,8 @@ async def test_scan_window():
         {"chunk_id": c1, "source_service": "s1", "log_level": "ERROR", "timestamp_start": datetime(2026,4,1,10,0), "text": "err1"},
         {"chunk_id": c2, "source_service": "s2", "log_level": "ERROR", "timestamp_start": datetime(2026,4,1,10,0,5), "text": "err2"},
     ]
-    pool.fetch = AsyncMock(side_effect=[summary_rows, log_rows])
+    # 3 fetches now: summary, logs, pre_context (both services have first_error)
+    pool.fetch = AsyncMock(side_effect=[summary_rows, log_rows, []])
 
     results = await scan_window(pool, time_from="2026-04-01T09:55:00", time_to="2026-04-01T10:05:00")
 

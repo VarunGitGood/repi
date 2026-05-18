@@ -106,17 +106,41 @@ async def scan_window(
     level: list[str] | None = None,
     services: list[str] | None = None,
     top_k: int = 50,
+    pre_context_seconds: int = 60,
+    pre_context_per_service_limit: int = 20,
 ) -> dict:
     """
-    Scan a time window: returns authoritative per-service ERROR/WARNING counts (summary)
-    plus full log text (logs) in one call. Default level filter is ERROR+WARNING; pass
-    broader list (e.g. ["ERROR","WARNING","INFO"]) when surrounding context is needed.
+    Two-phase scan: ERROR/WARNING symptoms + a level-agnostic walk-back that
+    captures the cause (migration, deploy, key rotation, config reload, etc.)
+    regardless of how it was logged.
+
+    Phase 1 — symptoms. Returns per-service ERROR/WARNING counts (`summary`)
+    and the matching log lines (`logs`) within [time_from, time_to].
+
+    Phase 2 — pre-context. For each service that emitted an ERROR in the
+    window, looks back `pre_context_seconds` seconds before that service's
+    first ERROR and returns any non-ERROR, non-DEBUG lines (`pre_context_logs`).
+    Levels are NOT filtered to INFO/WARNING — INFO, WARNING, NOTICE, CRITICAL,
+    FATAL, and any custom level are all candidates, because trigger events
+    don't follow a universal level convention. DEBUG is excluded as noise;
+    ERROR is excluded because phase 1 already covers it. Within each service,
+    only the `pre_context_per_service_limit` lines closest to the first ERROR
+    are returned (the rest are older, less likely to be the trigger).
+
+    Pass `pre_context_seconds=0` to disable the walk-back entirely. See
+    docs/two-phase-scan.md for the design rationale.
     """
     time_from_dt = _parse_iso_timestamp(time_from)
     time_to_dt = _parse_iso_timestamp(time_to)
 
     if time_from_dt is None or time_to_dt is None:
-        return {"error": "time_from and time_to are required ISO8601 strings", "summary": {}, "logs": [], "total": 0}
+        return {
+            "error": "time_from and time_to are required ISO8601 strings",
+            "summary": {},
+            "logs": [],
+            "pre_context_logs": [],
+            "total": 0,
+        }
 
     effective_level = level if level else ["ERROR", "WARNING"]
 
@@ -153,6 +177,7 @@ async def scan_window(
             "errors": r["errors"],
             "warnings": r["warnings"],
             "first_error": DateHandler.to_iso(r["first_error"]),
+            "pre_context_count": 0,
         }
         for r in summary_rows
     }
@@ -168,10 +193,82 @@ async def scan_window(
         for r in log_rows
     ]
 
+    # Phase 2 — pre-context walk-back. One CTE fetches INFO/WARNING lines in
+    # [first_error - pre_context_seconds, first_error) for every service that
+    # produced an ERROR. Only services with a real first_error participate, so
+    # services with only WARNINGs are excluded by design.
+    pre_context_logs: list[dict] = []
+    services_with_errors = [
+        r["source_service"]
+        for r in summary_rows
+        if r["first_error"] is not None
+    ]
+
+    if pre_context_seconds > 0 and services_with_errors and pre_context_per_service_limit > 0:
+        # Level-agnostic walk-back. Trigger events (migrations, key rotations,
+        # deploys) don't follow a universal level convention — they show up as
+        # INFO in some shops, NOTICE/CRITICAL/FATAL in others, sometimes with
+        # no level at all. So we filter on *time proximity*, not level:
+        #   - exclude ERROR (phase 1 already has those)
+        #   - exclude DEBUG (too chatty to be useful here)
+        #   - cap per-service to the N lines closest to the first error
+        #     (DESC for the ROW_NUMBER ranking, then re-sort ASC for output)
+        pre_context_sql = """
+            WITH first_errors AS (
+                SELECT source_service, MIN(timestamp_start) AS first_error
+                FROM log_chunks
+                WHERE timestamp_start BETWEEN $1 AND $2
+                  AND log_level = 'ERROR'
+                  AND source_service = ANY($3)
+                GROUP BY source_service
+            ),
+            candidates AS (
+                SELECT lc.chunk_id, lc.source_service, lc.log_level,
+                       lc.timestamp_start, lc.text,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY lc.source_service
+                           ORDER BY lc.timestamp_start DESC
+                       ) AS rn
+                FROM log_chunks lc
+                JOIN first_errors fe ON lc.source_service = fe.source_service
+                WHERE lc.timestamp_start >= fe.first_error - ($4 || ' seconds')::interval
+                  AND lc.timestamp_start <  fe.first_error
+                  AND lc.log_level IS DISTINCT FROM 'ERROR'
+                  AND lc.log_level IS DISTINCT FROM 'DEBUG'
+            )
+            SELECT chunk_id, source_service, log_level, timestamp_start, text
+            FROM candidates
+            WHERE rn <= $5
+            ORDER BY source_service, timestamp_start
+        """
+        pre_rows = await pool.fetch(
+            pre_context_sql,
+            time_from_dt,
+            time_to_dt,
+            services_with_errors,
+            str(pre_context_seconds),
+            pre_context_per_service_limit,
+        )
+        pre_context_logs = [
+            {
+                "chunk_id": str(r["chunk_id"]),
+                "service": r["source_service"],
+                "level": r["log_level"],
+                "timestamp": DateHandler.to_iso(r["timestamp_start"]),
+                "text": r["text"],
+            }
+            for r in pre_rows
+        ]
+        for entry in pre_context_logs:
+            svc = entry["service"]
+            if svc in summary:
+                summary[svc]["pre_context_count"] += 1
+
     return {
         "window": [time_from, time_to],
         "summary": summary,
         "logs": logs,
+        "pre_context_logs": pre_context_logs,
         "total": len(logs),
     }
 
@@ -245,18 +342,25 @@ TOOL_SCHEMAS = {
     },
     "scan_window": {
         "description": (
-            "Scan a time window: returns (1) authoritative per-service ERROR/WARNING counts in 'summary' "
-            "and (2) full log text ordered chronologically in 'logs'. "
-            "Default level is ['ERROR','WARNING']. Pass a broader list (e.g. ['ERROR','WARNING','INFO']) "
-            "only when you need surrounding context — INFO/DEBUG windows can be large. "
-            "Use this as your first call whenever investigating a time window you haven't seen before."
+            "Two-phase scan over a time window. Returns:\n"
+            " - 'summary': per-service ERROR/WARNING counts and first_error timestamp.\n"
+            " - 'logs': ERROR/WARNING log lines inside [time_from, time_to] (the SYMPTOMS).\n"
+            " - 'pre_context_logs': any non-ERROR, non-DEBUG lines from\n"
+            "   [first_error - pre_context_seconds, first_error) for each service that emitted\n"
+            "   an ERROR. Level is NOT filtered to INFO/WARNING — INFO, WARNING, NOTICE,\n"
+            "   CRITICAL, FATAL, and custom levels are all candidates, because trigger events\n"
+            "   don't follow a universal level convention. ALWAYS inspect pre_context_logs\n"
+            "   before naming a trigger_event; the first ERROR is rarely the cause.\n"
+            "Use this as your first call whenever investigating a new time window."
         ),
         "args": {
             "time_from": "ISO8601 string (required)",
             "time_to": "ISO8601 string (required)",
-            "level": "list[ERROR|WARNING|INFO|DEBUG] | null (default ['ERROR','WARNING'])",
+            "level": "list[ERROR|WARNING|INFO|DEBUG] | null (default ['ERROR','WARNING']) — phase 1 symptom filter",
             "services": "list[string] | null — filter to specific services, or null for all",
-            "top_k": "int (default 50)",
+            "top_k": "int (default 50) — phase 1 logs cap",
+            "pre_context_seconds": "int (default 60) — look-back window before each service's first ERROR; pass 0 to disable",
+            "pre_context_per_service_limit": "int (default 20) — keep at most N pre-context lines per service, ranked by proximity to the first ERROR",
         }
     },
     "get_service_summary": {

@@ -62,6 +62,7 @@ class InvestigationStep(SQLModel, table=True):
     thought: str = Field(sa_column=Column(TEXT))
     action: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
     observation: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
+    kind: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class InvestigationChunk(SQLModel, table=True):

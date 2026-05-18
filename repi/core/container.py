@@ -145,7 +145,9 @@ class Container:
             tools=tools,
             known_services=self.known_services,
             pool=self.pool,
-            store=store
+            store=store,
+            enable_reflection=settings.ENABLE_REFLECTION,
+            reflection_interval=settings.REFLECTION_INTERVAL,
         )
 
     def get_investigation_store(self, session: AsyncSession) -> InvestigationStore:
