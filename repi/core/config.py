@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     MAX_RETRIES_PER_STEP: int = 2
     BACKOFF_BASE_SECONDS: int = 5
 
+    # REFLECTION — forced re-plan turn every N action steps. See issue #10.
+    # Set ENABLE_REFLECTION=false to disable for benchmarking.
+    ENABLE_REFLECTION: bool = True
+    REFLECTION_INTERVAL: int = 3
+
     # Single source of truth is .repi/config.json (written by `repi init` and
     # the web UI via PUT /config). Shell env vars still override at runtime —
     # useful for CI/CD and one-off invocations — but no .env file is auto-loaded.

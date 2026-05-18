@@ -64,7 +64,8 @@ class TestScanWindow:
             {"chunk_id": c2, "source_service": "svc-b", "log_level": "WARNING", "timestamp_start": datetime(2026, 4, 30, 22, 0, 5), "text": "warn"},
         ]
         mock_pool = AsyncMock()
-        mock_pool.fetch.side_effect = [summary_rows, log_rows]
+        # 3 fetches now: summary, logs, pre_context (only svc-a has first_error)
+        mock_pool.fetch.side_effect = [summary_rows, log_rows, []]
         result = await scan_window(
             pool=mock_pool,
             time_from="2026-04-30T22:00:00",
@@ -73,6 +74,109 @@ class TestScanWindow:
         log_services = {entry["service"] for entry in result["logs"]}
         for svc in log_services:
             assert svc in result["summary"], f"service {svc!r} in logs but missing from summary"
+
+    @pytest.mark.asyncio
+    async def test_pre_context_returns_info_lines_before_first_error(self):
+        """The INFO migration line 33s before the first ERROR must appear in pre_context_logs."""
+        from datetime import datetime
+        first_error_ts = datetime(2026, 4, 30, 22, 0, 47)
+        migration_ts = datetime(2026, 4, 30, 22, 0, 14)
+        summary_rows = [
+            {"source_service": "inv", "errors": 1, "warnings": 0, "first_error": first_error_ts},
+        ]
+        log_rows = [
+            {"chunk_id": "err-1", "source_service": "inv", "log_level": "ERROR",
+             "timestamp_start": first_error_ts, "text": "constraint violation"},
+        ]
+        pre_rows = [
+            {"chunk_id": "info-1", "source_service": "inv", "log_level": "INFO",
+             "timestamp_start": migration_ts,
+             "text": "Migration 0042 added column warehouse_id NOT NULL"},
+        ]
+        mock_pool = AsyncMock()
+        mock_pool.fetch.side_effect = [summary_rows, log_rows, pre_rows]
+
+        result = await scan_window(
+            pool=mock_pool,
+            time_from="2026-04-30T22:00:00",
+            time_to="2026-04-30T23:00:00",
+            pre_context_seconds=60,
+        )
+
+        assert len(result["pre_context_logs"]) == 1
+        entry = result["pre_context_logs"][0]
+        assert entry["service"] == "inv"
+        assert entry["level"] == "INFO"
+        assert "Migration" in entry["text"]
+        assert entry["chunk_id"] == "info-1"
+        # summary should reflect the pre-context count
+        assert result["summary"]["inv"]["pre_context_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_pre_context_respects_window_bound(self):
+        """pre_context_seconds=0 disables the walk-back; no SQL fetched, empty list returned."""
+        from datetime import datetime
+        first_error_ts = datetime(2026, 4, 30, 22, 0, 47)
+        summary_rows = [
+            {"source_service": "inv", "errors": 1, "warnings": 0, "first_error": first_error_ts},
+        ]
+        log_rows = [
+            {"chunk_id": "err-1", "source_service": "inv", "log_level": "ERROR",
+             "timestamp_start": first_error_ts, "text": "constraint violation"},
+        ]
+        mock_pool = AsyncMock()
+        # Only summary + logs SQL fire — pre_context is skipped entirely.
+        mock_pool.fetch.side_effect = [summary_rows, log_rows]
+
+        result = await scan_window(
+            pool=mock_pool,
+            time_from="2026-04-30T22:00:00",
+            time_to="2026-04-30T23:00:00",
+            pre_context_seconds=0,
+        )
+
+        assert result["pre_context_logs"] == []
+        assert result["summary"]["inv"]["pre_context_count"] == 0
+        # exactly 2 fetches (no pre-context call)
+        assert mock_pool.fetch.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_pre_context_skipped_for_services_without_errors(self):
+        """A service that emits only WARNINGs (no ERROR) must NOT trigger a pre-context query for it."""
+        from datetime import datetime
+        first_error_ts = datetime(2026, 4, 30, 22, 0, 47)
+        summary_rows = [
+            {"source_service": "inv", "errors": 1, "warnings": 0, "first_error": first_error_ts},
+            {"source_service": "noisy", "errors": 0, "warnings": 1, "first_error": None},
+        ]
+        log_rows = [
+            {"chunk_id": "err-1", "source_service": "inv", "log_level": "ERROR",
+             "timestamp_start": first_error_ts, "text": "boom"},
+            {"chunk_id": "warn-1", "source_service": "noisy", "log_level": "WARNING",
+             "timestamp_start": first_error_ts, "text": "slow"},
+        ]
+        # Pre-context returns only inv rows (noisy is filtered server-side via ANY($3))
+        pre_rows = [
+            {"chunk_id": "info-1", "source_service": "inv", "log_level": "INFO",
+             "timestamp_start": first_error_ts, "text": "Migration 0042"},
+        ]
+        mock_pool = AsyncMock()
+        mock_pool.fetch.side_effect = [summary_rows, log_rows, pre_rows]
+
+        result = await scan_window(
+            pool=mock_pool,
+            time_from="2026-04-30T22:00:00",
+            time_to="2026-04-30T23:00:00",
+            pre_context_seconds=60,
+        )
+
+        services_in_pre = {e["service"] for e in result["pre_context_logs"]}
+        assert services_in_pre == {"inv"}, f"expected only inv in pre_context, got {services_in_pre}"
+
+        # The pre_context_sql call must have been invoked with services_with_errors=['inv'] only.
+        third_call_args = mock_pool.fetch.call_args_list[2].args
+        # args: (sql, time_from, time_to, services_with_errors, pre_context_seconds)
+        assert third_call_args[3] == ["inv"]
 
 
 class TestSearchLogsReturnShape:

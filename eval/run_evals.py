@@ -417,13 +417,38 @@ async def run_dataset(container, dataset: dict) -> dict:
 
 
 async def main():
+    # `--no-reflection` disables the reflection checkpoint (issue #10) so
+    # eval runs can A/B against the baseline. Toggling settings BEFORE
+    # get_container() ensures the loop picks the disabled value up.
+    no_reflection = "--no-reflection" in sys.argv
+    if no_reflection:
+        from repi.core.config import settings as _s
+        _s.ENABLE_REFLECTION = False
+        print("  [config] reflection disabled (--no-reflection)")
+
+    # `--dataset NAME` runs a single dataset (substring match on its registered name).
+    dataset_filter: str | None = None
+    if "--dataset" in sys.argv:
+        idx = sys.argv.index("--dataset")
+        if idx + 1 < len(sys.argv):
+            dataset_filter = sys.argv[idx + 1]
+
     container = get_container()
     await container.init_db()
 
     all_results = []
     all_bugs = []
 
-    for dataset in DATASETS:
+    datasets_to_run = (
+        [d for d in DATASETS if dataset_filter in d["name"]]
+        if dataset_filter
+        else DATASETS
+    )
+    if dataset_filter and not datasets_to_run:
+        print(f"  [error] --dataset '{dataset_filter}' matched no datasets")
+        return 1
+
+    for dataset in datasets_to_run:
         try:
             result = await run_dataset(container, dataset)
             all_results.append(result)
