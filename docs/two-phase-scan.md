@@ -25,7 +25,15 @@ This is a structural problem, not a prompting one. The data the LLM needs is mis
 
 ### 1. `scan_window` returns a new `pre_context_logs` field
 
-Signature gains `pre_context_seconds: int = 60`. After computing per-service `first_error`, a second SQL pass (CTE) fetches all INFO/WARNING rows for those services where `timestamp_start ∈ [first_error - pre_context_seconds, first_error)`. The result is exposed as `pre_context_logs` alongside the existing `logs`, with the same shape (chunk_id, service, level, timestamp, text).
+Signature gains `pre_context_seconds: int = 60` and `pre_context_per_service_limit: int = 20`. After computing per-service `first_error`, a second SQL pass (CTE) fetches the chunks in `[first_error - pre_context_seconds, first_error)`, with these filters:
+
+- `log_level IS DISTINCT FROM 'ERROR'` — phase 1 already has these
+- `log_level IS DISTINCT FROM 'DEBUG'` — too noisy to be useful
+- per-service `ROW_NUMBER() OVER (ORDER BY timestamp_start DESC) <= N` — keep the N lines closest to the first ERROR, drop older ones
+
+The filter is **level-agnostic** by design (Option C from the discussion in PR review). Triggering events don't follow a universal level convention — migrations log at INFO in some shops, NOTICE in others, CRITICAL/FATAL when a deploy fails. Filtering on `IN ('INFO','WARNING')` would miss CRITICAL key-rotation logs entirely. Time proximity is the load-bearing signal; level is not.
+
+The result is exposed as `pre_context_logs` alongside the existing `logs`, with the same shape (chunk_id, service, level, timestamp, text).
 
 The `TOOL_SCHEMAS["scan_window"]` description explains the two-phase intent so the LLM understands that `pre_context_logs` is where causes typically live, while `logs` is where symptoms appear.
 
@@ -41,6 +49,7 @@ Fix: walk every list-valued entry of the tool result and capture every dict with
 - **A new `explain_first_error` tool.** Would add an extra LLM round-trip and require the LLM to remember to call it. Two-phase-in-one-call avoids both costs.
 - **Auto-sweep at the system-prompt level.** Surfaces irrelevant noise across the whole window; doesn't focus on pre-error context.
 - **Changing `REFLECTION_INTERVAL`.** The failure mode wasn't "premature final_answer at step 2" — it was "evidence pool missing the cause line." Tuning reflection cadence wouldn't help.
+- **Filtering pre_context to `IN ('INFO','WARNING')`.** Originally landed this way; replaced with "not ERROR, not DEBUG" because INFO/WARNING is a convention, not a guarantee. CRITICAL key-rotation logs and FATAL deploy-failure logs would have been invisible to the walk-back. Time proximity is the real signal — level filtering was a convenient cheat that broke on noise-heavy datasets.
 
 ## Out of scope
 

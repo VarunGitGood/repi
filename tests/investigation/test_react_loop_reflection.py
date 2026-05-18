@@ -208,6 +208,59 @@ class TestReflectionInjection:
         assert "reflection summary" in r["thought"]
 
     @pytest.mark.asyncio
+    async def test_reflection_failure_rolls_back_dangling_prompt(self):
+        """If the reflection LLM call raises, the appended REFLECTION_PROMPT
+        must NOT be left in the message history — otherwise the next iteration
+        sees an unanswered user turn and gets confused."""
+
+        # 3 actions push us to reflection threshold; the reflection call itself
+        # raises; iteration continues and the next action runs cleanly.
+        action_iter = iter([
+            _action_response(0),
+            _action_response(1),
+            _action_response(2),
+            _action_response(4),  # post-failure recovery action
+        ])
+        state = {"raised": False}
+
+        def _side_effect(messages):
+            last_user = next((m for m in reversed(messages) if m.role == "user"), None)
+            if last_user is not None and last_user.content == REFLECTION_PROMPT and not state["raised"]:
+                state["raised"] = True
+                raise RuntimeError("upstream LLM rate-limited mid-reflection")
+            try:
+                return next(action_iter)
+            except StopIteration:
+                return _final_answer_response()
+
+        llm = MagicMock()
+        llm.complete = AsyncMock(side_effect=_side_effect)
+
+        loop = ReactInvestigationLoop(
+            llm=llm,
+            tools={"search_logs": AsyncMock(return_value=[])},
+            known_services=["service-a"],
+            pool=None,
+            store=_FakeStore(),
+            max_iterations=12,
+            min_iteration_delay=0,
+            enable_reflection=True,
+            reflection_interval=3,
+        )
+        loop._wait_for_rate_limit = AsyncMock(return_value=None)
+
+        await loop.investigate(QUERY_WITH_TIME_AND_SYMPTOM, resume=False)
+
+        # On the next LLM call after the reflection failure, the prompt must
+        # NOT be the dangling REFLECTION_PROMPT.
+        call_after_failure = llm.complete.call_args_list[4]  # 3 actions + 1 reflection-that-raised + this one
+        messages = call_after_failure.args[0]
+        last_user = next(m for m in reversed(messages) if m.role == "user")
+        assert last_user.content != REFLECTION_PROMPT, (
+            "REFLECTION_PROMPT was left dangling after the failed reflection call"
+        )
+
+    @pytest.mark.asyncio
     async def test_reflection_prompt_appended_before_call(self):
         """When reflection fires, the REFLECTION_PROMPT must be the last user message before the LLM call."""
         responses = [

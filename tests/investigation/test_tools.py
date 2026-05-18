@@ -175,8 +175,114 @@ class TestScanWindow:
 
         # The pre_context_sql call must have been invoked with services_with_errors=['inv'] only.
         third_call_args = mock_pool.fetch.call_args_list[2].args
-        # args: (sql, time_from, time_to, services_with_errors, pre_context_seconds)
+        # args: (sql, time_from, time_to, services_with_errors, pre_context_seconds, per_service_limit)
         assert third_call_args[3] == ["inv"]
+
+    @pytest.mark.asyncio
+    async def test_pre_context_sql_excludes_error_and_debug(self):
+        """The pre-context CTE must filter out ERROR and DEBUG by level — verified by inspecting
+        the SQL that gets sent."""
+        from datetime import datetime
+        first_error_ts = datetime(2026, 4, 30, 22, 0, 47)
+        summary_rows = [
+            {"source_service": "inv", "errors": 1, "warnings": 0, "first_error": first_error_ts},
+        ]
+        log_rows = []
+        mock_pool = AsyncMock()
+        mock_pool.fetch.side_effect = [summary_rows, log_rows, []]
+
+        await scan_window(
+            pool=mock_pool,
+            time_from="2026-04-30T22:00:00",
+            time_to="2026-04-30T23:00:00",
+            pre_context_seconds=60,
+        )
+
+        # 3rd fetch is the pre_context CTE — inspect the SQL string.
+        pre_context_sql = mock_pool.fetch.call_args_list[2].args[0]
+        assert "log_level IS DISTINCT FROM 'ERROR'" in pre_context_sql
+        assert "log_level IS DISTINCT FROM 'DEBUG'" in pre_context_sql
+        # And the old INFO/WARNING-only filter must be gone.
+        assert "log_level IN ('INFO', 'WARNING')" not in pre_context_sql
+
+    @pytest.mark.asyncio
+    async def test_pre_context_per_service_limit_passed_to_sql(self):
+        """The per-service limit is parameter $5 on the pre_context query."""
+        from datetime import datetime
+        first_error_ts = datetime(2026, 4, 30, 22, 0, 47)
+        summary_rows = [
+            {"source_service": "inv", "errors": 1, "warnings": 0, "first_error": first_error_ts},
+        ]
+        mock_pool = AsyncMock()
+        mock_pool.fetch.side_effect = [summary_rows, [], []]
+
+        await scan_window(
+            pool=mock_pool,
+            time_from="2026-04-30T22:00:00",
+            time_to="2026-04-30T23:00:00",
+            pre_context_seconds=60,
+            pre_context_per_service_limit=5,
+        )
+
+        # args: (sql, time_from, time_to, services_with_errors, pre_context_seconds, limit)
+        third_call_args = mock_pool.fetch.call_args_list[2].args
+        assert third_call_args[5] == 5
+        # SQL has the ROW_NUMBER ranking + rn <= $5 truncation
+        assert "ROW_NUMBER()" in third_call_args[0]
+        assert "WHERE rn <= $5" in third_call_args[0]
+
+    @pytest.mark.asyncio
+    async def test_pre_context_per_service_limit_zero_disables(self):
+        """pre_context_per_service_limit=0 short-circuits without firing the pre-context query."""
+        from datetime import datetime
+        first_error_ts = datetime(2026, 4, 30, 22, 0, 47)
+        summary_rows = [
+            {"source_service": "inv", "errors": 1, "warnings": 0, "first_error": first_error_ts},
+        ]
+        log_rows = []
+        mock_pool = AsyncMock()
+        mock_pool.fetch.side_effect = [summary_rows, log_rows]
+
+        result = await scan_window(
+            pool=mock_pool,
+            time_from="2026-04-30T22:00:00",
+            time_to="2026-04-30T23:00:00",
+            pre_context_seconds=60,
+            pre_context_per_service_limit=0,
+        )
+
+        assert result["pre_context_logs"] == []
+        # Exactly 2 fetches — pre_context was skipped.
+        assert mock_pool.fetch.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_pre_context_accepts_non_info_warning_levels(self):
+        """Pre-context should surface CRITICAL/FATAL/NOTICE lines too — Option C is level-agnostic."""
+        from datetime import datetime
+        first_error_ts = datetime(2026, 4, 30, 22, 0, 47)
+        rotation_ts = datetime(2026, 4, 30, 22, 0, 20)
+        summary_rows = [
+            {"source_service": "auth", "errors": 1, "warnings": 0, "first_error": first_error_ts},
+        ]
+        log_rows = []
+        # The mock pool happily returns whatever rows the test supplies; what
+        # matters is that scan_window does not filter these out client-side.
+        pre_rows = [
+            {"chunk_id": "crit-1", "source_service": "auth", "log_level": "CRITICAL",
+             "timestamp_start": rotation_ts, "text": "Active signing key rotated to k-2026-05"},
+        ]
+        mock_pool = AsyncMock()
+        mock_pool.fetch.side_effect = [summary_rows, log_rows, pre_rows]
+
+        result = await scan_window(
+            pool=mock_pool,
+            time_from="2026-04-30T22:00:00",
+            time_to="2026-04-30T23:00:00",
+            pre_context_seconds=60,
+        )
+
+        assert len(result["pre_context_logs"]) == 1
+        assert result["pre_context_logs"][0]["level"] == "CRITICAL"
 
 
 class TestSearchLogsReturnShape:

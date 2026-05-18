@@ -24,14 +24,24 @@ logger = logging.getLogger(__name__)
 
 
 # Reflection turn injected every N action steps. The LLM is asked to step back,
-# summarize hypotheses + evidence, pick the highest-value next action, and decide
-# whether to give up early. Pure thought — no tool call expected on this turn.
+# summarize hypotheses + evidence, and pick the highest-value next action.
+# Pure thought — no tool call expected on this turn.
+#
+# Deliberately does NOT invite early termination. An earlier draft included a
+# "give up and submit with low confidence if you want" bullet; in practice the
+# LLM read that as permission to bail after the first weak scan on noisy
+# datasets. Termination is now gated explicitly: only after multiple distinct
+# lines of inquiry have all returned no useful evidence.
 REFLECTION_PROMPT = (
     "Stop. Before your next action, reflect:\n"
     "1. What hypotheses have you considered so far?\n"
     "2. What evidence supports or refutes each hypothesis?\n"
     "3. What is the single highest-value next action — and why?\n"
-    "4. Should you give up and submit with low confidence instead? If yes, do so now.\n"
+    "4. Termination check: ONLY if you have already pursued multiple distinct\n"
+    "   lines of inquiry (e.g. different time windows, different services,\n"
+    "   different log levels) AND each returned no useful evidence, you may\n"
+    "   submit with low confidence. Otherwise CONTINUE investigating — a\n"
+    "   single weak scan is not grounds for giving up.\n"
     "Reply with JSON of the form {\"thought\": \"...\"} containing your reflection. "
     "Do NOT issue a tool call on this turn."
 )
@@ -416,6 +426,11 @@ class ReactInvestigationLoop:
                     raw_reflection = await self.llm.complete(messages)
                 except Exception as e:
                     logger.error(f"Reflection iteration {i+1} failed: {e}")
+                    # Roll back the just-appended REFLECTION_PROMPT so the next
+                    # iteration doesn't see a dangling user turn with no assistant
+                    # reply — that would confuse the model on retry.
+                    if messages and messages[-1].content == REFLECTION_PROMPT:
+                        messages.pop()
                     action_steps_since_reflection = 0
                     continue
 
@@ -539,7 +554,8 @@ class ReactInvestigationLoop:
                             step_number=i + 1,
                             thought=thought.content,
                             action=asdict(action.tool_call) if action else None,
-                            observation=asdict(observation.tool_result) if observation else None
+                            observation=asdict(observation.tool_result) if observation else None,
+                            kind=None,
                         )
 
                     if on_step: await on_step(step)
