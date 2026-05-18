@@ -1,0 +1,18 @@
+{
+  "_comment": "Schema reference for repi config. The real file lives at .repi/config.json and is written by `repi init` or the web UI. NEVER commit a populated copy of this file — it contains API keys.",
+  "REPI_ENV": "production",
+  "DATABASE_URL": "postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg",
+  "REDIS_URL": "redis://localhost:6379",
+  "ENABLE_REDIS_CACHE": true,
+  "LLM_PROVIDER": "anthropic",
+  "LLM_MODEL": null,
+  "OPENAI_API_KEY": "REPLACE_ME_OR_LEAVE_EMPTY",
+  "ANTHROPIC_API_KEY": "REPLACE_ME_OR_LEAVE_EMPTY",
+  "MISTRAL_API_KEY": "REPLACE_ME_OR_LEAVE_EMPTY",
+  "GEMINI_API_KEY": "REPLACE_ME_OR_LEAVE_EMPTY",
+  "OLLAMA_BASE_URL": "http://localhost:11434",
+  "TIME_WINDOW_INITIAL_MINUTES": 10,
+  "TIME_WINDOW_EXPANSIONS": "60,360,1440",
+  "UI_PORT": 3000,
+  "WATCHER_CONFIG_REFRESH_SECS": 30
+}

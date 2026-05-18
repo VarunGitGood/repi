@@ -1,0 +1,36 @@
+2026-05-04T09:00:00Z [INFO] cache-svc started, version 2.3.1
+2026-05-04T09:00:00Z [INFO] Memory limit: 4096MB, eviction-policy: allkeys-lru
+2026-05-04T09:02:00Z [INFO] Stats: used_mem=2847MB, keys=8241029, evicted_last_min=142, hit_rate=0.94
+2026-05-04T09:04:00Z [INFO] Stats: used_mem=2851MB, keys=8242817, evicted_last_min=138, hit_rate=0.94
+2026-05-04T09:06:00Z [INFO] Stats: used_mem=2849MB, keys=8244103, evicted_last_min=145, hit_rate=0.94
+2026-05-04T09:08:00Z [INFO] Stats: used_mem=2853MB, keys=8245891, evicted_last_min=141, hit_rate=0.94
+2026-05-04T09:10:00Z [INFO] Stats: used_mem=2856MB, keys=8247204, evicted_last_min=149, hit_rate=0.93
+2026-05-04T09:10:00Z [INFO] Health check ok
+2026-05-04T09:12:00Z [INFO] Stats: used_mem=2861MB, keys=8249017, evicted_last_min=153, hit_rate=0.93
+2026-05-04T09:12:01Z [WARNING] Used memory at 69.8% of limit (2861MB / 4096MB)
+2026-05-04T09:14:00Z [INFO] Stats: used_mem=2978MB, keys=8251342, evicted_last_min=891, hit_rate=0.88
+2026-05-04T09:14:01Z [WARNING] Eviction rate spike: 891 keys/min (baseline ~145/min) — memory pressure
+2026-05-04T09:14:02Z [WARNING] Hit rate degraded: 0.88 (was 0.93–0.94) — caused by eviction pressure
+2026-05-04T09:15:00Z [INFO] Stats: used_mem=3012MB, keys=8249991, evicted_last_min=1247, hit_rate=0.86
+2026-05-04T09:15:01Z [WARNING] Eviction rate critically high: 1247 keys/min
+2026-05-04T09:16:00Z [INFO] Stats: used_mem=3001MB, keys=8251104, evicted_last_min=1089, hit_rate=0.87
+2026-05-04T09:18:00Z [INFO] Stats: used_mem=2989MB, keys=8253218, evicted_last_min=742, hit_rate=0.89
+2026-05-04T09:18:00Z [INFO] Health check ok
+2026-05-04T09:20:00Z [INFO] Stats: used_mem=2971MB, keys=8255491, evicted_last_min=413, hit_rate=0.91
+2026-05-04T09:22:00Z [INFO] Stats: used_mem=2964MB, keys=8257102, evicted_last_min=281, hit_rate=0.92
+2026-05-04T09:24:00Z [INFO] Stats: used_mem=2959MB, keys=8258814, evicted_last_min=198, hit_rate=0.93
+2026-05-04T09:24:00Z [INFO] Health check ok
+2026-05-04T09:26:00Z [INFO] Stats: used_mem=2955MB, keys=8260221, evicted_last_min=163, hit_rate=0.94
+2026-05-04T09:28:00Z [INFO] Stats: used_mem=2952MB, keys=8261890, evicted_last_min=147, hit_rate=0.94
+2026-05-04T09:30:00Z [INFO] Stats: used_mem=2950MB, keys=8263104, evicted_last_min=139, hit_rate=0.94
+2026-05-04T09:30:00Z [INFO] Health check ok
+2026-05-04T09:32:00Z [INFO] Stats: used_mem=2948MB, keys=8264817, evicted_last_min=136, hit_rate=0.94
+2026-05-04T09:34:00Z [INFO] Stats: used_mem=2947MB, keys=8266203, evicted_last_min=142, hit_rate=0.94
+2026-05-04T09:36:00Z [INFO] Stats: used_mem=2946MB, keys=8267891, evicted_last_min=138, hit_rate=0.94
+2026-05-04T09:36:00Z [INFO] Health check ok
+2026-05-04T09:38:00Z [INFO] Stats: used_mem=2945MB, keys=8269104, evicted_last_min=141, hit_rate=0.94
+2026-05-04T09:40:00Z [INFO] Stats: used_mem=2944MB, keys=8270817, evicted_last_min=139, hit_rate=0.94
+2026-05-04T09:42:00Z [INFO] Stats: used_mem=2943MB, keys=8272203, evicted_last_min=137, hit_rate=0.94
+2026-05-04T09:42:00Z [INFO] Health check ok
+2026-05-04T09:44:00Z [INFO] Stats: used_mem=2942MB, keys=8273891, evicted_last_min=140, hit_rate=0.94
+2026-05-04T09:46:00Z [INFO] Stats: used_mem=2941MB, keys=8275104, evicted_last_min=143, hit_rate=0.94

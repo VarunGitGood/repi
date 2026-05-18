@@ -1,0 +1,79 @@
+{
+  "query": "why are users getting 401 errors last monday morning",
+  "expected_clarification": {
+    "should_clarify": false,
+    "missing_dims": [],
+    "rationale": "'last monday morning' is unambiguous — pins to last Monday 06:00-12:00.",
+    "acceptable_user_reply": null
+  },
+  "expected_answer": {
+    "incident_window": {
+      "start_approx": "ANCHOR_DATE T09:15:00Z",
+      "end_approx":   "ANCHOR_DATE T09:45:00Z"
+    },
+    "affected_services": ["auth-svc", "verification-svc", "api-gateway", "billing-svc"],
+    "trigger_event": {
+      "service": "auth-svc",
+      "timestamp_approx": "ANCHOR_DATE T09:15:02Z",
+      "log_line_must_contain_one_of": [
+        "JWT key rotation triggered",
+        "Active signing key changed",
+        "Public key push to verification-svc timed out",
+        "Generated new RSA-256 signing key",
+        "key_id=k-2026-05"
+      ]
+    },
+    "propagation_chain_must_include_in_order": [
+      {"service": "auth-svc",          "ts_approx": "ANCHOR_DATE T09:15:02Z", "what_must_mention": "key rotation / k-2026-05 / push timed out"},
+      {"service": "verification-svc",  "ts_approx": "ANCHOR_DATE T09:15:30Z", "what_must_mention": "unknown key_id=k-2026-05"},
+      {"service": "api-gateway",       "ts_approx": "ANCHOR_DATE T09:15:35Z", "what_must_mention": "401"},
+      {"service": "billing-svc",       "ts_approx": "ANCHOR_DATE T09:15:42Z", "what_must_mention": "401 / checkout failed"}
+    ],
+    "root_cause_must_mention": [
+      "JWT",
+      "key rotation",
+      "k-2026-05",
+      "verification-svc",
+      "public key"
+    ],
+    "root_cause_must_NOT_assert_as_root_cause": [
+      "cache-svc eviction",
+      "memory pressure",
+      "user-svc slow query",
+      "billing-svc",
+      "api-gateway"
+    ],
+    "ruled_out_hypotheses_must_include": [
+      {
+        "hypothesis_about": "user-svc",
+        "rationale": "user-svc had a slow query warning at 09:15:10 that coincides with the incident window but is a read-path anomaly on a separate service with no connection to JWT verification. No auth-related errors in user-svc."
+      },
+      {
+        "hypothesis_about": "cache-svc",
+        "rationale": "cache-svc had an eviction spike starting at 09:14 that predates and has no causal link to the 401 errors. The JWT verification path does not depend on cache-svc."
+      }
+    ],
+    "assumptions_must_echo": [
+      "'this morning' interpreted as ANCHOR_DATE 09:00–10:00 UTC (or user-local)"
+    ],
+    "confidence": "high",
+    "gaps_must_be_empty_or_minor": true
+  },
+  "common_failure_modes_to_grade_against": [
+    "Names api-gateway or billing-svc as root cause — these are downstream symptoms.",
+    "Includes cache-svc in affected_services based on coincidental eviction spike.",
+    "Includes user-svc in affected_services based on coincidental slow query warning.",
+    "Misses auth-svc entirely because it has no ERROR-level logs — only INFO/WARNING.",
+    "Fails to identify the push-failure WARNING in auth-svc as the mechanism linking rotation to 401s.",
+    "Returns auth-svc rotation alone as root cause without noting the failed push is the critical gap.",
+    "Skips ruled_out_hypotheses or doesn't address cache-svc and user-svc specifically.",
+    "Hallucinates chunk_ids that weren't in the evidence pool."
+  ],
+  "what_this_dataset_tests": [
+    "Heavy noise filtering: >70% of log lines are routine health checks, metrics, and unrelated operations.",
+    "INFO-level trigger: the root cause event (key rotation + push failure) is WARNING/INFO, not ERROR.",
+    "Red herring elimination: cache-svc eviction spike and user-svc slow query both coincide temporally but are causally unrelated.",
+    "Push-failure attribution: identifying the WARNING about failed push as the mechanism connecting rotation to downstream 401s.",
+    "Temporal grounding: 'this morning' must resolve to last Monday morning."
+  ]
+}

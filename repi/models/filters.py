@@ -6,6 +6,6 @@ from datetime import datetime
 class RetrievalFilters:
     source_service: str | None = None
     source_env: str | None = None
-    log_level: str | None = None
+    log_level: str | list[str] | None = None
     time_from: datetime | None = None
     time_to: datetime | None = None

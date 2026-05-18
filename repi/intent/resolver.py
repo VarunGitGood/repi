@@ -132,6 +132,32 @@ def resolve(
             time_from = dh.local_to_utc(candidate)
             time_to = dh.local_to_utc(now_local)
 
+    # this morning / this afternoon / this evening / tonight
+    # Resolves to today's window for that part-of-day (capped at now).
+    if time_from is None:
+        today_phrases = [
+            ("this morning",   (6, 12)),
+            ("this afternoon", (12, 18)),
+            ("this evening",   (18, 22)),
+            ("tonight",        (22, 30)),  # 30 means next-day 06:00
+        ]
+        for phrase, (start_h, end_h) in today_phrases:
+            if re.search(rf"\b{re.escape(phrase)}\b", q):
+                today_midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+                start = today_midnight.replace(hour=start_h)
+                if end_h > 24:
+                    end = (today_midnight + timedelta(days=1)).replace(hour=end_h - 24)
+                else:
+                    end = today_midnight.replace(hour=end_h)
+                end = min(end, now_local)  # cap at now if we're inside the window
+                time_from = dh.local_to_utc(start)
+                time_to = dh.local_to_utc(end)
+                assumed.append(
+                    f"'{phrase}' interpreted as {time_from.strftime('%Y-%m-%d %H:%M')} – "
+                    f"{time_to.strftime('%Y-%m-%d %H:%M')} UTC"
+                )
+                break
+
     # last night
     if time_from is None and re.search(r"\blast\s+night\b", q):
         yesterday = now_local - timedelta(days=1)

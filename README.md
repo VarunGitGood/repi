@@ -17,39 +17,34 @@ repi/
 worker.py           # Background file watcher — polls watcher_configs, ingests new log bytes
 ```
 
-## Quick Start
+## Local development (contributors)
 
-### 1. Start infrastructure
+Flow for hacking on repi from a fresh clone. End users who `pipx install repi` (once D1 lands) call the same commands without the `uv run` prefix — see `/repi/docs` for the install-and-run path.
 
-```bash
-docker-compose up -d db redis
-```
-
-### 2. Install dependencies
+**Prerequisites:** Docker, Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js (for the web UI).
 
 ```bash
-uv sync
+uv sync                                 # resolve lockfile into .venv
+uv run repi init --with-docker          # db + redis up, prompts provider/key, writes .repi/config.json, applies schema
+uv run repi serve                       # terminal 1: API on :8000
+uv run repi ui                          # terminal 2: web UI on :3000
+uv run repi stop                        # when done: tear down docker stack
 ```
 
-### 3. Configure environment
+### Configuration
 
-Create a `.env` file:
+repi has **one source of truth**: `.repi/config.json`. It's created by `repi init` and mutated by the web UI's Config page (`PUT /config`). The file is gitignored.
 
-```env
-DATABASE_URL=postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg
-LLM_PROVIDER=anthropic          # openai | anthropic | mistral | gemini | ollama
-ANTHROPIC_API_KEY=sk-ant-...    # or OPENAI_API_KEY / MISTRAL_API_KEY / GEMINI_API_KEY
-```
+Three ways to edit it, in order of convenience:
+1. **Web UI** — visit the Config page; changes save immediately and the API hot-reloads them.
+2. **Re-run `repi init --force`** — re-prompts for provider + key and rewrites the file.
+3. **Edit the JSON directly** — `.repi/config.json` is plain JSON; restart the API after editing.
 
-### 4. Start the API
+Shell env vars (e.g. `REPI_ENV=development uv run repi serve`) override values from `config.json` at runtime — handy for one-off commands or CI.
 
-Migrations run automatically on startup.
+`REPI_ENV` defaults to `production`. Flip to `development` in `.repi/config.json` (or via the UI) for verbose logs + `--reload`.
 
-```bash
-make serve
-# → http://localhost:8000
-# → http://localhost:8000/docs  (Swagger UI)
-```
+> **Coming from an older checkout?** If you have a legacy `config.json` at the repo root, move it: `mkdir -p .repi && mv config.json .repi/config.json`. The root `config.json` is no longer read.
 
 ## Usage
 
@@ -100,7 +95,8 @@ The worker polls `watcher_configs` every 30s (`WATCHER_CONFIG_REFRESH_SECS`) and
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/lograg` | PostgreSQL asyncpg URL |
+| `REPI_ENV` | `production` | `production` \| `development`. Production = quiet logs, no auto-reload. |
+| `DATABASE_URL` | `postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg` | PostgreSQL asyncpg URL |
 | `LLM_PROVIDER` | `openai` | `openai` \| `anthropic` \| `mistral` \| `gemini` \| `ollama` |
 | `LLM_MODEL` | provider default | Override model name |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / … | — | Provider API key |
@@ -108,6 +104,7 @@ The worker polls `watcher_configs` every 30s (`WATCHER_CONFIG_REFRESH_SECS`) and
 | `ENABLE_REDIS_CACHE` | `true` | Set `false` to disable Redis |
 | `TIME_WINDOW_INITIAL_MINUTES` | `10` | First search window for investigation |
 | `TIME_WINDOW_EXPANSIONS` | `60,360,1440` | Progressive window expansion (minutes) |
+| `UI_PORT` | `3000` | Port the web UI binds to (read by `repi ui`) |
 | `WATCHER_CONFIG_REFRESH_SECS` | `30` | How often the worker polls for config changes |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint |
 

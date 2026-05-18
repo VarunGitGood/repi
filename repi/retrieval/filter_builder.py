@@ -16,7 +16,14 @@ def build_filter_expressions(filters: RetrievalFilters) -> list[Any]:
         exprs.append(LogChunk.source_env == filters.source_env)
 
     if filters.log_level:
-        exprs.append(LogChunk.log_level == filters.log_level)
+        if isinstance(filters.log_level, (list, tuple, set)):
+            levels = [str(lvl).upper() for lvl in filters.log_level if lvl]
+            if len(levels) == 1:
+                exprs.append(LogChunk.log_level == levels[0])
+            elif len(levels) > 1:
+                exprs.append(LogChunk.log_level.in_(levels))
+        else:
+            exprs.append(LogChunk.log_level == str(filters.log_level).upper())
 
     if filters.time_from:
         exprs.append(LogChunk.timestamp_start >= DateHandler.to_utc_naive(filters.time_from))
