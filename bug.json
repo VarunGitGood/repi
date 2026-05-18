@@ -1,0 +1,34 @@
+{
+  "total": 2,
+  "bugs": [
+    {
+      "dataset": "dataset_1",
+      "severity": "medium",
+      "check": "trigger_log_line",
+      "expected": "contains 'migration'",
+      "got": "Failed to insert SKU sku_8821: null value in column \"warehouse_id\" violates not-null constraint",
+      "description": "Trigger log line must mention 'migration'."
+    },
+    {
+      "dataset": "dataset_3",
+      "severity": "medium",
+      "check": "propagation_chain_coverage",
+      "expected": "includes api-gateway",
+      "got": [
+        {
+          "ts": "2026-05-11T09:15:30",
+          "service": "verification-svc",
+          "what": "JWT signature verification failed: unknown key_id=k-2026-05 (caller=api-gateway)",
+          "chunk_id": "8eb98f6e-c81b-4130-8543-f2ca4c8f2a40"
+        },
+        {
+          "ts": "2026-05-11T09:15:42",
+          "service": "billing-svc",
+          "what": "Checkout failed: order_id=ord_78816, reason=upstream 401 Unauthorized (user_id=u_48909)",
+          "chunk_id": "26ebee4a-1ee1-4d53-8d11-4b90a2f6f493"
+        }
+      ],
+      "description": "propagation_chain must include api-gateway."
+    }
+  ]
+}

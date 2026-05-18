@@ -2,7 +2,7 @@ import json
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from repi.core.config import settings, CONFIG_PATH
+from repi.core.config import settings, CONFIG_PATH, CONFIG_DIR
 
 logger = logging.getLogger("repi.api.config")
 
@@ -20,6 +20,7 @@ async def update_config(new_config: dict):
         from repi.core.config import Settings
         validated = Settings(**new_config)
 
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_PATH, "w") as f:
             json.dump(validated.model_dump(), f, indent=2)
 

@@ -4,7 +4,7 @@
     "should_clarify": true,
     "missing_dims": ["time"],
     "rationale": "'nightly report' implies a recurring job, but no specific date is given. Resolver should ask which night.",
-    "acceptable_user_reply": "last night, around 3am"
+    "acceptable_user_reply": "last thursday around 3am"
   },
   "expected_answer": {
     "incident_window": {

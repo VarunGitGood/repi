@@ -1,0 +1,109 @@
+2026-05-04T09:00:00Z [INFO] api-gateway started, version 8.4.1
+2026-05-04T09:00:00Z [INFO] Upstream auth=http://auth-svc:8080 verify=http://verification-svc:9090 upstream-timeout=5s
+2026-05-04T09:00:14Z [INFO] GET /health 200 2ms
+2026-05-04T09:00:22Z [INFO] POST /api/v1/session 200 45ms
+2026-05-04T09:00:38Z [INFO] GET /api/v1/products 200 12ms
+2026-05-04T09:00:44Z [INFO] GET /api/v1/products/1842 200 8ms
+2026-05-04T09:01:01Z [INFO] POST /api/v1/cart 200 22ms
+2026-05-04T09:01:14Z [INFO] GET /api/v1/users/profile 200 15ms
+2026-05-04T09:01:28Z [INFO] GET /api/v1/products 304 4ms
+2026-05-04T09:01:39Z [INFO] POST /api/v1/checkout/init 200 38ms
+2026-05-04T09:01:52Z [INFO] GET /api/v1/products/9903 404 3ms
+2026-05-04T09:02:07Z [INFO] GET /health 200 1ms
+2026-05-04T09:02:15Z [INFO] GET /api/v1/users/profile 200 13ms
+2026-05-04T09:02:31Z [INFO] POST /api/v1/cart 200 19ms
+2026-05-04T09:02:48Z [INFO] GET /api/v1/products 200 11ms
+2026-05-04T09:03:04Z [INFO] POST /api/v1/session 200 42ms
+2026-05-04T09:03:19Z [INFO] GET /api/v1/cart/55812 200 17ms
+2026-05-04T09:03:33Z [INFO] POST /api/v1/checkout/init 200 31ms
+2026-05-04T09:03:47Z [INFO] GET /api/v1/products 304 3ms
+2026-05-04T09:04:02Z [INFO] GET /health 200 2ms
+2026-05-04T09:04:11Z [INFO] GET /api/v1/users/settings 200 9ms
+2026-05-04T09:04:28Z [INFO] POST /api/v1/cart 200 21ms
+2026-05-04T09:04:44Z [INFO] GET /api/v1/products/2071 200 7ms
+2026-05-04T09:05:01Z [INFO] GET /api/v1/orders 200 14ms
+2026-05-04T09:05:15Z [INFO] POST /api/v1/session 200 39ms
+2026-05-04T09:05:31Z [INFO] GET /api/v1/products 304 5ms
+2026-05-04T09:05:48Z [INFO] POST /api/v1/checkout/init 200 28ms
+2026-05-04T09:06:02Z [INFO] GET /health 200 1ms
+2026-05-04T09:06:14Z [INFO] GET /api/v1/users/profile 200 12ms
+2026-05-04T09:06:29Z [INFO] POST /api/v1/cart 200 18ms
+2026-05-04T09:07:01Z [INFO] GET /api/v1/products 200 10ms
+2026-05-04T09:07:18Z [INFO] GET /api/v1/orders/87441 200 16ms
+2026-05-04T09:07:35Z [INFO] POST /api/v1/session 200 44ms
+2026-05-04T09:07:51Z [INFO] GET /api/v1/products/3814 404 3ms
+2026-05-04T09:08:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:08:19Z [INFO] POST /api/v1/checkout/init 200 33ms
+2026-05-04T09:08:34Z [INFO] GET /api/v1/users/profile 200 11ms
+2026-05-04T09:08:48Z [INFO] POST /api/v1/cart 200 20ms
+2026-05-04T09:09:04Z [INFO] GET /api/v1/products 304 4ms
+2026-05-04T09:09:21Z [INFO] GET /api/v1/orders 200 13ms
+2026-05-04T09:09:38Z [INFO] POST /api/v1/session 200 41ms
+2026-05-04T09:10:01Z [INFO] GET /health 200 1ms
+2026-05-04T09:10:14Z [INFO] GET /api/v1/users/settings 200 8ms
+2026-05-04T09:10:31Z [INFO] POST /api/v1/cart 200 22ms
+2026-05-04T09:10:48Z [INFO] GET /api/v1/products 200 9ms
+2026-05-04T09:11:04Z [INFO] POST /api/v1/checkout/init 200 30ms
+2026-05-04T09:11:20Z [INFO] GET /api/v1/users/profile 200 14ms
+2026-05-04T09:11:37Z [INFO] GET /api/v1/products/5502 200 7ms
+2026-05-04T09:11:54Z [INFO] POST /api/v1/session 200 43ms
+2026-05-04T09:12:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:12:18Z [INFO] POST /api/v1/cart 200 19ms
+2026-05-04T09:12:34Z [INFO] GET /api/v1/orders 200 15ms
+2026-05-04T09:12:51Z [INFO] GET /api/v1/products 304 3ms
+2026-05-04T09:13:05Z [INFO] POST /api/v1/checkout/init 200 27ms
+2026-05-04T09:13:22Z [INFO] GET /api/v1/users/profile 200 11ms
+2026-05-04T09:13:38Z [INFO] POST /api/v1/session 200 40ms
+2026-05-04T09:13:55Z [INFO] GET /api/v1/products 200 10ms
+2026-05-04T09:14:04Z [INFO] GET /health 200 1ms
+2026-05-04T09:14:11Z [INFO] POST /api/v1/cart 200 21ms
+2026-05-04T09:14:28Z [INFO] GET /api/v1/products/7821 200 8ms
+2026-05-04T09:14:44Z [INFO] GET /api/v1/orders/88102 200 13ms
+2026-05-04T09:15:01Z [INFO] POST /api/v1/session 200 38ms
+2026-05-04T09:15:14Z [INFO] POST /api/v1/cart 200 20ms
+2026-05-04T09:15:31Z [INFO] GET /api/v1/products 200 9ms
+2026-05-04T09:15:35Z [WARNING] GET /api/v1/users/profile 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:15:38Z [WARNING] POST /api/v1/checkout/init 401 2ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:15:41Z [INFO] GET /api/v1/products 304 4ms
+2026-05-04T09:15:44Z [WARNING] GET /api/v1/orders 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:15:48Z [INFO] POST /api/v1/session 200 41ms
+2026-05-04T09:15:52Z [WARNING] GET /api/v1/cart/56001 401 2ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:16:01Z [INFO] GET /health 200 1ms
+2026-05-04T09:16:04Z [INFO] GET /api/v1/products 200 10ms
+2026-05-04T09:16:08Z [WARNING] POST /api/v1/checkout/init 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:16:12Z [INFO] POST /api/v1/session 200 39ms
+2026-05-04T09:16:16Z [WARNING] GET /api/v1/users/profile 401 2ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:16:21Z [INFO] GET /api/v1/products 304 5ms
+2026-05-04T09:16:25Z [WARNING] POST /api/v1/cart 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:16:29Z [WARNING] GET /api/v1/orders 401 2ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:16:33Z [INFO] GET /api/v1/products/9021 200 8ms
+2026-05-04T09:18:01Z [INFO] GET /health 200 2ms
+2026-05-04T09:18:14Z [WARNING] POST /api/v1/checkout/init 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:18:28Z [INFO] GET /api/v1/products 200 9ms
+2026-05-04T09:18:41Z [WARNING] GET /api/v1/users/profile 401 2ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:20:04Z [INFO] GET /health 200 1ms
+2026-05-04T09:20:17Z [WARNING] POST /api/v1/cart 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:20:31Z [INFO] GET /api/v1/products 304 4ms
+2026-05-04T09:22:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:22:18Z [WARNING] GET /api/v1/orders 401 2ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:24:04Z [INFO] GET /health 200 1ms
+2026-05-04T09:24:18Z [WARNING] POST /api/v1/checkout/init 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:26:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:26:18Z [WARNING] GET /api/v1/users/profile 401 2ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:28:04Z [INFO] GET /health 200 1ms
+2026-05-04T09:28:18Z [WARNING] POST /api/v1/cart 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:30:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:30:18Z [WARNING] POST /api/v1/checkout/init 401 3ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:32:04Z [INFO] GET /health 200 1ms
+2026-05-04T09:32:18Z [WARNING] GET /api/v1/users/profile 401 2ms (verify: unknown key_id=k-2026-05)
+2026-05-04T09:34:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:36:04Z [INFO] GET /health 200 1ms
+2026-05-04T09:38:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:40:04Z [INFO] GET /health 200 1ms
+2026-05-04T09:42:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:44:04Z [INFO] GET /health 200 1ms
+2026-05-04T09:45:10Z [INFO] POST /api/v1/checkout/init 200 31ms
+2026-05-04T09:45:14Z [INFO] GET /api/v1/users/profile 200 12ms
+2026-05-04T09:45:21Z [INFO] POST /api/v1/cart 200 19ms
+2026-05-04T09:46:04Z [INFO] GET /health 200 2ms
+2026-05-04T09:46:18Z [INFO] POST /api/v1/session 200 40ms

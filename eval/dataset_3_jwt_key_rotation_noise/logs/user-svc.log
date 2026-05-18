@@ -1,0 +1,68 @@
+2026-05-04T09:00:00Z [INFO] user-svc started, version 6.2.0
+2026-05-04T09:00:00Z [INFO] Database pool initialized (max=30, idle=10)
+2026-05-04T09:00:00Z [INFO] Session store connected: redis://cache-svc:6379
+2026-05-04T09:01:00Z [INFO] Health check ok
+2026-05-04T09:01:00Z [INFO] Sessions active: 1847
+2026-05-04T09:02:12Z [INFO] GET /users/u_48821 profile read 6ms
+2026-05-04T09:02:44Z [INFO] PUT /users/u_48833 settings update 11ms
+2026-05-04T09:03:00Z [INFO] Health check ok
+2026-05-04T09:03:00Z [INFO] Sessions active: 1851
+2026-05-04T09:03:18Z [INFO] POST /users/u_48841 session create 15ms
+2026-05-04T09:04:02Z [INFO] GET /users/u_48849 profile read 7ms
+2026-05-04T09:04:39Z [INFO] PUT /users/u_48855 preferences update 12ms
+2026-05-04T09:05:00Z [INFO] Health check ok
+2026-05-04T09:05:00Z [INFO] Sessions active: 1848
+2026-05-04T09:05:14Z [INFO] GET /users/u_48861 profile read 5ms
+2026-05-04T09:05:48Z [INFO] POST /users/u_48872 session create 14ms
+2026-05-04T09:06:22Z [INFO] GET /users/u_48878 profile read 6ms
+2026-05-04T09:07:00Z [INFO] Health check ok
+2026-05-04T09:07:00Z [INFO] Sessions active: 1853
+2026-05-04T09:07:33Z [INFO] PUT /users/u_48890 settings update 9ms
+2026-05-04T09:08:07Z [INFO] GET /users/u_48896 profile read 7ms
+2026-05-04T09:08:44Z [INFO] POST /users/u_48902 session create 16ms
+2026-05-04T09:09:00Z [INFO] Health check ok
+2026-05-04T09:09:00Z [INFO] Sessions active: 1856
+2026-05-04T09:09:21Z [INFO] GET /users/u_48911 profile read 5ms
+2026-05-04T09:10:02Z [INFO] PUT /users/u_48917 preferences update 11ms
+2026-05-04T09:10:37Z [INFO] GET /users/u_48923 profile read 6ms
+2026-05-04T09:11:00Z [INFO] Health check ok
+2026-05-04T09:11:00Z [INFO] Sessions active: 1849
+2026-05-04T09:11:14Z [INFO] POST /users/u_48931 session create 13ms
+2026-05-04T09:11:52Z [INFO] GET /users/u_48937 profile read 7ms
+2026-05-04T09:12:29Z [INFO] PUT /users/u_48943 settings update 10ms
+2026-05-04T09:13:00Z [INFO] Health check ok
+2026-05-04T09:13:00Z [INFO] Sessions active: 1852
+2026-05-04T09:13:04Z [INFO] GET /users/u_48951 profile read 5ms
+2026-05-04T09:13:42Z [INFO] POST /users/u_48957 session create 17ms
+2026-05-04T09:14:19Z [INFO] GET /users/u_48963 profile read 6ms
+2026-05-04T09:15:00Z [INFO] Health check ok
+2026-05-04T09:15:00Z [INFO] Sessions active: 1854
+2026-05-04T09:15:10Z [WARNING] Slow query: GET /users/u_48971 profile read took 2847ms (p99=12ms) query_id=q_8821
+2026-05-04T09:15:11Z [INFO] GET /users/u_48977 profile read 6ms
+2026-05-04T09:15:48Z [INFO] PUT /users/u_48983 preferences update 9ms
+2026-05-04T09:16:24Z [INFO] GET /users/u_48991 profile read 7ms
+2026-05-04T09:17:00Z [INFO] Health check ok
+2026-05-04T09:17:00Z [INFO] Sessions active: 1850
+2026-05-04T09:17:02Z [INFO] DB query plan cache cleared (routine maintenance)
+2026-05-04T09:17:38Z [INFO] POST /users/u_48998 session create 14ms
+2026-05-04T09:18:14Z [INFO] GET /users/u_49004 profile read 5ms
+2026-05-04T09:19:00Z [INFO] Health check ok
+2026-05-04T09:19:00Z [INFO] Sessions active: 1848
+2026-05-04T09:20:02Z [INFO] GET /users/u_49011 profile read 6ms
+2026-05-04T09:21:00Z [INFO] Health check ok
+2026-05-04T09:21:00Z [INFO] Sessions active: 1853
+2026-05-04T09:22:44Z [INFO] PUT /users/u_49021 settings update 11ms
+2026-05-04T09:23:00Z [INFO] Health check ok
+2026-05-04T09:25:00Z [INFO] Health check ok
+2026-05-04T09:27:00Z [INFO] Health check ok
+2026-05-04T09:29:00Z [INFO] Health check ok
+2026-05-04T09:31:00Z [INFO] Health check ok
+2026-05-04T09:33:00Z [INFO] Health check ok
+2026-05-04T09:35:00Z [INFO] Health check ok
+2026-05-04T09:37:00Z [INFO] Health check ok
+2026-05-04T09:39:00Z [INFO] Health check ok
+2026-05-04T09:41:00Z [INFO] Health check ok
+2026-05-04T09:43:00Z [INFO] Health check ok
+2026-05-04T09:45:00Z [INFO] Health check ok
+2026-05-04T09:45:00Z [INFO] Sessions active: 1857
+2026-05-04T09:46:00Z [INFO] Health check ok

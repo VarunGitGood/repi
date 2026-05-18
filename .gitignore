@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+config.json
 
 # Python
 __pycache__/
@@ -26,7 +27,6 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
-
 
 # Local smoke tests / dev scripts
 scripts/

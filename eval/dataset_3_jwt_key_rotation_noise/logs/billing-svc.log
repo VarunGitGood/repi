@@ -1,0 +1,45 @@
+2026-05-04T09:00:00Z [INFO] billing-svc started, version 4.9.0
+2026-05-04T09:00:00Z [INFO] Payment processor configured: stripe
+2026-05-04T09:00:00Z [INFO] Webhook listener active on :8090
+2026-05-04T09:01:48Z [INFO] Charge succeeded: order_id=ord_78801, amount=5490, user_id=u_48812
+2026-05-04T09:02:33Z [INFO] Charge succeeded: order_id=ord_78802, amount=2280, user_id=u_48818
+2026-05-04T09:03:19Z [INFO] Refund processed: order_id=ord_78791, amount=5490, reason=customer_request
+2026-05-04T09:04:02Z [INFO] Charge succeeded: order_id=ord_78803, amount=8810, user_id=u_48825
+2026-05-04T09:04:44Z [INFO] Charge succeeded: order_id=ord_78804, amount=1490, user_id=u_48831
+2026-05-04T09:05:31Z [INFO] Health check ok
+2026-05-04T09:05:58Z [INFO] Charge succeeded: order_id=ord_78805, amount=3220, user_id=u_48839
+2026-05-04T09:06:41Z [INFO] Charge succeeded: order_id=ord_78806, amount=6780, user_id=u_48845
+2026-05-04T09:07:28Z [INFO] Charge succeeded: order_id=ord_78807, amount=2100, user_id=u_48851
+2026-05-04T09:08:12Z [INFO] Charge succeeded: order_id=ord_78808, amount=4450, user_id=u_48857
+2026-05-04T09:08:55Z [INFO] Webhook received: stripe/charge.succeeded order_id=ord_78809
+2026-05-04T09:09:38Z [INFO] Charge succeeded: order_id=ord_78809, amount=9180, user_id=u_48863
+2026-05-04T09:10:31Z [INFO] Health check ok
+2026-05-04T09:10:22Z [INFO] Charge succeeded: order_id=ord_78810, amount=3350, user_id=u_48871
+2026-05-04T09:11:09Z [INFO] Charge succeeded: order_id=ord_78811, amount=7670, user_id=u_48877
+2026-05-04T09:11:51Z [INFO] Charge succeeded: order_id=ord_78812, amount=2890, user_id=u_48883
+2026-05-04T09:12:34Z [INFO] Refund processed: order_id=ord_78799, amount=2280, reason=item_not_received
+2026-05-04T09:13:18Z [INFO] Charge succeeded: order_id=ord_78813, amount=5590, user_id=u_48891
+2026-05-04T09:14:01Z [INFO] Charge succeeded: order_id=ord_78814, amount=1890, user_id=u_48897
+2026-05-04T09:14:44Z [INFO] Charge succeeded: order_id=ord_78815, amount=4280, user_id=u_48903
+2026-05-04T09:15:31Z [INFO] Health check ok
+2026-05-04T09:15:42Z [ERROR] Checkout failed: order_id=ord_78816, reason=upstream 401 Unauthorized, user_id=u_48909
+2026-05-04T09:16:24Z [ERROR] Checkout failed: order_id=ord_78817, reason=upstream 401 Unauthorized, user_id=u_48915
+2026-05-04T09:17:08Z [ERROR] Checkout failed: order_id=ord_78818, reason=upstream 401 Unauthorized, user_id=u_48921
+2026-05-04T09:17:51Z [ERROR] Checkout failed: order_id=ord_78819, reason=upstream 401 Unauthorized, user_id=u_48927
+2026-05-04T09:18:34Z [ERROR] Checkout failed: order_id=ord_78820, reason=upstream 401 Unauthorized, user_id=u_48933
+2026-05-04T09:20:31Z [INFO] Health check ok
+2026-05-04T09:21:02Z [ERROR] Checkout failed: order_id=ord_78821, reason=upstream 401 Unauthorized, user_id=u_48941
+2026-05-04T09:23:48Z [ERROR] Checkout failed: order_id=ord_78822, reason=upstream 401 Unauthorized, user_id=u_48947
+2026-05-04T09:25:31Z [INFO] Health check ok
+2026-05-04T09:26:31Z [ERROR] Checkout failed: order_id=ord_78823, reason=upstream 401 Unauthorized, user_id=u_48953
+2026-05-04T09:29:15Z [ERROR] Checkout failed: order_id=ord_78824, reason=upstream 401 Unauthorized, user_id=u_48959
+2026-05-04T09:30:31Z [INFO] Health check ok
+2026-05-04T09:33:02Z [ERROR] Checkout failed: order_id=ord_78825, reason=upstream 401 Unauthorized, user_id=u_48965
+2026-05-04T09:36:48Z [ERROR] Checkout failed: order_id=ord_78826, reason=upstream 401 Unauthorized, user_id=u_48971
+2026-05-04T09:40:31Z [INFO] Health check ok
+2026-05-04T09:40:24Z [ERROR] Checkout failed: order_id=ord_78827, reason=upstream 401 Unauthorized, user_id=u_48977
+2026-05-04T09:43:11Z [ERROR] Checkout failed: order_id=ord_78828, reason=upstream 401 Unauthorized, user_id=u_48983
+2026-05-04T09:45:15Z [INFO] Charge succeeded: order_id=ord_78829, amount=6770, user_id=u_48989
+2026-05-04T09:45:31Z [INFO] Health check ok
+2026-05-04T09:45:58Z [INFO] Charge succeeded: order_id=ord_78830, amount=3180, user_id=u_48995
+2026-05-04T09:46:41Z [INFO] Charge succeeded: order_id=ord_78831, amount=5280, user_id=u_49001
