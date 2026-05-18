@@ -107,21 +107,27 @@ async def scan_window(
     services: list[str] | None = None,
     top_k: int = 50,
     pre_context_seconds: int = 60,
+    pre_context_per_service_limit: int = 20,
 ) -> dict:
     """
-    Two-phase scan: ERROR/WARNING symptoms + the INFO/WARNING walk-back that
-    typically contains the cause (migration, deploy, key rotation, config reload).
+    Two-phase scan: ERROR/WARNING symptoms + a level-agnostic walk-back that
+    captures the cause (migration, deploy, key rotation, config reload, etc.)
+    regardless of how it was logged.
 
     Phase 1 — symptoms. Returns per-service ERROR/WARNING counts (`summary`)
     and the matching log lines (`logs`) within [time_from, time_to].
 
-    Phase 2 — pre-context. For each service that emitted an ERROR in the window,
-    looks back `pre_context_seconds` seconds before that service's first ERROR
-    and returns the INFO/WARNING lines (`pre_context_logs`). This is almost
-    always where the trigger lives — INFO lines are otherwise filtered out and
-    the LLM would never see them.
+    Phase 2 — pre-context. For each service that emitted an ERROR in the
+    window, looks back `pre_context_seconds` seconds before that service's
+    first ERROR and returns any non-ERROR, non-DEBUG lines (`pre_context_logs`).
+    Levels are NOT filtered to INFO/WARNING — INFO, WARNING, NOTICE, CRITICAL,
+    FATAL, and any custom level are all candidates, because trigger events
+    don't follow a universal level convention. DEBUG is excluded as noise;
+    ERROR is excluded because phase 1 already covers it. Within each service,
+    only the `pre_context_per_service_limit` lines closest to the first ERROR
+    are returned (the rest are older, less likely to be the trigger).
 
-    Pass `pre_context_seconds=0` to disable the walk-back. See
+    Pass `pre_context_seconds=0` to disable the walk-back entirely. See
     docs/two-phase-scan.md for the design rationale.
     """
     time_from_dt = _parse_iso_timestamp(time_from)
@@ -198,7 +204,15 @@ async def scan_window(
         if r["first_error"] is not None
     ]
 
-    if pre_context_seconds > 0 and services_with_errors:
+    if pre_context_seconds > 0 and services_with_errors and pre_context_per_service_limit > 0:
+        # Level-agnostic walk-back. Trigger events (migrations, key rotations,
+        # deploys) don't follow a universal level convention — they show up as
+        # INFO in some shops, NOTICE/CRITICAL/FATAL in others, sometimes with
+        # no level at all. So we filter on *time proximity*, not level:
+        #   - exclude ERROR (phase 1 already has those)
+        #   - exclude DEBUG (too chatty to be useful here)
+        #   - cap per-service to the N lines closest to the first error
+        #     (DESC for the ROW_NUMBER ranking, then re-sort ASC for output)
         pre_context_sql = """
             WITH first_errors AS (
                 SELECT source_service, MIN(timestamp_start) AS first_error
@@ -207,14 +221,25 @@ async def scan_window(
                   AND log_level = 'ERROR'
                   AND source_service = ANY($3)
                 GROUP BY source_service
+            ),
+            candidates AS (
+                SELECT lc.chunk_id, lc.source_service, lc.log_level,
+                       lc.timestamp_start, lc.text,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY lc.source_service
+                           ORDER BY lc.timestamp_start DESC
+                       ) AS rn
+                FROM log_chunks lc
+                JOIN first_errors fe ON lc.source_service = fe.source_service
+                WHERE lc.timestamp_start >= fe.first_error - ($4 || ' seconds')::interval
+                  AND lc.timestamp_start <  fe.first_error
+                  AND lc.log_level IS DISTINCT FROM 'ERROR'
+                  AND lc.log_level IS DISTINCT FROM 'DEBUG'
             )
-            SELECT lc.chunk_id, lc.source_service, lc.log_level, lc.timestamp_start, lc.text
-            FROM log_chunks lc
-            JOIN first_errors fe ON lc.source_service = fe.source_service
-            WHERE lc.timestamp_start >= fe.first_error - ($4 || ' seconds')::interval
-              AND lc.timestamp_start <  fe.first_error
-              AND lc.log_level IN ('INFO', 'WARNING')
-            ORDER BY lc.source_service, lc.timestamp_start
+            SELECT chunk_id, source_service, log_level, timestamp_start, text
+            FROM candidates
+            WHERE rn <= $5
+            ORDER BY source_service, timestamp_start
         """
         pre_rows = await pool.fetch(
             pre_context_sql,
@@ -222,6 +247,7 @@ async def scan_window(
             time_to_dt,
             services_with_errors,
             str(pre_context_seconds),
+            pre_context_per_service_limit,
         )
         pre_context_logs = [
             {
@@ -319,20 +345,22 @@ TOOL_SCHEMAS = {
             "Two-phase scan over a time window. Returns:\n"
             " - 'summary': per-service ERROR/WARNING counts and first_error timestamp.\n"
             " - 'logs': ERROR/WARNING log lines inside [time_from, time_to] (the SYMPTOMS).\n"
-            " - 'pre_context_logs': INFO/WARNING lines from [first_error - pre_context_seconds, first_error)\n"
-            "   for each service that emitted an ERROR. This is where TRIGGER events typically live\n"
-            "   (migrations, deploys, key rotations, config reloads) — INFO lines are otherwise\n"
-            "   invisible to the symptom scan. ALWAYS inspect pre_context_logs before naming a\n"
-            "   trigger_event; the first ERROR is rarely the cause.\n"
+            " - 'pre_context_logs': any non-ERROR, non-DEBUG lines from\n"
+            "   [first_error - pre_context_seconds, first_error) for each service that emitted\n"
+            "   an ERROR. Level is NOT filtered to INFO/WARNING — INFO, WARNING, NOTICE,\n"
+            "   CRITICAL, FATAL, and custom levels are all candidates, because trigger events\n"
+            "   don't follow a universal level convention. ALWAYS inspect pre_context_logs\n"
+            "   before naming a trigger_event; the first ERROR is rarely the cause.\n"
             "Use this as your first call whenever investigating a new time window."
         ),
         "args": {
             "time_from": "ISO8601 string (required)",
             "time_to": "ISO8601 string (required)",
-            "level": "list[ERROR|WARNING|INFO|DEBUG] | null (default ['ERROR','WARNING'])",
+            "level": "list[ERROR|WARNING|INFO|DEBUG] | null (default ['ERROR','WARNING']) — phase 1 symptom filter",
             "services": "list[string] | null — filter to specific services, or null for all",
-            "top_k": "int (default 50)",
-            "pre_context_seconds": "int (default 60) — INFO/WARNING look-back window before each service's first ERROR; pass 0 to disable",
+            "top_k": "int (default 50) — phase 1 logs cap",
+            "pre_context_seconds": "int (default 60) — look-back window before each service's first ERROR; pass 0 to disable",
+            "pre_context_per_service_limit": "int (default 20) — keep at most N pre-context lines per service, ranked by proximity to the first ERROR",
         }
     },
     "get_service_summary": {
