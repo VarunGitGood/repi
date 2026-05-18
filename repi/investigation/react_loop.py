@@ -22,6 +22,30 @@ from repi.investigation.schema import InvestigationAnswer, validate_answer
 
 logger = logging.getLogger(__name__)
 
+
+# Reflection turn injected every N action steps. The LLM is asked to step back,
+# summarize hypotheses + evidence, and pick the highest-value next action.
+# Pure thought — no tool call expected on this turn.
+#
+# Deliberately does NOT invite early termination. An earlier draft included a
+# "give up and submit with low confidence if you want" bullet; in practice the
+# LLM read that as permission to bail after the first weak scan on noisy
+# datasets. Termination is now gated explicitly: only after multiple distinct
+# lines of inquiry have all returned no useful evidence.
+REFLECTION_PROMPT = (
+    "Stop. Before your next action, reflect:\n"
+    "1. What hypotheses have you considered so far?\n"
+    "2. What evidence supports or refutes each hypothesis?\n"
+    "3. What is the single highest-value next action — and why?\n"
+    "4. Termination check: ONLY if you have already pursued multiple distinct\n"
+    "   lines of inquiry (e.g. different time windows, different services,\n"
+    "   different log levels) AND each returned no useful evidence, you may\n"
+    "   submit with low confidence. Otherwise CONTINUE investigating — a\n"
+    "   single weak scan is not grounds for giving up.\n"
+    "Reply with JSON of the form {\"thought\": \"...\"} containing your reflection. "
+    "Do NOT issue a tool call on this turn."
+)
+
 def _strip_js_comments(text: str) -> str:
     """Remove /* block comments */ and // line comments from JSON-like text.
     Only strips // when it starts a line (after optional whitespace) to avoid
@@ -100,6 +124,9 @@ class InvestigationStep:
     action: Optional[Action] = None
     observation: Optional[Observation] = None
     timestamp: datetime = field(default_factory=_dh.now)
+    # `kind` classifies special turns. "reflection" = forced re-plan (no tool call);
+    # None = normal thought → action → observation step.
+    kind: Optional[str] = None
 
 @dataclass
 class InvestigationResult:
@@ -122,6 +149,8 @@ class ReactInvestigationLoop:
         store: Optional[InvestigationStore] = None,
         max_iterations: int = 10,
         min_iteration_delay: float = 2.0,
+        enable_reflection: bool = True,
+        reflection_interval: int = 3,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -130,7 +159,29 @@ class ReactInvestigationLoop:
         self.max_iterations = max_iterations
         self.min_iteration_delay = min_iteration_delay
         self.store = store
+        self.enable_reflection = enable_reflection
+        self.reflection_interval = reflection_interval
         self._llm_call_timestamps: list[float] = []
+
+    @staticmethod
+    def _ledger_key(tool_name: str, args: dict) -> str:
+        """Stable hash key for a tool call: name + JSON-with-sorted-keys.
+        Sorted keys means {"a":1,"b":2} and {"b":2,"a":1} dedupe identically."""
+        try:
+            normalized = json.dumps(args or {}, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            normalized = repr(args)
+        return f"{tool_name}::{normalized}"
+
+    @staticmethod
+    def _ledger_summary(ledger: dict[str, dict]) -> str:
+        """One-line-per-entry summary of every tool call already issued."""
+        if not ledger:
+            return ""
+        lines = []
+        for entry in ledger.values():
+            lines.append(f"- {entry['tool_name']}({json.dumps(entry['args'], default=str, sort_keys=True)})")
+        return "TOOLS ALREADY CALLED (do not repeat with identical args):\n" + "\n".join(lines)
 
     async def _wait_for_rate_limit(self):
         now = time.time()
@@ -144,14 +195,29 @@ class ReactInvestigationLoop:
         self._llm_call_timestamps.append(now)
 
     def _extract_chunks(self, tool_result: Any) -> list[dict]:
-        chunks = []
+        """Collect every dict-with-chunk_id from a tool result. Walks nested
+        list-valued fields (e.g. scan_window's `logs` and `pre_context_logs`)
+        so chunk-bearing observations get persisted as evidence regardless of
+        how the tool wraps its output."""
+        chunks: list[dict] = []
+        seen: set[str] = set()
+
+        def _maybe_append(item: Any) -> None:
+            if isinstance(item, dict):
+                cid = item.get("chunk_id")
+                if cid and cid not in seen:
+                    seen.add(cid)
+                    chunks.append(item)
+
         if isinstance(tool_result, list):
             for item in tool_result:
-                if isinstance(item, dict) and "chunk_id" in item:
-                    chunks.append(item)
+                _maybe_append(item)
         elif isinstance(tool_result, dict):
-            if "chunk_id" in tool_result:
-                chunks.append(tool_result)
+            _maybe_append(tool_result)
+            for value in tool_result.values():
+                if isinstance(value, list):
+                    for item in value:
+                        _maybe_append(item)
         return chunks
 
     async def investigate(
@@ -256,6 +322,11 @@ class ReactInvestigationLoop:
             resolved_intent = resolution
 
         # --- 2. AUTO SWEEP ---
+        # `tool_call_ledger` (issue #11) dedupes identical tool invocations across
+        # iterations: hash → {tool_name, args, result}. The summary is appended to
+        # the system message each turn so the LLM knows what's already been tried.
+        tool_call_ledger: dict[str, dict] = {}
+
         messages = [
             Message(role="system", content=self._build_system_prompt()),
             Message(role="user", content=query)
@@ -293,63 +364,180 @@ class ReactInvestigationLoop:
                     error=s.observation.get("error")
                 ))
             
-            step = InvestigationStep(s.step_number, thought, action, observation, s.created_at)
+            step = InvestigationStep(
+                s.step_number,
+                thought,
+                action,
+                observation,
+                s.created_at,
+                kind=getattr(s, "kind", None),
+            )
             processed_steps.append(step)
             
             llm_payload = {"thought": s.thought}
             if action:
                 llm_payload["action"] = {"tool": action.tool_call.name, "args": action.tool_call.args}
-            
+
             messages.append(Message(role="assistant", content=json.dumps(llm_payload)))
             if observation:
                 res = observation.tool_result.result if observation.tool_result.result is not None else {"error": observation.tool_result.error}
                 messages.append(Message(role="user", content=f"Observation:\n{json.dumps(res, default=str)}"))
-            
+
+            # Seed the ledger from replayed steps so dedupe survives resume.
+            if action and observation and observation.tool_result.result is not None:
+                ledger_key = self._ledger_key(action.tool_call.name, action.tool_call.args)
+                tool_call_ledger.setdefault(ledger_key, {
+                    "tool_name": action.tool_call.name,
+                    "args": action.tool_call.args,
+                    "result": observation.tool_result.result,
+                })
+
             start_at_iteration = max(start_at_iteration, s.step_number)
 
         final_answer_dict = {}
         validation_retries = 0
-        
+
+        # Count action steps since the last reflection so we can inject the
+        # forced re-plan every `reflection_interval` iterations. Replayed steps
+        # from a resumed investigation contribute to the count (reflections in
+        # the existing trace reset it) so resume doesn't immediately re-reflect.
+        action_steps_since_reflection = 0
+        for s in existing_steps:
+            if getattr(s, "kind", None) == "reflection":
+                action_steps_since_reflection = 0
+            else:
+                action_steps_since_reflection += 1
+
         for i in range(start_at_iteration, self.max_iterations):
             if i > start_at_iteration:
                 await asyncio.sleep(self.min_iteration_delay)
-            
+
+            # --- Reflection turn ------------------------------------------------
+            if (
+                self.enable_reflection
+                and self.reflection_interval > 0
+                and action_steps_since_reflection >= self.reflection_interval
+            ):
+                messages.append(Message(role="user", content=REFLECTION_PROMPT))
+                try:
+                    await self._wait_for_rate_limit()
+                    if self.store and investigation_obj:
+                        await self.store.increment_llm_calls(investigation_obj.id)
+                    raw_reflection = await self.llm.complete(messages)
+                except Exception as e:
+                    logger.error(f"Reflection iteration {i+1} failed: {e}")
+                    # Roll back the just-appended REFLECTION_PROMPT so the next
+                    # iteration doesn't see a dangling user turn with no assistant
+                    # reply — that would confuse the model on retry.
+                    if messages and messages[-1].content == REFLECTION_PROMPT:
+                        messages.pop()
+                    action_steps_since_reflection = 0
+                    continue
+
+                try:
+                    parsed_reflection = parse_llm_response(raw_reflection)
+                    reflection_thought = parsed_reflection.get("thought", "") or raw_reflection
+                except Exception:
+                    reflection_thought = raw_reflection
+
+                # The reflection prompt invites rich structured reasoning, so the
+                # LLM sometimes emits `thought` as a dict/list. The DB column is
+                # TEXT — coerce to a JSON string in that case.
+                if not isinstance(reflection_thought, str):
+                    try:
+                        reflection_thought = json.dumps(reflection_thought, default=str)
+                    except (TypeError, ValueError):
+                        reflection_thought = str(reflection_thought)
+
+                reflection_step = InvestigationStep(
+                    i + 1,
+                    Thought(reflection_thought),
+                    None,
+                    None,
+                    kind="reflection",
+                )
+                processed_steps.append(reflection_step)
+
+                if self.store and investigation_obj:
+                    await self.store.add_step(
+                        investigation_id=investigation_obj.id,
+                        step_number=i + 1,
+                        thought=reflection_thought,
+                        action=None,
+                        observation=None,
+                        kind="reflection",
+                    )
+
+                if on_step:
+                    await on_step(reflection_step)
+
+                # Keep the reflection in the rolling conversation so the next
+                # turn's action is anchored to the re-plan.
+                messages.append(Message(role="assistant", content=raw_reflection))
+
+                action_steps_since_reflection = 0
+                continue
+
             try:
                 await self._wait_for_rate_limit()
                 if self.store: await self.store.increment_llm_calls(investigation_obj.id)
-                
+
                 raw_response = await self.llm.complete(messages)
                 parsed = parse_llm_response(raw_response)
-                
-                thought = Thought(content=parsed.get("thought", ""))
+
+                _thought_raw = parsed.get("thought", "")
+                if not isinstance(_thought_raw, str):
+                    try:
+                        _thought_raw = json.dumps(_thought_raw, default=str)
+                    except (TypeError, ValueError):
+                        _thought_raw = str(_thought_raw)
+                thought = Thought(content=_thought_raw)
                 action = None
                 observation = None
                 
+                is_repeat_call = False
                 if "action" in parsed:
                     tool_name = parsed["action"].get("tool")
                     tool_args = parsed["action"].get("args", {})
-                    
+
                     if tool_name in ["Final Answer", "FinalAnswer", "submit", "finish", "submit_answer"]:
                         parsed["answer"] = tool_args
                     else:
                         action = Action(tool_call=ToolCall(name=tool_name, args=tool_args))
-                        
+
                         if tool_name in self.tools:
-                            try:
-                                result = await self.tools[tool_name](**tool_args)
+                            ledger_key = self._ledger_key(tool_name, tool_args)
+                            cached = tool_call_ledger.get(ledger_key)
+                            if cached is not None:
+                                # Repeat call — short-circuit without invoking the tool.
+                                is_repeat_call = True
                                 observation = Observation(tool_result=ToolResult(
                                     tool_name=tool_name,
                                     args=tool_args,
-                                    result=result
+                                    result=cached["result"],
                                 ))
-                                if self.store:
-                                    new_chunks = self._extract_chunks(result)
-                                    await self.store.add_chunks(investigation_obj.id, new_chunks)
-                            except Exception as e:
-                                logger.error(f"Tool failed: {e}")
-                                observation = Observation(tool_result=ToolResult(
-                                    tool_name=tool_name, args=tool_args, result=None, error=str(e)
-                                ))
+                                logger.info(f"Repeat tool call dedup'd: {tool_name}({tool_args})")
+                            else:
+                                try:
+                                    result = await self.tools[tool_name](**tool_args)
+                                    observation = Observation(tool_result=ToolResult(
+                                        tool_name=tool_name,
+                                        args=tool_args,
+                                        result=result
+                                    ))
+                                    tool_call_ledger[ledger_key] = {
+                                        "tool_name": tool_name,
+                                        "args": tool_args,
+                                        "result": result,
+                                    }
+                                    if self.store:
+                                        new_chunks = self._extract_chunks(result)
+                                        await self.store.add_chunks(investigation_obj.id, new_chunks)
+                                except Exception as e:
+                                    logger.error(f"Tool failed: {e}")
+                                    observation = Observation(tool_result=ToolResult(
+                                        tool_name=tool_name, args=tool_args, result=None, error=str(e)
+                                    ))
                         else:
                             observation = Observation(tool_result=ToolResult(
                                 tool_name=tool_name, args=tool_args, result=None, error=f"Unknown tool '{tool_name}'"
@@ -358,14 +546,16 @@ class ReactInvestigationLoop:
                 if action or thought.content:
                     step = InvestigationStep(i + 1, thought, action, observation)
                     processed_steps.append(step)
-                    
+                    action_steps_since_reflection += 1
+
                     if self.store:
                         await self.store.add_step(
                             investigation_id=investigation_obj.id,
                             step_number=i + 1,
                             thought=thought.content,
                             action=asdict(action.tool_call) if action else None,
-                            observation=asdict(observation.tool_result) if observation else None
+                            observation=asdict(observation.tool_result) if observation else None,
+                            kind=None,
                         )
 
                     if on_step: await on_step(step)
@@ -396,7 +586,16 @@ class ReactInvestigationLoop:
                 messages.append(Message(role="assistant", content=raw_response))
                 if observation and observation.tool_result:
                     res = observation.tool_result.result if observation.tool_result.result is not None else {"error": observation.tool_result.error}
-                    messages.append(Message(role="user", content=f"Observation:\n{json.dumps(res, default=str)}"))
+                    prefix = "(repeat call — returning cached result)\n" if is_repeat_call else ""
+                    messages.append(Message(role="user", content=f"{prefix}Observation:\n{json.dumps(res, default=str)}"))
+
+                # Refresh the system prompt with the current ledger so the next
+                # turn's LLM call sees an up-to-date "already tried" view.
+                if tool_call_ledger:
+                    messages[0] = Message(
+                        role="system",
+                        content=self._build_system_prompt() + "\n\n" + self._ledger_summary(tool_call_ledger),
+                    )
                 
             except Exception as e:
                 logger.error(f"Iteration {i+1} failed: {e}")

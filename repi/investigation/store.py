@@ -62,14 +62,16 @@ class InvestigationStore:
         step_number: int,
         thought: str,
         action: Optional[dict] = None,
-        observation: Optional[dict] = None
+        observation: Optional[dict] = None,
+        kind: Optional[str] = None,
     ) -> InvestigationStep:
         step = InvestigationStep(
             investigation_id=investigation_id,
             step_number=step_number,
             thought=thought,
             action=action,
-            observation=observation
+            observation=observation,
+            kind=kind,
         )
         self.session.add(step)
 
