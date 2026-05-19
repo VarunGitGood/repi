@@ -12,6 +12,7 @@ from repi.retrieval.pg_fts_retriever import PgFTSRetriever
 from repi.retrieval.rrf import RRFRetrievalService
 from repi.ingestion.log_ingestor import LogIngestor
 from repi.llm.factory import create_provider_from_env
+from repi.llm.provider import LLMProvider
 from repi.retrieval.query_expander import QueryExpander
 from repi.investigation.react_loop import ReactInvestigationLoop
 from repi.investigation.store import InvestigationStore
@@ -45,8 +46,45 @@ class Container:
         self.model = SentenceTransformer("all-MiniLM-L6-v2")
         self.known_services: list[str] = []
 
-        self.llm_provider = create_provider_from_env()
-        self.query_expander = QueryExpander(llm=self.llm_provider)
+        # LLM init is *lazy*: a fresh install has no API key, but the API still
+        # needs to boot so the user can POST /config. Routes that actually need
+        # the LLM call require_llm() and surface a 409 if it's still missing.
+        self.llm_provider: Optional[LLMProvider] = None
+        self.query_expander: Optional[QueryExpander] = None
+        self.llm_init_error: Optional[str] = None
+        self._init_llm()
+
+    def _init_llm(self) -> None:
+        try:
+            self.llm_provider = create_provider_from_env()
+            self.query_expander = QueryExpander(llm=self.llm_provider)
+            self.llm_init_error = None
+            logger.info(f"LLM provider initialized: {settings.LLM_PROVIDER}")
+        except Exception as e:
+            self.llm_provider = None
+            self.query_expander = None
+            self.llm_init_error = str(e)
+            logger.warning(
+                f"LLM provider not configured ({e}); investigation routes will "
+                "return 409 until POST /config supplies credentials."
+            )
+
+    def refresh_llm(self) -> None:
+        """Re-attempt LLM init after /config has been updated."""
+        self._init_llm()
+
+    def require_llm(self) -> "LLMProvider":
+        if self.llm_provider is None:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "LLM provider is not configured. "
+                    "POST /config with your provider + API key first. "
+                    f"(reason: {self.llm_init_error or 'no credentials'})"
+                ),
+            )
+        return self.llm_provider
 
     def embedding_func(self, texts: list[str]):
         return self.model.encode(texts, convert_to_numpy=True)
@@ -106,6 +144,7 @@ class Container:
 
     def get_investigation_loop(self, session: AsyncSession) -> ReactInvestigationLoop:
         """Create a ReAct loop with tools and persistence store."""
+        llm = self.require_llm()
         retrieval_service = self.get_retrieval_service(session)
         store = InvestigationStore(session)
 
@@ -141,7 +180,7 @@ class Container:
         }
         
         return ReactInvestigationLoop(
-            llm=self.llm_provider,
+            llm=llm,
             tools=tools,
             known_services=self.known_services,
             pool=self.pool,

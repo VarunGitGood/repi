@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from repi.core.config import settings, CONFIG_PATH, CONFIG_DIR
+from repi.core.container import get_container
 
 logger = logging.getLogger("repi.api.config")
 
@@ -25,7 +26,8 @@ async def update_config(new_config: dict):
             json.dump(validated.model_dump(), f, indent=2)
 
         settings.reload()
-        
+        get_container().refresh_llm()
+
         return {"status": "success", "message": "Configuration updated and reloaded"}
     except Exception as e:
         logger.error(f"Failed to update config: {e}")
