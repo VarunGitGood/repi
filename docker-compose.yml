@@ -22,42 +22,30 @@ services:
     ports:
       - "6379:6379"
 
-  # api:
-  #   build: .
-  #   container_name: repi-api
-  #   command: uv run uvicorn repi.api:app --host 0.0.0.0 --port 8000
-  #   ports:
-  #     - "8000:8000"
-  #   env_file: .env
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #   volumes:
-  #     - .:/app
-
-  # worker:
-  #   build: .
-  #   container_name: repi-worker
-  #   command: uv run python -m repi.worker
-  #   env_file: .env
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #   volumes:
-  #     - .:/app
-  #     - /var/log:/var/log:ro
-
-  # web:
-  #   build:
-  #     context: ./web
-  #     dockerfile: Dockerfile
-  #   container_name: repi-web
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     - NEXT_PUBLIC_API_URL=http://localhost:8000
-  #   depends_on:
-  #     - api
+  # repi API — opt in via `docker compose --profile all-in-one up`.
+  # Pulls the published image by default; build: . is a local fallback for
+  # users on a branch the workflow hasn't published yet.
+  api:
+    image: ${REPI_IMAGE:-ghcr.io/varungitgood/repi:latest}
+    build: .
+    container_name: repi-api
+    profiles: ["all-in-one"]
+    command: uvicorn repi.api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lograg_user:password_here@db:5432/lograg
+      REDIS_URL: redis://redis:6379
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
 volumes:
   postgres_data:
