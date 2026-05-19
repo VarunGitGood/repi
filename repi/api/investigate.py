@@ -67,6 +67,7 @@ async def investigate(request: InvestigateRequest):
     Start an autonomous log investigation (non-blocking).
     """
     container = get_container()
+    container.require_llm()  # 409 up front if no API key has been configured yet.
     async with container.get_session() as session:
         store = container.get_investigation_store(session)
         investigation = await store.get_or_create(request.query)
@@ -114,6 +115,11 @@ async def stream_investigation(investigation_id: str):
         uuid_obj = UUID(investigation_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid investigation ID format")
+
+    # 409 here is cheaper than failing mid-stream — once we enter the SSE
+    # generator the response status is already 200 and the client only learns
+    # something went wrong through an error event.
+    get_container().require_llm()
 
     async def event_generator():
         container = get_container()

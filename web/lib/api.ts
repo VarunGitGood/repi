@@ -1,4 +1,8 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Defaults to a same-origin `/api` prefix so the browser only needs to reach
+// the Next.js server; the server proxies `/api/*` to uvicorn (see
+// next.config.ts). Set NEXT_PUBLIC_API_URL at build time to point the browser
+// directly at a remote API host instead.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export async function fetchApi(path: string, options: RequestInit = {}) {
   const url = `${API_BASE}${path}`;
