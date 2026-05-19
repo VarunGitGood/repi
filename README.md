@@ -6,16 +6,36 @@ Log ingestion and LLM-based investigation engine. Ingests log files into Postgre
 
 ```
 repi/
+├── cli.py          # Typer CLI — lifecycle commands: init, serve, ui, stop
+├── worker.py       # Background file watcher — polls watcher_configs, ingests new log bytes
 ├── api/            # FastAPI — ingest, investigate, watchers, config endpoints
 ├── core/           # Settings (pydantic-settings), DI container, Redis cache
 ├── ingestion/      # Log parsing → signature clustering → embedding → upsert
 ├── retrieval/      # pgvector HNSW + PostgreSQL FTS, RRF fusion, query expansion
-├── investigation/  # ReAct loop, tools (search_logs, get_timeline, scan_window), evidence store
+├── investigation/  # ReAct loop, tools (search_logs, get_timeline, scan_window, get_service_summary), evidence store
 ├── llm/            # Provider protocol + adapters (OpenAI, Anthropic, Mistral, Gemini, Ollama)
 ├── intent/         # Natural-language query → service / time-window / log-level extraction
-└── models/         # SQLModel tables: log_chunks, investigations, watcher_configs, offsets
-worker.py           # Background file watcher — polls watcher_configs, ingests new log bytes
+└── models/         # SQLModel tables: log_chunks, investigations, investigation_steps, investigation_chunks, watcher_configs, watcher_offsets
 ```
+
+## Run with Docker (quickstart)
+
+Multi-arch images (linux/amd64 + linux/arm64) are published to GitHub Container Registry on every push to `main` and every tagged release.
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/varungitgood/repi:latest
+
+# One-shot help check
+docker run --rm ghcr.io/varungitgood/repi:latest --help
+
+# Full stack — Postgres + pgvector + Redis + repi API, all in one
+OPENAI_API_KEY=sk-... docker compose --profile all-in-one up
+```
+
+The `all-in-one` profile lives in `docker-compose.yml`. The API binds to `http://localhost:8000` and reads its provider key from your shell env (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, or `GEMINI_API_KEY`). Without `--profile all-in-one`, the compose file only brings up `db` + `redis` — the original behavior used by the local-dev flow below.
+
+Override the image tag (e.g. to pin a release) via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.1.0`.
 
 ## Local development (contributors)
 

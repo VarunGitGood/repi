@@ -81,17 +81,17 @@ const QUICKSTART_STEPS: Array<{
   {
     title: "Bootstrap",
     note: "Starts Postgres + Redis in Docker, prompts for an LLM provider and API key, writes .env, applies the schema. Idempotent — safe to re-run.",
-    code: "uv run repi init --with-docker",
+    code: "repi init --with-docker",
   },
   {
     title: "Start the API",
     note: "Runs on http://localhost:8000. Swagger UI at /docs.",
-    code: "uv run repi serve",
+    code: "repi serve",
   },
   {
     title: "Start the UI",
     note: "Runs on http://localhost:3000 (configurable via UI_PORT). Open this in a second terminal.",
-    code: "uv run repi ui",
+    code: "repi ui",
   },
 ]
 
@@ -250,7 +250,7 @@ export default function DocsPage() {
             <div className="absolute inset-0 bg-foreground/20 blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
             <div className="relative font-mono text-sm bg-muted/50 backdrop-blur-sm border border-foreground/5 px-6 py-3.5 rounded-2xl text-muted-foreground flex items-center gap-3">
               <span className="opacity-40 select-none">$</span>
-              uv run repi init --with-docker
+              repi init --with-docker
             </div>
           </div>
         </section>
@@ -340,7 +340,7 @@ export default function DocsPage() {
                   <h3 className="text-xl font-bold">Start the worker</h3>
                 </div>
                 <div className="rounded-2xl overflow-hidden border border-foreground/[0.03] shadow-lg shadow-foreground/[0.01]">
-                  <CodeBlock code="uv run python -m repi.worker" language="bash" />
+                  <CodeBlock code="python -m repi.worker" language="bash" />
                 </div>
               </div>
             </div>
@@ -407,7 +407,7 @@ export default function DocsPage() {
               <div className="absolute inset-0 bg-background/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative font-mono text-base bg-background/10 border border-background/20 px-8 py-4 rounded-2xl inline-block backdrop-blur-md">
                 <span className="opacity-40 mr-3 select-none">$</span>
-                uv run repi init --with-docker
+                repi init --with-docker
               </div>
             </div>
           </div>

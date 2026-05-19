@@ -23,6 +23,34 @@ app = typer.Typer(
 )
 console = Console()
 
+
+def _get_version() -> str:
+    """Resolve the installed package version, with a dev fallback."""
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+        return version("repi")
+    except Exception:
+        return "0.0.0+unknown"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(_get_version())
+        raise typer.Exit()
+
+
+@app.callback()
+def _root(
+    version: bool = typer.Option(
+        None,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Print the repi version and exit.",
+    ),
+) -> None:
+    """repi — log ingestion and LLM-based investigation engine."""
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_FILE = REPO_ROOT / "db" / "schema.sql"
 CONFIG_DIR = REPO_ROOT / ".repi"
@@ -477,6 +505,143 @@ def config_set(
 
     shown = "<hidden>" if _is_secret_field(key) else data[key]
     console.print(f"[green]Set {key} = {shown}.[/green] Restart `repi serve` to pick up changes.")
+
+
+async def _check_postgres(db_url: str) -> tuple[bool, str]:
+    try:
+        import asyncpg
+        conn = await asyncpg.connect(dsn=_to_psql_url(db_url), timeout=3)
+        try:
+            v = await conn.fetchval("SELECT version()")
+        finally:
+            await conn.close()
+        return True, str(v).split(",")[0] if v else "connected"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+async def _check_pgvector(db_url: str) -> tuple[bool, str]:
+    try:
+        import asyncpg
+        conn = await asyncpg.connect(dsn=_to_psql_url(db_url), timeout=3)
+        try:
+            row = await conn.fetchrow(
+                "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+            )
+        finally:
+            await conn.close()
+        if row is None:
+            return False, "extension not installed (run `CREATE EXTENSION vector`)"
+        return True, f"vector {row['extversion']}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+async def _check_redis(url: str) -> tuple[bool, str]:
+    try:
+        import redis.asyncio as redis_async
+        client = redis_async.from_url(url, socket_connect_timeout=3)
+        try:
+            pong = await client.ping()
+        finally:
+            await client.close()
+        return bool(pong), f"PING {'ok' if pong else 'failed'}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+def _check_llm_key(settings) -> tuple[bool, str]:
+    provider = (settings.LLM_PROVIDER or "").lower()
+    key_field_map = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "mistral": "MISTRAL_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+    }
+    if provider == "ollama":
+        return True, "ollama (no key required)"
+    field = key_field_map.get(provider)
+    if field is None:
+        return False, f"unknown provider '{provider}'"
+    val = getattr(settings, field, None) or getattr(settings, "LLM_API_KEY", None)
+    if not val:
+        return False, f"{field} not set"
+    masked = f"{val[:4]}…{val[-4:]}" if len(val) > 10 else "set"
+    return True, masked
+
+
+def _check_embedding() -> tuple[bool, str]:
+    try:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        vec = model.encode("ok")
+        return True, f"all-MiniLM-L6-v2, dim={len(vec)}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+@app.command()
+def doctor(
+    skip_embedding: bool = typer.Option(
+        False,
+        "--skip-embedding",
+        help="Skip the SentenceTransformer round-trip (faster, network-free).",
+    ),
+) -> None:
+    """Run health checks against Python, Postgres, pgvector, Redis, LLM key, and embeddings."""
+    from rich.table import Table
+    from repi.core.config import settings
+
+    checks: list[tuple[str, bool, str]] = []
+
+    py = sys.version_info
+    checks.append(
+        ("Python >= 3.11", py >= (3, 11), f"{py.major}.{py.minor}.{py.micro}")
+    )
+
+    if CONFIG_FILE.exists():
+        checks.append((".repi/config.json present", True, str(CONFIG_FILE.relative_to(REPO_ROOT))))
+    else:
+        checks.append(
+            (".repi/config.json present", False, "missing — run `repi init`")
+        )
+
+    db_url = _read_db_url()
+    pg_ok, pg_detail = asyncio.run(_check_postgres(db_url))
+    checks.append(("Postgres reachable", pg_ok, pg_detail))
+
+    if pg_ok:
+        v_ok, v_detail = asyncio.run(_check_pgvector(db_url))
+    else:
+        v_ok, v_detail = False, "skipped (Postgres unreachable)"
+    checks.append(("pgvector extension", v_ok, v_detail))
+
+    if settings.ENABLE_REDIS_CACHE:
+        r_ok, r_detail = asyncio.run(_check_redis(settings.REDIS_URL))
+        checks.append(("Redis reachable", r_ok, r_detail))
+    else:
+        checks.append(("Redis reachable", True, "disabled (ENABLE_REDIS_CACHE=false)"))
+
+    k_ok, k_detail = _check_llm_key(settings)
+    checks.append((f"LLM key ({settings.LLM_PROVIDER})", k_ok, k_detail))
+
+    if skip_embedding:
+        checks.append(("Embedding round-trip", True, "skipped (--skip-embedding)"))
+    else:
+        e_ok, e_detail = _check_embedding()
+        checks.append(("Embedding round-trip", e_ok, e_detail))
+
+    table = Table(title=f"repi doctor — v{_get_version()}", show_lines=False)
+    table.add_column("Check", style="bold")
+    table.add_column("Status", justify="center")
+    table.add_column("Detail", overflow="fold")
+    for name, ok, detail in checks:
+        status = "[green]PASS[/green]" if ok else "[red]FAIL[/red]"
+        table.add_row(name, status, detail)
+    console.print(table)
+
+    if not all(ok for _, ok, _ in checks):
+        raise typer.Exit(code=1)
 
 
 def main() -> None:
