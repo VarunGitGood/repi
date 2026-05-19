@@ -350,6 +350,163 @@ def ui(
         raise typer.Exit(code=result.returncode)
 
 
+config_app = typer.Typer(
+    name="config",
+    help="Inspect or modify the .repi/config.json file.",
+    no_args_is_help=False,
+    invoke_without_command=True,
+)
+app.add_typer(config_app, name="config")
+
+
+def _is_secret_field(field_name: str) -> bool:
+    return field_name.endswith("_API_KEY")
+
+
+def _mask_secret(value: str | None) -> str:
+    if not value:
+        return "<unset>"
+    s = str(value)
+    if len(s) <= 10:
+        return "***"
+    return f"{s[:4]}…{s[-4:]}"
+
+
+def _load_config_dict() -> dict:
+    if not CONFIG_FILE.exists():
+        return {}
+    try:
+        return json.loads(CONFIG_FILE.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        console.print(f"[yellow]Could not parse {CONFIG_FILE}: {e}. Starting from defaults.[/yellow]")
+        return {}
+
+
+def _write_validated_config(data: dict) -> None:
+    """Validate via Settings and write to CONFIG_FILE — same code path the web UI uses."""
+    from repi.core.config import Settings
+
+    validated = Settings(**data)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(validated.model_dump(), indent=2) + "\n")
+
+
+def _coerce_value(raw: str):
+    """Coerce a CLI-supplied string into bool/None/int — strings pass through."""
+    low = raw.lower()
+    if low in ("true", "false"):
+        return low == "true"
+    if low in ("none", "null", ""):
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
+@config_app.callback(invoke_without_command=True)
+def _config_root(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is not None:
+        return
+    _run_interactive_config()
+
+
+def _run_interactive_config() -> None:
+    from repi.core.config import Settings, get_settings
+
+    settings = get_settings()
+    current = settings.model_dump()
+    new_values: dict = dict(current)
+
+    rel = CONFIG_FILE.relative_to(REPO_ROOT) if CONFIG_FILE.is_relative_to(REPO_ROOT) else CONFIG_FILE
+    console.print(
+        f"[bold]Editing {rel}[/bold] — press Enter to keep the current value.\n"
+    )
+
+    for field_name, field_info in Settings.model_fields.items():
+        cur = current.get(field_name)
+        annotation = field_info.annotation
+
+        if _is_secret_field(field_name):
+            shown = _mask_secret(cur)
+            entered = typer.prompt(
+                f"{field_name} (current: {shown})",
+                default="",
+                show_default=False,
+                hide_input=True,
+            )
+            if entered:
+                new_values[field_name] = entered
+            continue
+
+        if annotation is bool:
+            new_values[field_name] = typer.confirm(field_name, default=bool(cur))
+            continue
+
+        default_val = "" if cur is None else cur
+        entered = typer.prompt(field_name, default=default_val, show_default=True)
+        if entered == "" and cur is None:
+            continue
+        new_values[field_name] = entered if entered != "" else None
+
+    try:
+        _write_validated_config(new_values)
+    except Exception as e:
+        console.print(f"[red]Validation failed:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]Wrote {rel}.[/green] Restart `repi serve` to pick up changes.")
+
+
+@config_app.command("get")
+def config_get(
+    key: str = typer.Argument(..., help="Field name (e.g. LLM_PROVIDER)."),
+    unmask: bool = typer.Option(False, "--unmask", help="Show secrets in plaintext."),
+) -> None:
+    """Print a single config value (masked for *_API_KEY unless --unmask)."""
+    from repi.core.config import Settings, get_settings
+
+    if key not in Settings.model_fields:
+        console.print(f"[red]Unknown key:[/red] {key}")
+        raise typer.Exit(code=1)
+
+    value = getattr(get_settings(), key, None)
+    if _is_secret_field(key) and not unmask:
+        value = _mask_secret(value)
+    console.print("<unset>" if value is None else str(value))
+
+
+@config_app.command("set")
+def config_set(
+    pair: str = typer.Argument(..., help="KEY=VALUE expression (e.g. LLM_PROVIDER=anthropic)."),
+) -> None:
+    """Set a single config value non-interactively."""
+    from repi.core.config import Settings
+
+    if "=" not in pair:
+        console.print("[red]Expected KEY=VALUE.[/red]")
+        raise typer.Exit(code=1)
+    key, _, raw = pair.partition("=")
+    key = key.strip()
+    raw = raw.strip()
+
+    if key not in Settings.model_fields:
+        console.print(f"[red]Unknown key:[/red] {key}")
+        raise typer.Exit(code=1)
+
+    data = _load_config_dict()
+    data[key] = _coerce_value(raw)
+
+    try:
+        _write_validated_config(data)
+    except Exception as e:
+        console.print(f"[red]Validation failed:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    shown = "<hidden>" if _is_secret_field(key) else data[key]
+    console.print(f"[green]Set {key} = {shown}.[/green] Restart `repi serve` to pick up changes.")
+
+
 async def _check_postgres(db_url: str) -> tuple[bool, str]:
     try:
         import asyncpg
