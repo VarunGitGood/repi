@@ -6,15 +6,16 @@ Log ingestion and LLM-based investigation engine. Ingests log files into Postgre
 
 ```
 repi/
+├── cli.py          # Typer CLI — lifecycle commands: init, serve, ui, stop
+├── worker.py       # Background file watcher — polls watcher_configs, ingests new log bytes
 ├── api/            # FastAPI — ingest, investigate, watchers, config endpoints
 ├── core/           # Settings (pydantic-settings), DI container, Redis cache
 ├── ingestion/      # Log parsing → signature clustering → embedding → upsert
 ├── retrieval/      # pgvector HNSW + PostgreSQL FTS, RRF fusion, query expansion
-├── investigation/  # ReAct loop, tools (search_logs, get_timeline, scan_window), evidence store
+├── investigation/  # ReAct loop, tools (search_logs, get_timeline, scan_window, get_service_summary), evidence store
 ├── llm/            # Provider protocol + adapters (OpenAI, Anthropic, Mistral, Gemini, Ollama)
 ├── intent/         # Natural-language query → service / time-window / log-level extraction
-└── models/         # SQLModel tables: log_chunks, investigations, watcher_configs, offsets
-worker.py           # Background file watcher — polls watcher_configs, ingests new log bytes
+└── models/         # SQLModel tables: log_chunks, investigations, investigation_steps, investigation_chunks, watcher_configs, watcher_offsets
 ```
 
 ## Run with Docker (quickstart)
