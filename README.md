@@ -17,6 +17,25 @@ repi/
 worker.py           # Background file watcher — polls watcher_configs, ingests new log bytes
 ```
 
+## Run with Docker (quickstart)
+
+Multi-arch images (linux/amd64 + linux/arm64) are published to GitHub Container Registry on every push to `main` and every tagged release.
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/varungitgood/repi:latest
+
+# One-shot help check
+docker run --rm ghcr.io/varungitgood/repi:latest --help
+
+# Full stack — Postgres + pgvector + Redis + repi API, all in one
+OPENAI_API_KEY=sk-... docker compose --profile all-in-one up
+```
+
+The `all-in-one` profile lives in `docker-compose.yml`. The API binds to `http://localhost:8000` and reads its provider key from your shell env (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, or `GEMINI_API_KEY`). Without `--profile all-in-one`, the compose file only brings up `db` + `redis` — the original behavior used by the local-dev flow below.
+
+Override the image tag (e.g. to pin a release) via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.1.0`.
+
 ## Local development (contributors)
 
 Flow for hacking on repi from a fresh clone. End users who `pipx install repi` (once D1 lands) call the same commands without the `uv run` prefix — see `/repi/docs` for the install-and-run path.
