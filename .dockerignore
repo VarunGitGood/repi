@@ -1,0 +1,36 @@
+.git
+.github
+.venv
+.worktrees
+.pytest_cache
+.repi
+.impact
+.env
+.env.*
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+
+# Source we don't need in the image
+tests/
+eval/
+docs/
+scripts/
+utils/
+web/
+lograg/
+
+# Local artefacts
+bug.json
+bug_baseline.json
+
+# Docs/meta the runtime doesn't need.
+# (README.md stays — hatchling references it during the package build.)
+CLAUDE.md
+LICENSE
+Makefile
+docker-compose.yml
+Dockerfile.*
