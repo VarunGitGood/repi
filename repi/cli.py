@@ -69,14 +69,14 @@ DEFAULT_REDIS_URL = "redis://localhost:6379"
 
 
 def _is_prod() -> bool:
-    # Shell env var wins (for one-off overrides / CI). Fall back to .repi/config.json.
-    env = os.environ.get("REPI_ENV")
-    if env is None:
-        try:
-            data = json.loads(CONFIG_FILE.read_text())
-            env = data.get("REPI_ENV", "production")
-        except (OSError, json.JSONDecodeError):
-            env = "production"
+    # .repi/config.json is the sole source. Read it directly here so the CLI
+    # doesn't depend on the Settings singleton being importable in every
+    # subcommand context.
+    try:
+        data = json.loads(CONFIG_FILE.read_text())
+        env = data.get("REPI_ENV", "production")
+    except (OSError, json.JSONDecodeError):
+        env = "production"
     return str(env).lower() != "development"
 
 

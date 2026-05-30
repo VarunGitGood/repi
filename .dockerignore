@@ -20,8 +20,13 @@ eval/
 docs/
 scripts/
 utils/
-web/
 lograg/
+
+# web/ IS shipped — only exclude its build/install artefacts so the web-builder
+# stage gets a clean install + build.
+web/node_modules
+web/.next
+web/.env.local
 
 # Local artefacts
 bug.json
