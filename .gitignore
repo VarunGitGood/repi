@@ -13,6 +13,8 @@ __pycache__/
 venv/
 ENV/
 
+docs 
+
 # Repi Data
 .repi/
 .impact/

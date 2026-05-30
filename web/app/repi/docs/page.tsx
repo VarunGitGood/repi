@@ -73,27 +73,27 @@ const QUICKSTART_STEPS: Array<{
   code: string
   language?: string
 }> = [
-  {
-    title: "Install dependencies",
-    note: "Resolves the lockfile into a local virtualenv via uv.",
-    code: "uv sync",
-  },
-  {
-    title: "Bootstrap",
-    note: "Starts Postgres + Redis in Docker, prompts for an LLM provider and API key, writes .repi/config.json, applies the schema. Idempotent — safe to re-run.",
-    code: "repi init --with-docker",
-  },
-  {
-    title: "Start the API",
-    note: "Runs on http://localhost:8000. Swagger UI at /docs.",
-    code: "repi serve",
-  },
-  {
-    title: "Start the UI",
-    note: "Runs on http://localhost:3000 (configurable via UI_PORT). Open this in a second terminal.",
-    code: "repi ui",
-  },
-]
+    {
+      title: "Install dependencies",
+      note: "Resolves the lockfile into a local virtualenv via uv.",
+      code: "uv sync",
+    },
+    {
+      title: "Bootstrap",
+      note: "Starts Postgres + Redis in Docker, prompts for an LLM provider and API key, writes .repi/config.json, applies the schema. Idempotent — safe to re-run.",
+      code: "repi init --with-docker",
+    },
+    {
+      title: "Start the API",
+      note: "Runs on http://localhost:8000. Swagger UI at /docs.",
+      code: "repi serve",
+    },
+    {
+      title: "Start the UI",
+      note: "Runs on http://localhost:3000 (configurable via UI_PORT). Open this in a second terminal.",
+      code: "repi ui",
+    },
+  ]
 
 const REGISTER_WATCHER_CODE = `curl -X POST http://localhost:8000/watchers \\
   -H "Content-Type: application/json" \\
@@ -202,7 +202,7 @@ export default function DocsPage() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <a
-              href="https://github.com/yourusername/repi"
+              href="https://github.com/VarunGitGood/repi"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="GitHub"
@@ -241,7 +241,7 @@ export default function DocsPage() {
               </Button>
             </a>
             <a
-              href="https://github.com/yourusername/repi"
+              href="https://github.com/VarunGitGood/repi"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -451,7 +451,7 @@ export default function DocsPage() {
                 <p className="font-bold text-xs uppercase tracking-widest mb-6 opacity-40">Connect</p>
                 <div className="flex gap-3">
                   <a
-                    href="https://github.com/yourusername"
+                    href="https://github.com/VarunGitGood"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hover:scale-110 transition-transform"
@@ -461,7 +461,7 @@ export default function DocsPage() {
                     </Button>
                   </a>
                   <a
-                    href="https://linkedin.com/in/yourusername"
+                    href="https://www.linkedin.com/in/varun-singh-018242224/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hover:scale-110 transition-transform"
@@ -471,7 +471,7 @@ export default function DocsPage() {
                     </Button>
                   </a>
                   <a
-                    href="https://yourusername.dev"
+                    href="https://vrun.vercel.app"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hover:scale-110 transition-transform"
@@ -486,14 +486,14 @@ export default function DocsPage() {
             <div className="pt-12 border-t border-foreground/[0.03] flex flex-col sm:flex-row justify-between items-center gap-6">
               <p className="text-sm text-muted-foreground font-medium">
                 © 2026 repi. Built by{" "}
-                <a href="https://yourusername.dev" className="text-foreground hover:underline underline-offset-4 font-bold">
+                <a href="https://vrun.vercel.app" className="text-foreground hover:underline underline-offset-4 font-bold">
                   Varun Singh
                 </a>
               </p>
               <div className="flex items-center gap-8 text-sm text-muted-foreground font-medium">
                 <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
                 <a href="#" className="hover:text-foreground transition-colors">Terms</a>
-                <a href="https://github.com/yourusername/repi" className="hover:text-foreground transition-colors flex items-center gap-2">
+                <a href="https://github.com/VarunGitGood/repi" className="hover:text-foreground transition-colors flex items-center gap-2">
                   <GithubIcon className="h-3.5 w-3.5" />
                   Star on GitHub
                 </a>
