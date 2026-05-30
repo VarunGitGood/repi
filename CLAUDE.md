@@ -19,10 +19,13 @@ The `repi/` directory is the active codebase. Legacy folders under `lograg/`, `s
 This project uses [`uv`](https://docs.astral.sh/uv/), not Poetry.
 
 ```bash
+# === Path 1a: contributor / local dev (run API + UI on host) ===
+
 # Install dependencies
 uv sync
 
-# First-time setup: brings up docker stack, prompts provider/key, writes .repi/config.json, applies schema
+# First-time setup: brings up docker stack (db + redis only),
+# prompts provider/key, writes .repi/config.json, applies schema
 uv run repi init --with-docker
 
 # Start the API (terminal 1) and web UI (terminal 2)
@@ -31,6 +34,15 @@ uv run repi ui
 
 # Tear down the docker stack when done
 uv run repi stop
+
+# === Path 1b: published image (everything in compose) ===
+
+# Brings up db + redis + app (backend + UI in one container) on first run.
+# Entrypoint seeds /app/.repi/config.json from a baked-in docker-aware default
+# into the `repi_config` named volume; user supplies the LLM key via the UI's
+# Config page (PUT /api/config), which persists across `down` (lost on `down -v`).
+docker compose up -d
+# → UI: http://localhost:3000  API: http://localhost:8000
 
 # Apply DB schema manually (rarely needed — `repi init` runs it)
 make migrate   # runs psql against db/schema.sql
@@ -69,8 +81,9 @@ repi/
 │   ├── watchers.py         # /watchers CRUD + /watchers/{id}/status
 │   └── config.py           # GET/PUT /config — reads/writes .repi/config.json
 ├── core/
-│   ├── config.py           # pydantic-settings (Settings class — reads .env + .repi/config.json)
-│   ├── container.py        # DI container — initializes db pool, cache, llm, retrieval
+│   ├── config.py           # pydantic-settings (Settings class — reads ONLY .repi/config.json;
+│   │                       # env-source disabled via settings_customise_sources)
+│   ├── container.py        # DI container — db pool, cache, lazy LLM init, lazy SentenceTransformer
 │   ├── cache.py            # Redis caching (degrades gracefully if unavailable)
 │   └── dates.py            # Date/time helpers
 ├── ingestion/
@@ -92,7 +105,7 @@ repi/
 │   └── store.py            # Persist investigation steps and evidence chunks
 ├── llm/
 │   ├── provider.py         # LLMProvider protocol + Message dataclass
-│   ├── factory.py          # Creates provider from LLM_PROVIDER env var
+│   ├── factory.py          # Creates provider from settings.LLM_PROVIDER (config.json)
 │   └── adapters.py         # OpenAI, Anthropic, Mistral, Gemini, Ollama implementations
 ├── intent/
 │   └── resolver.py         # Resolves natural-language query → service / time / level + clarification
@@ -115,16 +128,22 @@ repi/
 
 ## Configuration
 
-repi reads configuration from three places, with precedence shell env > `.repi/config.json` > defaults in `core/config.py`. `.repi/config.json` is the canonical file — created by `repi init`, mutated by the web UI Config page (`PUT /config`), and gitignored.
+`.repi/config.json` is the **sole** source. `Settings.settings_customise_sources` overrides pydantic-settings to drop env / dotenv / file-secret sources, so shell env vars and `.env` files are intentionally ignored — see `tests/test_config_isolation.py` for the invariant. Two ways the file gets populated:
+
+- **Path 1a**: `repi init` writes it on the host with localhost-aware URLs (prompts for provider + key).
+- **Path 1b**: the docker entrypoint seeds `/app/.repi/config.json` from `/app/config.docker.json` (docker-aware URLs, blank key) on first start. User adds the key via the UI's Config page.
+
+`PUT /api/config` is a **partial merge**, not a replace — it reads the existing file, applies the payload on top, then validates via `Settings(**merged)` and writes back. Without the merge, a partial payload like `{"MISTRAL_API_KEY": "sk-..."}` would clobber `DATABASE_URL` with the localhost class default and break the running container instantly. Strict REST nit: this is PATCH semantics under a PUT name; see TODO in `repi/api/config.py`.
 
 Required:
-- `DATABASE_URL` — PostgreSQL asyncpg URL (default: `postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg`)
-- `LLM_PROVIDER` — `openai` | `anthropic` | `mistral` | `gemini` | `ollama` (default: `openai`)
-- Provider API key — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`, or `LLM_API_KEY`
+- `DATABASE_URL` — PostgreSQL asyncpg URL (host default: `postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg`; docker default uses `db:5432`).
+- `LLM_PROVIDER` — `openai` | `anthropic` | `mistral` | `gemini` | `ollama` (default: `openai`).
+- Provider API key — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`, or `LLM_API_KEY`.
 
 Optional:
 - `REPI_ENV` — `production` (default) | `development`. Development enables verbose logs + `--reload`.
-- `REDIS_URL` — Redis (default: `redis://localhost:6379`); set `ENABLE_REDIS_CACHE=false` to disable.
+- `LOG_LEVEL` — `INFO` (default) | `DEBUG` | `WARNING` | `ERROR`.
+- `REDIS_URL` — Redis (host default: `redis://localhost:6379`; docker default: `redis://redis:6379`); set `ENABLE_REDIS_CACHE=false` to disable.
 - `LLM_MODEL` — Override default model per provider.
 - `TIME_WINDOW_INITIAL_MINUTES` — First search window (default: `10`).
 - `TIME_WINDOW_EXPANSIONS` — Progressive expansion windows in minutes (default: `"60,360,1440"`).
