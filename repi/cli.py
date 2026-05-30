@@ -115,7 +115,15 @@ def _to_psql_url(db_url: str) -> str:
 
 
 def _docker_compose_cmd() -> list[str] | None:
+    """Return the docker-compose command if available, else None.
+
+    Does NOT check whether the daemon is reachable — use _docker_daemon_up()
+    for that, so callers can give a different error message for daemon-down
+    vs CLI-missing.
+    """
     if shutil.which("docker") is None:
+        if shutil.which("docker-compose") is not None:
+            return ["docker-compose"]
         return None
     try:
         subprocess.run(
@@ -128,6 +136,21 @@ def _docker_compose_cmd() -> list[str] | None:
         if shutil.which("docker-compose"):
             return ["docker-compose"]
         return None
+
+
+def _docker_daemon_up(compose_cmd: list[str]) -> bool:
+    """True if the docker daemon answers — the CLI being present isn't enough."""
+    try:
+        # `docker info` exits non-zero if it can't reach the daemon. Same socket
+        # path the compose plugin uses, so this is a faithful probe.
+        result = subprocess.run(
+            [compose_cmd[0], "info"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
 
 
 async def _wait_for_postgres(db_url: str, timeout_s: int = 60) -> bool:
@@ -178,25 +201,69 @@ def init(
     force: bool = typer.Option(
         False, "--force", help="Overwrite an existing .repi/config.json."
     ),
+    provider_opt: str = typer.Option(
+        None,
+        "--provider",
+        help=f"Pre-select the LLM provider (one of: {', '.join(PROVIDERS)}). Skips the interactive prompt.",
+    ),
+    api_key_opt: str = typer.Option(
+        None,
+        "--api-key",
+        help="Pre-supply the provider API key. Skips the interactive prompt. Mutually exclusive with --api-key-stdin.",
+    ),
+    api_key_stdin: bool = typer.Option(
+        False,
+        "--api-key-stdin",
+        help="Read the provider API key from the first line of stdin. Useful for piping from a secrets manager.",
+    ),
 ) -> None:
-    """Bootstrap repi: write .repi/config.json, start infra, apply migrations."""
+    """Bootstrap repi: write .repi/config.json, start infra, apply migrations.
+
+    For unattended / CI use, supply `--provider` and one of `--api-key` /
+    `--api-key-stdin` to skip the prompts entirely:
+
+        repi init --provider mistral --api-key sk-... --with-docker
+        cat secret | repi init --provider mistral --api-key-stdin --with-docker
+    """
+    if api_key_opt is not None and api_key_stdin:
+        console.print("[red]--api-key and --api-key-stdin are mutually exclusive.[/red]")
+        raise typer.Exit(code=2)
+
+    if provider_opt is not None and provider_opt.lower() not in PROVIDERS:
+        console.print(
+            f"[red]Unknown --provider '{provider_opt}'. Choose one of: {', '.join(PROVIDERS)}.[/red]"
+        )
+        raise typer.Exit(code=2)
+
     if CONFIG_FILE.exists() and not force:
         console.print(f"[yellow]Existing {CONFIG_FILE.relative_to(REPO_ROOT)} found — keeping it.[/yellow]")
         console.print("[dim]Pass --force to overwrite.[/dim]")
     else:
-        provider = typer.prompt(
-            "LLM provider",
-            default="anthropic",
-            type=click.Choice(PROVIDERS, case_sensitive=False),
-        ).lower()
+        if provider_opt is not None:
+            provider = provider_opt.lower()
+        else:
+            provider = typer.prompt(
+                "LLM provider",
+                default="anthropic",
+                type=click.Choice(PROVIDERS, case_sensitive=False),
+            ).lower()
+
         api_key: str | None = None
         if provider in PROVIDER_KEY_ENV:
-            api_key = typer.prompt(
-                f"{PROVIDER_KEY_ENV[provider]}",
-                hide_input=True,
-                default="",
-                show_default=False,
-            ) or None
+            if api_key_opt is not None:
+                api_key = api_key_opt or None
+            elif api_key_stdin:
+                api_key = sys.stdin.readline().strip() or None
+                if api_key is None:
+                    console.print("[red]--api-key-stdin given but stdin was empty.[/red]")
+                    raise typer.Exit(code=2)
+            else:
+                api_key = typer.prompt(
+                    f"{PROVIDER_KEY_ENV[provider]}",
+                    hide_input=True,
+                    default="",
+                    show_default=False,
+                ) or None
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         CONFIG_FILE.write_text(
@@ -210,6 +277,19 @@ def init(
         cmd = _docker_compose_cmd()
         if cmd is None:
             console.print("[red]docker compose not found on PATH.[/red]")
+            console.print(
+                "[dim]Install Docker Desktop or the docker-compose plugin, "
+                "then re-run `repi init --with-docker`.[/dim]"
+            )
+            raise typer.Exit(code=1)
+        if not _docker_daemon_up(cmd):
+            console.print(
+                "[red]Docker CLI found, but the daemon isn't responding.[/red]"
+            )
+            console.print(
+                "[dim]Start Docker Desktop (or `sudo systemctl start docker`) "
+                "and try again. Verify with `docker info`.[/dim]"
+            )
             raise typer.Exit(code=1)
         console.print("[cyan]Starting db + redis via docker compose...[/cyan]")
         result = subprocess.run(cmd + ["up", "-d", "db", "redis"], cwd=REPO_ROOT)
@@ -325,7 +405,12 @@ def ui(
     node_modules = web_dir / "node_modules"
     if install or not node_modules.exists():
         if not node_modules.exists():
-            console.print(f"[yellow]{node_modules.name} missing — running npm install...[/yellow]")
+            console.print(
+                "[yellow]First-time setup: installing UI dependencies via npm "
+                "(~10–30s, only happens once).[/yellow]"
+            )
+        else:
+            console.print("[cyan]Re-running npm install...[/cyan]")
         result = subprocess.run(["npm", "install"], cwd=web_dir)
         if result.returncode != 0:
             raise typer.Exit(code=result.returncode)
