@@ -23,15 +23,13 @@ services:
     # compose-internal DNS. Avoids clashing with a redis already running on
     # the host (common on dev boxes).
 
-  # repi all-in-one — opt in via `docker compose --profile all-in-one up`.
-  # The published image ships the FastAPI backend (:8000) and the Next.js UI
-  # (:3000) in a single container. The UI proxies `/api/*` to the colocated
-  # API, so the browser only needs port 3000 to be reachable.
+  # repi app — FastAPI backend (:8000) + Next.js UI (:3000) in one container.
+  # The UI proxies `/api/*` to the colocated API, so the browser only needs
+  # port 3000 to be reachable. Starts by default with `docker compose up`.
   app:
     image: ${REPI_IMAGE:-ghcr.io/varungitgood/repi:latest}
     build: .
     container_name: repi-app
-    profiles: ["all-in-one"]
     ports:
       - "3000:3000"
       - "8000:8000"
