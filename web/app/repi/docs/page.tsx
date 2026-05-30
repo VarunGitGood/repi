@@ -51,7 +51,7 @@ const FEATURES = [
     icon: Layers,
     title: "Multi-LLM",
     description:
-      "OpenAI, Anthropic, Mistral, Gemini, Ollama — swap your provider with a single environment variable.",
+      "OpenAI, Anthropic, Mistral, Gemini, Ollama — swap your provider with one line of .repi/config.json (or one click in the UI).",
   },
   {
     icon: Clock,
@@ -80,7 +80,7 @@ const QUICKSTART_STEPS: Array<{
   },
   {
     title: "Bootstrap",
-    note: "Starts Postgres + Redis in Docker, prompts for an LLM provider and API key, writes .env, applies the schema. Idempotent — safe to re-run.",
+    note: "Starts Postgres + Redis in Docker, prompts for an LLM provider and API key, writes .repi/config.json, applies the schema. Idempotent — safe to re-run.",
     code: "repi init --with-docker",
   },
   {
@@ -104,6 +104,11 @@ const ENV_VARS = [
     name: "REPI_ENV",
     default: "production",
     description: "production | development. Production is quiet (uvicorn log_level=warning, no reload). Development is verbose.",
+  },
+  {
+    name: "LOG_LEVEL",
+    default: "INFO",
+    description: "DEBUG | INFO | WARNING | ERROR. Overridden to DEBUG when REPI_ENV is development.",
   },
   {
     name: "DATABASE_URL",
@@ -191,7 +196,7 @@ export default function DocsPage() {
               <a href="#features" className="text-muted-foreground hover:text-foreground transition-all">Features</a>
               <a href="#quickstart" className="text-muted-foreground hover:text-foreground transition-all">Quick Start</a>
               <a href="#worker" className="text-muted-foreground hover:text-foreground transition-all">Worker</a>
-              <a href="#env-vars" className="text-muted-foreground hover:text-foreground transition-all">Env Vars</a>
+              <a href="#env-vars" className="text-muted-foreground hover:text-foreground transition-all">Config</a>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -353,16 +358,20 @@ export default function DocsPage() {
             <div className="flex flex-col items-center text-center mb-20">
               <h2 className="text-4xl font-black tracking-tight mb-4">Configuration</h2>
               <p className="text-lg text-muted-foreground font-medium max-w-2xl">
-                Set via environment variables or a{" "}
+                All settings live in{" "}
+                <code className="font-mono text-sm bg-muted px-2 py-0.5 rounded-md border border-foreground/5">.repi/config.json</code>
+                {" "}— created by{" "}
+                <code className="font-mono text-sm bg-muted px-2 py-0.5 rounded-md border border-foreground/5">repi init</code>{" "}
+                and editable via the web UI&apos;s Config page. Shell env vars and{" "}
                 <code className="font-mono text-sm bg-muted px-2 py-0.5 rounded-md border border-foreground/5">.env</code>{" "}
-                file at the project root.
+                files are intentionally ignored.
               </p>
             </div>
             <div className="rounded-3xl border border-foreground/[0.03] overflow-x-auto bg-background/50 backdrop-blur-sm shadow-2xl shadow-foreground/[0.02]">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent border-b border-foreground/[0.03]">
-                    <TableHead className="w-[300px] h-14 text-foreground font-bold uppercase tracking-widest text-[10px]">Variable</TableHead>
+                    <TableHead className="w-[300px] h-14 text-foreground font-bold uppercase tracking-widest text-[10px]">Key</TableHead>
                     <TableHead className="w-[250px] h-14 text-foreground font-bold uppercase tracking-widest text-[10px]">Default</TableHead>
                     <TableHead className="h-14 text-foreground font-bold uppercase tracking-widest text-[10px]">Description</TableHead>
                   </TableRow>
@@ -435,7 +444,7 @@ export default function DocsPage() {
                   <a href="#features" className="hover:text-foreground transition-colors">Features</a>
                   <a href="#quickstart" className="hover:text-foreground transition-colors">Quick Start</a>
                   <a href="#worker" className="hover:text-foreground transition-colors">Worker</a>
-                  <a href="#env-vars" className="hover:text-foreground transition-colors">Env Vars</a>
+                  <a href="#env-vars" className="hover:text-foreground transition-colors">Config</a>
                 </div>
               </div>
               <div>
