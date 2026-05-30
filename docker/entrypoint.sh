@@ -7,6 +7,16 @@
 # wedged.
 set -euo pipefail
 
+# Seed /app/.repi/config.json on first start. The volume is empty on a fresh
+# `docker compose up`; the baked-in defaults give us docker-aware DATABASE_URL
+# + REDIS_URL, with an empty LLM key. The user provides the key via the UI's
+# /config page, which persists to the same volume.
+if [ ! -f /app/.repi/config.json ]; then
+    mkdir -p /app/.repi
+    cp /app/config.docker.json /app/.repi/config.json
+    echo "[repi-entrypoint] Seeded /app/.repi/config.json from docker defaults."
+fi
+
 API_HOST="${REPI_API_HOST:-0.0.0.0}"
 API_PORT="${REPI_API_PORT:-8000}"
 WEB_HOST="${REPI_WEB_HOST:-0.0.0.0}"

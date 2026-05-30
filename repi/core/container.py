@@ -1,4 +1,3 @@
-import os
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -25,13 +24,13 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
 
-# Configure logging based on settings
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-if os.getenv("ENV") == "dev":
-    LOG_LEVEL = "DEBUG"
+# Configure logging from settings (config.json — no env reads).
+_log_level = settings.LOG_LEVEL.upper()
+if settings.REPI_ENV.lower() == "development":
+    _log_level = "DEBUG"
 
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    level=getattr(logging, _log_level, logging.INFO),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("src.app")

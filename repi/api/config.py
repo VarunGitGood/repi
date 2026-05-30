@@ -16,10 +16,25 @@ async def get_config():
 
 @router.put("/config")
 async def update_config(new_config: dict):
-    """Update the configuration and save to config.json."""
+    """Update the configuration and save to config.json.
+
+    Merges `new_config` on top of the existing config.json (or class defaults
+    if no file yet). A partial PUT — e.g. `{"MISTRAL_API_KEY": "sk-…"}` — must
+    NOT clobber DATABASE_URL/REDIS_URL etc. with their localhost defaults,
+    which would break the running app instantly under docker.
+    """
     try:
         from repi.core.config import Settings
-        validated = Settings(**new_config)
+
+        existing: dict = {}
+        if CONFIG_PATH.exists():
+            try:
+                existing = json.loads(CONFIG_PATH.read_text())
+            except json.JSONDecodeError:
+                existing = {}
+
+        merged = {**existing, **new_config}
+        validated = Settings(**merged)
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_PATH, "w") as f:
