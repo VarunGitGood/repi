@@ -42,6 +42,18 @@ app.include_router(watchers_router, tags=["watchers"])
 app.include_router(config_router, tags=["config"])
 
 
+@app.get("/health", tags=["health"])
+async def health():
+    """Cheap liveness + LLM-config probe. Always 200 once the API is up; the
+    `llm_configured` flag tells the UI whether to nudge the user to /config."""
+    container = get_container()
+    return {
+        "status": "ok",
+        "llm_configured": container.llm_provider is not None,
+        "llm_init_error": container.llm_init_error,
+    }
+
+
 @app.get("/services", tags=["services"])
 async def list_services():
     container = get_container()
