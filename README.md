@@ -20,22 +20,23 @@ repi/
 
 ## Run with Docker (quickstart)
 
-Multi-arch images (linux/amd64 + linux/arm64) are published to GitHub Container Registry on every push to `main` and every tagged release.
+Multi-arch images (linux/amd64 + linux/arm64) are published to GitHub Container Registry on every push to `main` and every tagged release. The image bundles the FastAPI backend (`:8000`) and the Next.js UI (`:3000`) in one container.
 
 ```bash
-# Pull the latest image
-docker pull ghcr.io/varungitgood/repi:latest
+# Bring up Postgres + Redis + repi app (backend + UI)
+docker compose up -d
 
-# One-shot help check
-docker run --rm ghcr.io/varungitgood/repi:latest --help
-
-# Full stack — Postgres + pgvector + Redis + repi API, all in one
-OPENAI_API_KEY=sk-... docker compose --profile all-in-one up
+# Open the UI
+open http://localhost:3000
 ```
 
-The `all-in-one` profile lives in `docker-compose.yml`. The API binds to `http://localhost:8000` and reads its provider key from your shell env (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, or `GEMINI_API_KEY`). Without `--profile all-in-one`, the compose file only brings up `db` + `redis` — the original behavior used by the local-dev flow below.
+On first start, the entrypoint seeds `/app/.repi/config.json` from a baked-in default into a named volume (`repi_config`). The seed has docker-internal infra URLs and an empty LLM key, so:
 
-Override the image tag (e.g. to pin a release) via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.1.0`.
+- `/health` returns `{"llm_configured": false, ...}` and `/investigate` returns 409 until a key is supplied.
+- Visit the **Config** page in the UI, pick a provider, paste your API key, save. The API hot-reloads.
+- Your config persists across `docker compose down` (lost only on `down -v`).
+
+Override the image tag (e.g. to pin a release) via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.1.0 docker compose up -d`.
 
 ## Local development (contributors)
 
@@ -53,18 +54,16 @@ uv run repi stop                        # when done: tear down docker stack
 
 ### Configuration
 
-repi has **one source of truth**: `.repi/config.json`. It's created by `repi init` and mutated by the web UI's Config page (`PUT /config`). The file is gitignored.
+`.repi/config.json` is the **sole** source of truth. Shell env vars and `.env` files are ignored at runtime — there is no env-var fallback. The file is gitignored.
 
 Three ways to edit it, in order of convenience:
 1. **Web UI** — visit the Config page; changes save immediately and the API hot-reloads them.
 2. **Re-run `repi init --force`** — re-prompts for provider + key and rewrites the file.
 3. **Edit the JSON directly** — `.repi/config.json` is plain JSON; restart the API after editing.
 
-Shell env vars (e.g. `REPI_ENV=development uv run repi serve`) override values from `config.json` at runtime — handy for one-off commands or CI.
-
 `REPI_ENV` defaults to `production`. Flip to `development` in `.repi/config.json` (or via the UI) for verbose logs + `--reload`.
 
-> **Coming from an older checkout?** If you have a legacy `config.json` at the repo root, move it: `mkdir -p .repi && mv config.json .repi/config.json`. The root `config.json` is no longer read.
+> **Coming from an older checkout?** If you have a root-level `.env` or `config.json`, neither is read anymore. Move keys into `.repi/config.json` via the UI or `repi init --force`.
 
 ## Usage
 
@@ -111,15 +110,18 @@ uv run python -m repi.worker
 
 The worker polls `watcher_configs` every 30s (`WATCHER_CONFIG_REFRESH_SECS`) and uses `watchfiles` to detect new bytes, seeking forward from the last stored offset.
 
-## Environment Variables
+## Configuration keys
 
-| Variable | Default | Description |
+All keys live in `.repi/config.json` (see `config.example.json` for the full schema). Setting them in the shell or a `.env` file does nothing — Settings reads only this file.
+
+| Key | Default | Description |
 |----------|---------|-------------|
 | `REPI_ENV` | `production` | `production` \| `development`. Production = quiet logs, no auto-reload. |
-| `DATABASE_URL` | `postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg` | PostgreSQL asyncpg URL |
+| `LOG_LEVEL` | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR`. |
+| `DATABASE_URL` | `postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg` | PostgreSQL asyncpg URL. The docker image ships a docker-aware default (`db:5432`). |
 | `LLM_PROVIDER` | `openai` | `openai` \| `anthropic` \| `mistral` \| `gemini` \| `ollama` |
 | `LLM_MODEL` | provider default | Override model name |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / … | — | Provider API key |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` | — | Provider API key. Set the one that matches your `LLM_PROVIDER`. |
 | `REDIS_URL` | `redis://localhost:6379` | Redis for caching |
 | `ENABLE_REDIS_CACHE` | `true` | Set `false` to disable Redis |
 | `TIME_WINDOW_INITIAL_MINUTES` | `10` | First search window for investigation |
