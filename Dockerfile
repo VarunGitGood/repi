@@ -70,6 +70,10 @@ COPY --from=web-builder --chown=root:root /app/web/.next/standalone ./web/
 COPY --from=web-builder --chown=root:root /app/web/.next/static ./web/.next/static
 COPY --from=web-builder --chown=root:root /app/web/public ./web/public
 
+# Docker-aware default config — seeded by entrypoint into /app/.repi/config.json
+# on first start (only if the mounted volume is empty).
+COPY docker/config.docker.json /app/config.docker.json
+
 COPY docker/entrypoint.sh /usr/local/bin/repi-entrypoint
 RUN chmod +x /usr/local/bin/repi-entrypoint
 

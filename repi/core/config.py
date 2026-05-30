@@ -3,7 +3,7 @@ import os
 import json
 from pathlib import Path
 from typing import List, Optional
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from pydantic import Field
 
 CONFIG_DIR = Path(".repi")
@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # "production" (default) → quiet CLI output, uvicorn log_level=warning, no reload.
     # "development" → verbose CLI output, uvicorn log_level=info, reload allowed.
     REPI_ENV: str = Field(default="production", description="Runtime environment")
+    LOG_LEVEL: str = Field(default="INFO", description="Logging level (DEBUG/INFO/WARNING/ERROR)")
 
     # DATABASE
     DATABASE_URL: str = Field(
@@ -66,10 +67,25 @@ class Settings(BaseSettings):
     ENABLE_REFLECTION: bool = True
     REFLECTION_INTERVAL: int = 3
 
-    # Single source of truth is .repi/config.json (written by `repi init` and
-    # the web UI via PUT /config). Shell env vars still override at runtime —
-    # useful for CI/CD and one-off invocations — but no .env file is auto-loaded.
+    # .repi/config.json is the SOLE source of truth. Shell env vars, .env
+    # files, and Docker secrets are intentionally ignored — see
+    # settings_customise_sources below. The full reasoning lives in
+    # plans/hmm-i-want-the-abstract-raccoon.md.
     model_config = SettingsConfigDict(extra="ignore")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ):
+        # Only init kwargs (passed by get_settings() after reading config.json).
+        # env / dotenv / secrets are dropped so a stray MISTRAL_API_KEY in the
+        # shell can never silently flow into the running app.
+        return (init_settings,)
 
     @property
     def time_expansions_list(self) -> List[int]:
