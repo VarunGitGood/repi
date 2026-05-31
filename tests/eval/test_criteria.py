@@ -44,6 +44,7 @@ class TestActiveCriterionNames:
         assert "confidence_calibration" in names
         assert "gap_awareness" in names
         assert "hallucination_avoidance" in names
+        assert "red_herring_handling" in names
         assert "propagation_chain" not in names
 
     def test_dataset_3_criteria(self, dataset_3_expected):
@@ -79,6 +80,12 @@ class TestBuildCriteria:
         text = build_criteria(dataset_2_expected)
         assert "hallucination_avoidance" in text
         assert "memory leak" in text
+
+    def test_dataset_2_contains_ruled_out_consider(self, dataset_2_expected):
+        text = build_criteria(dataset_2_expected)
+        assert "red_herring_handling" in text
+        assert "code crash" in text
+        assert "deadlock" in text
 
     def test_dataset_2_confidence_must_be_low(self, dataset_2_expected):
         text = build_criteria(dataset_2_expected)

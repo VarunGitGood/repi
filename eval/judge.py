@@ -90,20 +90,41 @@ def _parse_judge_response(
             cleaned = cleaned[:-3]
         cleaned = cleaned.strip()
 
-    parsed = json.loads(cleaned)
+    try:
+        parsed = json.loads(cleaned)
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("Judge returned unparseable response: %s", exc)
+        criteria = [
+            CriterionScore(name=n, score=0.0, explanation="Judge response was not valid JSON.")
+            for n in criterion_names
+        ]
+        return JudgeResult(
+            dataset=dataset_name,
+            model_under_test=model_under_test,
+            judge_model=judge_model,
+            aggregate_score=0.0,
+            criteria=criteria,
+            raw_judge_response=raw,
+        )
+
     scores_raw = parsed.get("scores", [])
 
-    criteria: list[CriterionScore] = []
+    scored: dict[str, CriterionScore] = {}
     for entry in scores_raw:
-        criteria.append(CriterionScore(
-            name=entry["name"],
-            score=max(0.0, min(1.0, float(entry["score"]))),
+        name = entry.get("name", "")
+        if name not in set(criterion_names):
+            continue
+        scored[name] = CriterionScore(
+            name=name,
+            score=max(0.0, min(1.0, float(entry.get("score", 0)))),
             explanation=entry.get("explanation", ""),
-        ))
+        )
 
-    scored_names = {c.name for c in criteria}
+    criteria: list[CriterionScore] = []
     for name in criterion_names:
-        if name not in scored_names:
+        if name in scored:
+            criteria.append(scored[name])
+        else:
             criteria.append(CriterionScore(
                 name=name,
                 score=0.0,
