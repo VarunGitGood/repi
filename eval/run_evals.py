@@ -1,9 +1,12 @@
 """
-Eval runner — seeds each dataset, runs the investigation, grades the answer, and
-writes any bugs found to bug.json in the repo root.
+Eval runner — seeds each dataset, runs the investigation, scores the answer
+with an LLM judge, and writes results to bug.json in the repo root.
 
 Usage:
     uv run python eval/run_evals.py
+    uv run python eval/run_evals.py --dataset dataset_1
+    uv run python eval/run_evals.py --judge-provider openai --judge-model gpt-4o
+    uv run python eval/run_evals.py --no-reflection
 """
 from __future__ import annotations
 import asyncio
@@ -11,12 +14,13 @@ import json
 import sys
 import traceback
 from pathlib import Path
-from uuid import UUID
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from repi.core.container import get_container
+from eval.judge import LLMJudge, deterministic_precheck, PASS_THRESHOLD
+from eval.results import JudgeResult
 
 # ─── Dataset registry ────────────────────────────────────────────────────────
 
@@ -38,298 +42,79 @@ DATASETS = [
     },
 ]
 
-# ─── Graders ─────────────────────────────────────────────────────────────────
+# ─── CLI arg parsing ────────────────────────────────────────────────────────
 
-def _lower(v) -> str:
-    return str(v).lower() if v else ""
-
-
-def _mentions(text: str, term: str) -> bool:
-    """Looser substring check — tries the exact term, then a stem-or-alternates table
-    so the grader accepts semantically equivalent phrasings ("exhausting its pool"
-    counts for "pool exhaustion", "rotated its key" counts for "key rotation")."""
-    t = _lower(text)
-    if not t:
-        return False
-    term_l = term.lower()
-    if term_l in t:
-        return True
-    # Equivalents for the multi-word phrases the graders ask about.
-    alternates = {
-        "pool exhaustion": ["pool exhausted", "exhausting", "exhausted pool", "pool.+exhaust", "exhaust.+pool"],
-        "key rotation":    ["rotated", "rotating", "rotation", "key rotated", "rotated.+key"],
-        # "public key" — accept any wording that conveys the verification key was missing/stale
-        "public key":      [
-            "public key", "keyring", "verifier key", "verification key",
-            "not updated.+(?:with.+)?key", "not.+have.+key", "missing.+key",
-            "key.+not.+sync", "key.+not.+propagat", "key distribution",
-            "did not have the new key", "without the new key",
-            "did not receive.+key", "didn'?t receive.+key", "not.+receive.+key",
-            "not.+sent.+key", "key.+not.+sent", "key.+not.+distributed",
-            "without synchroniz", "not synchroniz", "synchroniz.+(?:fail|miss)",
-            "without sync", "key.+sync.+fail", "no sync.+key",
-        ],
-        # "retry" — accept the downstream signature of a retry storm (500 surge or pool exhaustion)
-        # since those only occur as a result of retries in this dataset.
-        "retry":           [
-            "retry", "retries", "retrying", "retried", "retry storm",
-            "500 error", "http 500", "500s.+(?:exhaust|pool)", "(?:exhaust|pool).+500",
-        ],
-        "migration":       ["migration", "migrate", "migrated", "schema change"],
-        "warehouse_id":    ["warehouse_id", "warehouse id"],
-        "not null":        ["not null", "not-null", "nullable=false"],
-    }
-    import re as _re
-    for alt in alternates.get(term_l, []):
-        if _re.search(alt, t):
-            return True
-    return False
+def _parse_args(argv: list[str]) -> dict:
+    args: dict = {}
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--no-reflection":
+            args["no_reflection"] = True
+        elif argv[i] == "--dataset" and i + 1 < len(argv):
+            args["dataset_filter"] = argv[i + 1]
+            i += 1
+        elif argv[i] == "--judge-provider" and i + 1 < len(argv):
+            args["judge_provider"] = argv[i + 1]
+            i += 1
+        elif argv[i] == "--judge-model" and i + 1 < len(argv):
+            args["judge_model"] = argv[i + 1]
+            i += 1
+        elif argv[i] == "--judge-api-key" and i + 1 < len(argv):
+            args["judge_api_key"] = argv[i + 1]
+            i += 1
+        i += 1
+    return args
 
 
-def grade_dataset_1(answer: dict, expected: dict) -> list[dict]:
-    bugs = []
-    ea = expected["expected_answer"]
+def _create_judge(args: dict) -> LLMJudge:
+    """Create the judge LLM provider from CLI args or fall back to config."""
+    judge_provider_name = args.get("judge_provider")
 
-    # 1. Trigger must be inventory-svc
-    trigger = answer.get("trigger_event") or {}
-    if trigger.get("service") != "inventory-svc":
-        bugs.append({
-            "dataset": "dataset_1",
-            "severity": "high",
-            "check": "trigger_service",
-            "expected": "inventory-svc",
-            "got": trigger.get("service"),
-            "description": "Root cause trigger must be inventory-svc (migration), not another service.",
-        })
+    if judge_provider_name:
+        from repi.llm.adapters import (
+            OpenAIProvider, AnthropicProvider, MistralProvider,
+            GeminiProvider, OllamaProvider,
+        )
+        api_key = args.get("judge_api_key", "")
+        model = args.get("judge_model")
 
-    # 2. trigger log line must mention key terms
-    log_line = trigger.get("log_line", "")
-    for term in ["migration", "warehouse_id"]:
-        if not _mentions(log_line, term):
-            bugs.append({
-                "dataset": "dataset_1",
-                "severity": "medium",
-                "check": "trigger_log_line",
-                "expected": f"contains '{term}'",
-                "got": log_line,
-                "description": f"Trigger log line must mention '{term}'.",
-            })
+        providers = {
+            "openai": lambda: OpenAIProvider(api_key=api_key, model=model or "gpt-4o"),
+            "anthropic": lambda: AnthropicProvider(api_key=api_key, model=model or "claude-3-5-sonnet-20240620"),
+            "mistral": lambda: MistralProvider(api_key=api_key, model=model or "mistral-large-latest"),
+            "gemini": lambda: GeminiProvider(api_key=api_key, model=model or "gemini-1.5-pro"),
+            "ollama": lambda: OllamaProvider(model=model or "mistral"),
+        }
+        factory = providers.get(judge_provider_name.lower())
+        if not factory:
+            raise ValueError(f"Unknown judge provider: {judge_provider_name}")
+        return LLMJudge(factory())
 
-    # 3. affected_services must include both inventory-svc and cart-svc
-    affected = [s.lower() for s in (answer.get("affected_services") or [])]
-    for svc in ["inventory-svc", "cart-svc"]:
-        if svc not in affected:
-            bugs.append({
-                "dataset": "dataset_1",
-                "severity": "high",
-                "check": "affected_services",
-                "expected": f"includes {svc}",
-                "got": answer.get("affected_services"),
-                "description": f"affected_services must include {svc}.",
-            })
+    from repi.llm.factory import create_provider_from_env
+    llm = create_provider_from_env()
 
-    # 4. root_cause must mention key terms
-    rc = answer.get("root_cause", "")
-    for term in ea["root_cause_must_mention"]:
-        if not _mentions(rc, term):
-            bugs.append({
-                "dataset": "dataset_1",
-                "severity": "medium",
-                "check": "root_cause_content",
-                "expected": f"root_cause mentions '{term}'",
-                "got": rc,
-                "description": f"root_cause must mention '{term}'.",
-            })
+    if args.get("judge_model"):
+        from repi.llm.adapters import (
+            OpenAIProvider, AnthropicProvider, MistralProvider,
+            GeminiProvider, OllamaProvider,
+        )
+        model = args["judge_model"]
+        if isinstance(llm, OpenAIProvider):
+            llm = OpenAIProvider(api_key=llm._api_key, model=model)
+        elif isinstance(llm, AnthropicProvider):
+            llm = AnthropicProvider(api_key=llm._api_key, model=model)
+        elif isinstance(llm, MistralProvider):
+            llm = MistralProvider(api_key=llm._api_key, model=model)
+        elif isinstance(llm, GeminiProvider):
+            llm = GeminiProvider(api_key=llm._api_key, model=model)
+        elif isinstance(llm, OllamaProvider):
+            llm = OllamaProvider(base_url=llm._base_url, model=model)
 
-    # 5. ruled_out_hypotheses must address red-herring services
-    ruled_out_text = _lower(json.dumps(answer.get("ruled_out_hypotheses") or []))
-    for item in ea["ruled_out_hypotheses_must_include"]:
-        if item["hypothesis_about"] not in ruled_out_text:
-            bugs.append({
-                "dataset": "dataset_1",
-                "severity": "medium",
-                "check": "ruled_out_hypotheses",
-                "expected": f"mentions {item['hypothesis_about']}",
-                "got": answer.get("ruled_out_hypotheses"),
-                "description": f"ruled_out_hypotheses must address {item['hypothesis_about']}.",
-            })
-
-    # 6. propagation_chain must be non-empty with ≥2 entries
-    chain = answer.get("propagation_chain") or []
-    if len(chain) < 2:
-        bugs.append({
-            "dataset": "dataset_1",
-            "severity": "high",
-            "check": "propagation_chain_length",
-            "expected": "≥2 hops",
-            "got": len(chain),
-            "description": "propagation_chain must include at least inventory-svc and cart-svc hops.",
-        })
-
-    return bugs
-
-
-def grade_dataset_2(answer: dict, expected: dict) -> list[dict]:
-    bugs = []
-
-    # 1. confidence must be low
-    confidence = answer.get("confidence", "")
-    if confidence != "low":
-        bugs.append({
-            "dataset": "dataset_2",
-            "severity": "high",
-            "check": "confidence_must_be_low",
-            "expected": "low",
-            "got": confidence,
-            "description": "Insufficient evidence — confidence must be 'low', not high/medium.",
-        })
-
-    # 2. gaps must be non-empty
-    gaps = answer.get("gaps") or []
-    if not gaps:
-        bugs.append({
-            "dataset": "dataset_2",
-            "severity": "high",
-            "check": "gaps_must_be_present",
-            "expected": "non-empty gaps list",
-            "got": gaps,
-            "description": "Must identify evidence gaps (no memory/resource logs, no SIGKILL cause, etc.).",
-        })
-
-    # 3. root_cause must NOT assert OOM/memory leak as fact
-    rc = _lower(answer.get("root_cause", ""))
-    forbidden = expected["expected_answer"]["root_cause_must_NOT_assert"]
-    for term in forbidden:
-        if term.lower() in rc and "cannot" not in rc and "unknown" not in rc and "hypothesis" not in rc:
-            bugs.append({
-                "dataset": "dataset_2",
-                "severity": "high",
-                "check": "root_cause_no_hallucination",
-                "expected": f"does not assert '{term}' as fact",
-                "got": answer.get("root_cause"),
-                "description": f"root_cause must not assert '{term}' as confirmed fact — insufficient evidence.",
-            })
-            break
-
-    # 4. ruled_out_hypotheses must be present
-    ruled_out = answer.get("ruled_out_hypotheses") or []
-    if not ruled_out:
-        bugs.append({
-            "dataset": "dataset_2",
-            "severity": "medium",
-            "check": "ruled_out_hypotheses_present",
-            "expected": "non-empty",
-            "got": ruled_out,
-            "description": "Must attempt to rule out hypotheses (code crash, deadlock, external kill).",
-        })
-
-    return bugs
-
-
-def grade_dataset_3(answer: dict, expected: dict) -> list[dict]:
-    bugs = []
-    ea = expected["expected_answer"]
-
-    # 1. Trigger must be auth-svc
-    trigger = answer.get("trigger_event") or {}
-    if trigger.get("service") != "auth-svc":
-        bugs.append({
-            "dataset": "dataset_3",
-            "severity": "high",
-            "check": "trigger_service",
-            "expected": "auth-svc",
-            "got": trigger.get("service"),
-            "description": "Trigger must be auth-svc JWT key rotation, not a downstream service.",
-        })
-
-    # 2. Trigger log line must mention key rotation / k-2026-05
-    log_line = trigger.get("log_line", "")
-    required_terms = ea["trigger_event"]["log_line_must_contain_one_of"]
-    if not any(_mentions(log_line, t) for t in required_terms):
-        bugs.append({
-            "dataset": "dataset_3",
-            "severity": "medium",
-            "check": "trigger_log_line",
-            "expected": f"contains one of {required_terms}",
-            "got": log_line,
-            "description": "Trigger log line must reference the JWT key rotation or push failure.",
-        })
-
-    # 3. root_cause must mention JWT / key rotation terms (loose match)
-    rc = answer.get("root_cause", "")
-    for term in ea["root_cause_must_mention"]:
-        if not _mentions(rc, term):
-            bugs.append({
-                "dataset": "dataset_3",
-                "severity": "medium",
-                "check": "root_cause_content",
-                "expected": f"root_cause mentions '{term}'",
-                "got": rc,
-                "description": f"root_cause must mention '{term}'.",
-            })
-
-    # 4. root_cause must NOT name non-triggers AS THE ROOT (subject position).
-    # Only flag if the forbidden term appears in a "caused by X" / "X was the root cause"
-    # construction — a passing mention of a downstream service in the cascade is fine.
-    rc_lower = _lower(rc)
-    for forbidden in ea["root_cause_must_NOT_assert_as_root_cause"]:
-        f = forbidden.lower()
-        false_trigger_patterns = [
-            f"caused by {f}",
-            f"root cause: {f}",
-            f"root cause is {f}",
-            f"due to {f}",
-            f"because of {f}",
-        ]
-        if any(p in rc_lower for p in false_trigger_patterns):
-            bugs.append({
-                "dataset": "dataset_3",
-                "severity": "high",
-                "check": "root_cause_no_false_trigger",
-                "expected": f"does not name '{forbidden}' as root cause",
-                "got": rc,
-                "description": f"'{forbidden}' is a symptom/red-herring, not the root cause.",
-            })
-
-    # 5. Red herring services (user-svc, cache-svc) must appear in ruled_out
-    ruled_out_text = _lower(json.dumps(answer.get("ruled_out_hypotheses") or []))
-    for item in ea["ruled_out_hypotheses_must_include"]:
-        if item["hypothesis_about"] not in ruled_out_text:
-            bugs.append({
-                "dataset": "dataset_3",
-                "severity": "medium",
-                "check": "ruled_out_red_herrings",
-                "expected": f"mentions {item['hypothesis_about']}",
-                "got": answer.get("ruled_out_hypotheses"),
-                "description": f"ruled_out_hypotheses must address {item['hypothesis_about']} (red herring).",
-            })
-
-    # 6. propagation_chain must include verification-svc and api-gateway
-    chain_services = [_lower(h.get("service", "")) for h in (answer.get("propagation_chain") or [])]
-    chain_str = " ".join(chain_services)
-    for svc in ["verification-svc", "api-gateway"]:
-        if svc not in chain_str:
-            bugs.append({
-                "dataset": "dataset_3",
-                "severity": "medium",
-                "check": "propagation_chain_coverage",
-                "expected": f"includes {svc}",
-                "got": answer.get("propagation_chain"),
-                "description": f"propagation_chain must include {svc}.",
-            })
-
-    return bugs
-
-
-GRADERS = {
-    "dataset_1_cascading_inventory_migration": grade_dataset_1,
-    "dataset_2_insufficient_logging": grade_dataset_2,
-    "dataset_3_jwt_key_rotation_noise": grade_dataset_3,
-}
+    return LLMJudge(llm)
 
 # ─── Runner ──────────────────────────────────────────────────────────────────
 
-async def run_dataset(container, dataset: dict) -> dict:
+async def run_dataset(container, dataset: dict, judge: LLMJudge) -> dict:
     name = dataset["name"]
     expected = json.loads(dataset["expected_path"].read_text())
 
@@ -338,7 +123,7 @@ async def run_dataset(container, dataset: dict) -> dict:
     print(f"{'='*60}")
 
     # 1. Seed
-    print(f"  [1/3] Seeding...")
+    print(f"  [1/4] Seeding...")
     import importlib
     seed_mod = importlib.import_module(dataset["seed_module"])
     await seed_mod.main()
@@ -349,15 +134,12 @@ async def run_dataset(container, dataset: dict) -> dict:
     await container.init_known_services()
 
     # 3. Investigate (with clarification if needed)
-    print(f"  [2/3] Investigating: \"{expected['query']}\"")
+    print(f"  [2/4] Investigating: \"{expected['query']}\"")
     query = expected["query"]
-    investigation_obj = None
 
     async with container.get_session() as session:
         loop = container.get_investigation_loop(session)
         store = loop.store
-
-        # Always start fresh for eval runs
         investigation_obj = await store.create(query)
         inv_id = investigation_obj.id
 
@@ -367,12 +149,11 @@ async def run_dataset(container, dataset: dict) -> dict:
             resume=False,
         )
 
-    # Handle clarification if needed
     if result.answer == "Awaiting clarification...":
         clarify_exp = expected.get("expected_clarification", {})
         reply = clarify_exp.get("acceptable_user_reply", "")
         if reply:
-            print(f"  [2/3] Clarification needed — sending reply: \"{reply}\"")
+            print(f"  [2/4] Clarification needed — sending reply: \"{reply}\"")
             async with container.get_session() as session:
                 store2 = container.get_investigation_store(session)
                 await store2.resume_from_clarification(inv_id, reply)
@@ -385,59 +166,77 @@ async def run_dataset(container, dataset: dict) -> dict:
                     resume=True,
                 )
         else:
-            print(f"  [2/3] Clarification needed but no reply configured — continuing with defaults")
+            print(f"  [2/4] Clarification needed but no reply configured — continuing with defaults")
 
-    # 4. Grade
-    print(f"  [3/3] Grading...")
+    # 4. Parse answer
+    print(f"  [3/4] Parsing answer...")
     raw_answer = result.answer or "{}"
     try:
         answer_dict = json.loads(raw_answer)
     except json.JSONDecodeError:
         answer_dict = {}
 
-    grader = GRADERS[name]
-    bugs = grader(answer_dict, expected)
+    # 5. Deterministic pre-check
+    precheck_errors = deterministic_precheck(answer_dict)
+    if precheck_errors:
+        print(f"  [3/4] Pre-check failed — skipping LLM judge:")
+        for err in precheck_errors:
+            print(f"    - {err}")
+        return {
+            "dataset": name,
+            "query": query,
+            "status": "fail",
+            "aggregate_score": 0.0,
+            "precheck_errors": precheck_errors,
+            "criteria": [],
+            "raw_answer_truncated": raw_answer[:500] if raw_answer else None,
+        }
 
-    status = "PASS" if not bugs else f"FAIL ({len(bugs)} issue(s))"
-    print(f"  Result: {status}")
-    if bugs:
-        for b in bugs:
-            print(f"    [{b['severity'].upper()}] {b['check']}: {b['description']}")
+    # 6. LLM judge scoring
+    model_under_test = container.llm_provider.model_name if container.llm_provider else "unknown"
+    print(f"  [4/4] Judging with {judge.model_name}...")
+
+    judge_result = await judge.score(
+        answer=answer_dict,
+        expected=expected,
+        dataset_name=name,
+        model_under_test=model_under_test,
+    )
+
+    status = "pass" if judge_result.aggregate_score >= PASS_THRESHOLD else "fail"
+    print(f"  Result: {status.upper()} (score: {judge_result.aggregate_score:.2f})")
+    for c in judge_result.criteria:
+        indicator = "✓" if c.score >= PASS_THRESHOLD else "✗"
+        print(f"    {indicator} {c.name}: {c.score:.2f} — {c.explanation[:80]}")
 
     return {
         "dataset": name,
         "query": query,
-        "status": "pass" if not bugs else "fail",
-        "confidence": answer_dict.get("confidence"),
-        "affected_services": answer_dict.get("affected_services"),
-        "root_cause": answer_dict.get("root_cause"),
-        "bugs": bugs,
+        "status": status,
+        "aggregate_score": judge_result.aggregate_score,
+        "model_under_test": judge_result.model_under_test,
+        "judge_model": judge_result.judge_model,
+        "criteria": [c.model_dump() for c in judge_result.criteria],
         "raw_answer_truncated": raw_answer[:500] if raw_answer else None,
     }
 
 
 async def main():
-    # `--no-reflection` disables the reflection checkpoint (issue #10) so
-    # eval runs can A/B against the baseline. Toggling settings BEFORE
-    # get_container() ensures the loop picks the disabled value up.
-    no_reflection = "--no-reflection" in sys.argv
-    if no_reflection:
+    args = _parse_args(sys.argv[1:])
+
+    if args.get("no_reflection"):
         from repi.core.config import settings as _s
         _s.ENABLE_REFLECTION = False
         print("  [config] reflection disabled (--no-reflection)")
 
-    # `--dataset NAME` runs a single dataset (substring match on its registered name).
-    dataset_filter: str | None = None
-    if "--dataset" in sys.argv:
-        idx = sys.argv.index("--dataset")
-        if idx + 1 < len(sys.argv):
-            dataset_filter = sys.argv[idx + 1]
-
+    dataset_filter = args.get("dataset_filter")
     container = get_container()
     await container.init_db()
 
+    judge = _create_judge(args)
+    print(f"  [config] judge model: {judge.model_name}")
+
     all_results = []
-    all_bugs = []
 
     datasets_to_run = (
         [d for d in DATASETS if dataset_filter in d["name"]]
@@ -450,9 +249,8 @@ async def main():
 
     for dataset in datasets_to_run:
         try:
-            result = await run_dataset(container, dataset)
+            result = await run_dataset(container, dataset, judge)
             all_results.append(result)
-            all_bugs.extend(result["bugs"])
         except Exception as e:
             tb = traceback.format_exc()
             print(f"\n  ERROR in {dataset['name']}: {e}")
@@ -462,7 +260,8 @@ async def main():
                 "status": "error",
                 "error": str(e),
                 "traceback": tb,
-                "bugs": [],
+                "aggregate_score": 0.0,
+                "criteria": [],
             })
 
     # Summary
@@ -472,15 +271,29 @@ async def main():
     passed = sum(1 for r in all_results if r["status"] == "pass")
     failed = sum(1 for r in all_results if r["status"] == "fail")
     errored = sum(1 for r in all_results if r["status"] == "error")
-    print(f"  PASS: {passed}  FAIL: {failed}  ERROR: {errored}  Total bugs: {len(all_bugs)}")
+    avg_score = (
+        sum(r.get("aggregate_score", 0) for r in all_results) / len(all_results)
+        if all_results else 0
+    )
+    print(f"  PASS: {passed}  FAIL: {failed}  ERROR: {errored}  Avg score: {avg_score:.2f}  Threshold: {PASS_THRESHOLD}")
 
-    if all_bugs:
-        bug_path = ROOT / "bug.json"
-        with open(bug_path, "w") as f:
-            json.dump({"total": len(all_bugs), "bugs": all_bugs}, f, indent=2)
-        print(f"\n  Bugs written to: {bug_path}")
-    else:
-        print("\n  No bugs found — no bug.json written.")
+    for r in all_results:
+        score_str = f"{r.get('aggregate_score', 0):.2f}"
+        print(f"    {r['status'].upper():5s}  {score_str}  {r['dataset']}")
+
+    results_path = ROOT / "bug.json"
+    with open(results_path, "w") as f:
+        json.dump({
+            "pass_threshold": PASS_THRESHOLD,
+            "summary": {
+                "passed": passed,
+                "failed": failed,
+                "errored": errored,
+                "average_score": round(avg_score, 3),
+            },
+            "results": all_results,
+        }, f, indent=2)
+    print(f"\n  Results written to: {results_path}")
 
     return 0 if (failed == 0 and errored == 0) else 1
 

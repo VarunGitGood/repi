@@ -43,6 +43,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["repi"]
 
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+pythonpath = ["."]
+
 # repi runs on CPU only — pull torch from the PyTorch CPU index so we don't
 # drag ~4 GB of CUDA libraries (nvidia/*, triton) into the runtime image.
 [[tool.uv.index]]
