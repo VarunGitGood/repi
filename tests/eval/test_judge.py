@@ -110,6 +110,30 @@ class TestParseJudgeResponse:
         assert scores["x"] == 1.0
         assert scores["y"] == 0.0
 
+    def test_invalid_json_returns_zero_scores(self):
+        result = _parse_judge_response(
+            "not valid json at all", "ds", "m", "j",
+            ["trigger_identification", "root_cause_accuracy"],
+        )
+        assert result.aggregate_score == 0.0
+        assert len(result.criteria) == 2
+        assert all(c.score == 0.0 for c in result.criteria)
+
+    def test_extra_criteria_from_judge_are_excluded(self):
+        raw = json.dumps({
+            "scores": [
+                {"name": "trigger_identification", "score": 0.9, "explanation": "ok"},
+                {"name": "surprise_criterion", "score": 0.1, "explanation": "extra"},
+            ]
+        })
+        result = _parse_judge_response(
+            raw, "ds", "m", "j",
+            ["trigger_identification"],
+        )
+        assert len(result.criteria) == 1
+        assert result.criteria[0].name == "trigger_identification"
+        assert result.aggregate_score == 0.9
+
 
 # ─── LLMJudge.score ─────────────────────────────────────────────────────────
 

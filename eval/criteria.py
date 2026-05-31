@@ -10,19 +10,6 @@ from __future__ import annotations
 import json
 
 
-# Maps expected.json keys to the criterion name the judge will score.
-# Order here determines evaluation order in the prompt.
-_CRITERION_KEYS = [
-    "trigger_identification",
-    "root_cause_accuracy",
-    "propagation_chain",
-    "red_herring_handling",
-    "confidence_calibration",
-    "gap_awareness",
-    "hallucination_avoidance",
-]
-
-
 def build_criteria(expected: dict) -> str:
     ea = expected.get("expected_answer", {})
     sections: list[str] = []
@@ -53,10 +40,11 @@ def active_criterion_names(expected: dict) -> list[str]:
     if ea.get("propagation_chain_must_include_in_order"):
         names.append("propagation_chain")
 
-    if ea.get("ruled_out_hypotheses_must_include"):
+    if ea.get("ruled_out_hypotheses_must_include") or ea.get("ruled_out_hypotheses_must_consider"):
         names.append("red_herring_handling")
 
-    names.append("confidence_calibration")
+    if ea.get("confidence"):
+        names.append("confidence_calibration")
 
     if ea.get("gaps_must_include_one_of"):
         names.append("gap_awareness")
@@ -128,16 +116,28 @@ def _propagation_criterion(ea: dict) -> str:
 
 
 def _red_herring_criterion(ea: dict) -> str:
-    ruled_out = ea.get("ruled_out_hypotheses_must_include")
-    if not ruled_out:
+    must_include = ea.get("ruled_out_hypotheses_must_include")
+    must_consider = ea.get("ruled_out_hypotheses_must_consider")
+
+    if not must_include and not must_consider:
         return ""
 
     lines = ["## Criterion: red_herring_handling"]
-    lines.append("The ruled_out_hypotheses must address these red herrings:")
-    for item in ruled_out:
-        about = item.get("hypothesis_about", "?")
-        rationale = item.get("rationale", "")
-        lines.append(f"  - {about}: {rationale}")
+
+    if must_include:
+        lines.append("The ruled_out_hypotheses must address these red herrings:")
+        for item in must_include:
+            about = item.get("hypothesis_about", "?")
+            rationale = item.get("rationale", "")
+            lines.append(f"  - {about}: {rationale}")
+
+    if must_consider:
+        lines.append("The ruled_out_hypotheses must consider these possibilities:")
+        for item in must_consider:
+            about = item.get("hypothesis_about", "?")
+            expected = item.get("expected", "")
+            lines.append(f"  - {about}: {expected}")
+
     return "\n".join(lines)
 
 

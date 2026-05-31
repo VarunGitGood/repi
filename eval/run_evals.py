@@ -20,7 +20,6 @@ sys.path.insert(0, str(ROOT))
 
 from repi.core.container import get_container
 from eval.judge import LLMJudge, deterministic_precheck, PASS_THRESHOLD
-from eval.results import JudgeResult
 
 # ─── Dataset registry ────────────────────────────────────────────────────────
 
@@ -90,27 +89,29 @@ def _create_judge(args: dict) -> LLMJudge:
             raise ValueError(f"Unknown judge provider: {judge_provider_name}")
         return LLMJudge(factory())
 
-    from repi.llm.factory import create_provider_from_env
-    llm = create_provider_from_env()
+    judge_model = args.get("judge_model")
+    if judge_model:
+        from repi.core.config import settings
+        api_key = settings.LLM_API_KEY or settings.OPENAI_API_KEY or settings.MISTRAL_API_KEY or settings.ANTHROPIC_API_KEY or settings.GEMINI_API_KEY or ""
+        provider_name = settings.LLM_PROVIDER.lower()
 
-    if args.get("judge_model"):
         from repi.llm.adapters import (
             OpenAIProvider, AnthropicProvider, MistralProvider,
             GeminiProvider, OllamaProvider,
         )
-        model = args["judge_model"]
-        if isinstance(llm, OpenAIProvider):
-            llm = OpenAIProvider(api_key=llm._api_key, model=model)
-        elif isinstance(llm, AnthropicProvider):
-            llm = AnthropicProvider(api_key=llm._api_key, model=model)
-        elif isinstance(llm, MistralProvider):
-            llm = MistralProvider(api_key=llm._api_key, model=model)
-        elif isinstance(llm, GeminiProvider):
-            llm = GeminiProvider(api_key=llm._api_key, model=model)
-        elif isinstance(llm, OllamaProvider):
-            llm = OllamaProvider(base_url=llm._base_url, model=model)
+        providers = {
+            "openai": lambda: OpenAIProvider(api_key=api_key, model=judge_model),
+            "anthropic": lambda: AnthropicProvider(api_key=api_key, model=judge_model),
+            "mistral": lambda: MistralProvider(api_key=api_key, model=judge_model),
+            "gemini": lambda: GeminiProvider(api_key=api_key, model=judge_model),
+            "ollama": lambda: OllamaProvider(base_url=settings.OLLAMA_BASE_URL, model=judge_model),
+        }
+        factory = providers.get(provider_name)
+        if factory:
+            return LLMJudge(factory())
 
-    return LLMJudge(llm)
+    from repi.llm.factory import create_provider_from_env
+    return LLMJudge(create_provider_from_env())
 
 # ─── Runner ──────────────────────────────────────────────────────────────────
 
