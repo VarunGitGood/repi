@@ -28,21 +28,34 @@ def _reflection_response(step_idx: int) -> str:
     })
 
 
-def _final_answer_response() -> str:
+def _done_signal_response() -> str:
     return json.dumps({
-        "thought": "done",
-        "answer": {
-            "confidence": "high",
-            "affected_services": ["service-a"],
-            "trigger_event": {},
-            "propagation_chain": [],
-            "ruled_out_hypotheses": [],
-            "assumptions": [],
-            "gaps": [],
-            "incident_window": {},
-            "root_cause": "test",
-        },
+        "thought": "done gathering",
+        "action": {"tool": "done_gathering", "args": {"reason": "test_complete"}},
     })
+
+
+def _compile_response() -> str:
+    return json.dumps({
+        "confidence": "low",
+        "affected_services": ["service-a"],
+        "trigger_event": {},
+        "propagation_chain": [],
+        "ruled_out_hypotheses": [
+            {"hypothesis": "service-b", "why_ruled_out": "no errors in this window"},
+        ],
+        "assumptions": [],
+        "gaps": ["test fixture: no real evidence"],
+        "incident_window": {},
+        "root_cause": "test",
+    })
+
+
+# Legacy name kept so the test bodies read cleanly. Now resolves to the
+# gathering-exit signal; tests that need the compile call append _compile_response()
+# explicitly.
+def _final_answer_response() -> str:
+    return _done_signal_response()
 
 
 class _FakeInvestigation:
@@ -103,11 +116,22 @@ class _FakeStore:
         self.inv.pending_question = question
 
 
-def _build_loop(llm_responses, *, enable_reflection=True, reflection_interval=3, max_iterations=12):
+def _build_loop(
+    llm_responses, *, enable_reflection=True, reflection_interval=3,
+    max_iterations=12, max_reflections=2,
+):
     llm = MagicMock()
     llm.complete = AsyncMock(side_effect=list(llm_responses))
 
-    tools = {"search_logs": AsyncMock(return_value=[])}
+    # Tool returns a fresh chunk per call so stall detection (2 consecutive
+    # empty tool calls -> early exit) does NOT fire during reflection tests.
+    _counter = {"i": 0}
+
+    async def _fake_tool(**_kwargs):
+        _counter["i"] += 1
+        return [{"chunk_id": f"c{_counter['i']}", "service": "service-a", "text": "x"}]
+
+    tools = {"search_logs": _fake_tool}
 
     loop = ReactInvestigationLoop(
         llm=llm,
@@ -119,6 +143,7 @@ def _build_loop(llm_responses, *, enable_reflection=True, reflection_interval=3,
         min_iteration_delay=0,
         enable_reflection=enable_reflection,
         reflection_interval=reflection_interval,
+        max_reflections=max_reflections,
     )
     # Disable per-call rate limit pacing for tests.
     loop._wait_for_rate_limit = AsyncMock(return_value=None)
@@ -146,8 +171,11 @@ class TestReflectionInjection:
             _reflection_response(7),
             _action_response(8),
             _final_answer_response(),
+            _compile_response(),
         ]
-        loop = _build_loop(responses, reflection_interval=3, max_iterations=12)
+        loop = _build_loop(
+            responses, reflection_interval=3, max_iterations=12, max_reflections=5,
+        )
 
         result = await loop.investigate(QUERY_WITH_TIME_AND_SYMPTOM, resume=False)
 
@@ -158,8 +186,10 @@ class TestReflectionInjection:
         # next 3 actions, then second reflection
         assert kinds[4:7] == [None, None, None]
         assert kinds[7] == "reflection"
-        # final action runs, then final_answer breaks the loop (no step appended for the answer)
+        # final action runs, then done_gathering signal (kind="signal"), then compile step.
         assert kinds[8] is None
+        assert kinds[9] == "signal"
+        assert kinds[10] == "compile"
 
         reflection_count = sum(1 for k in kinds if k == "reflection")
         assert reflection_count == 2
@@ -175,14 +205,16 @@ class TestReflectionInjection:
             _action_response(4),
             _action_response(5),
             _final_answer_response(),
+            _compile_response(),
         ]
         loop = _build_loop(responses, enable_reflection=False, reflection_interval=3, max_iterations=10)
 
         result = await loop.investigate(QUERY_WITH_TIME_AND_SYMPTOM, resume=False)
 
         kinds = [s.kind for s in result.steps]
-        assert all(k is None for k in kinds), f"expected zero reflections, got kinds={kinds}"
-        # Loop was not pre-empted by any reflection turn.
+        # No "reflection" entries; mix of gathering (None), "signal", and "compile".
+        assert "reflection" not in kinds, f"expected zero reflections, got kinds={kinds}"
+        # Loop was not pre-empted by any reflection turn — all responses consumed.
         assert loop.llm.complete.await_count == len(responses)
 
     @pytest.mark.asyncio
@@ -193,6 +225,7 @@ class TestReflectionInjection:
             _action_response(1),
             _reflection_response(2),
             _final_answer_response(),
+            _compile_response(),
         ]
         loop = _build_loop(responses, reflection_interval=2, max_iterations=6)
 
@@ -213,20 +246,27 @@ class TestReflectionInjection:
         must NOT be left in the message history — otherwise the next iteration
         sees an unanswered user turn and gets confused."""
 
-        # 3 actions push us to reflection threshold; the reflection call itself
-        # raises; iteration continues and the next action runs cleanly.
+        # Capture a deep snapshot of `messages` on each LLM call so we can
+        # inspect the state at call time (the loop mutates messages across
+        # iterations).
+        import copy
+
         action_iter = iter([
             _action_response(0),
             _action_response(1),
             _action_response(2),
             _action_response(4),  # post-failure recovery action
+            _final_answer_response(),
+            _compile_response(),
         ])
-        state = {"raised": False}
+        state = {"reflection_failures": 0}
+        snapshots: list[list] = []
 
-        def _side_effect(messages):
+        async def _side_effect(messages, **_kwargs):
+            snapshots.append(copy.deepcopy(messages))
             last_user = next((m for m in reversed(messages) if m.role == "user"), None)
-            if last_user is not None and last_user.content == REFLECTION_PROMPT and not state["raised"]:
-                state["raised"] = True
+            if last_user is not None and last_user.content == REFLECTION_PROMPT and state["reflection_failures"] < 3:
+                state["reflection_failures"] += 1
                 raise RuntimeError("upstream LLM rate-limited mid-reflection")
             try:
                 return next(action_iter)
@@ -236,9 +276,15 @@ class TestReflectionInjection:
         llm = MagicMock()
         llm.complete = AsyncMock(side_effect=_side_effect)
 
+        # Tool returns a fresh chunk per call so stall detection doesn't fire.
+        _i = {"n": 0}
+        async def _tool(**_):
+            _i["n"] += 1
+            return [{"chunk_id": f"c{_i['n']}", "service": "service-a", "text": "x"}]
+
         loop = ReactInvestigationLoop(
             llm=llm,
-            tools={"search_logs": AsyncMock(return_value=[])},
+            tools={"search_logs": _tool},
             known_services=["service-a"],
             pool=None,
             store=_FakeStore(),
@@ -246,16 +292,16 @@ class TestReflectionInjection:
             min_iteration_delay=0,
             enable_reflection=True,
             reflection_interval=3,
+            max_reflections=2,
         )
         loop._wait_for_rate_limit = AsyncMock(return_value=None)
 
         await loop.investigate(QUERY_WITH_TIME_AND_SYMPTOM, resume=False)
 
-        # On the next LLM call after the reflection failure, the prompt must
-        # NOT be the dangling REFLECTION_PROMPT.
-        call_after_failure = llm.complete.call_args_list[4]  # 3 actions + 1 reflection-that-raised + this one
-        messages = call_after_failure.args[0]
-        last_user = next(m for m in reversed(messages) if m.role == "user")
+        # Snapshot after the failure: 3 action calls + 3 reflection retries = 6
+        # snapshots so far; the next call (index 6) is the recovery LLM call.
+        call_after_failure = snapshots[6]
+        last_user = next(m for m in reversed(call_after_failure) if m.role == "user")
         assert last_user.content != REFLECTION_PROMPT, (
             "REFLECTION_PROMPT was left dangling after the failed reflection call"
         )
@@ -263,19 +309,51 @@ class TestReflectionInjection:
     @pytest.mark.asyncio
     async def test_reflection_prompt_appended_before_call(self):
         """When reflection fires, the REFLECTION_PROMPT must be the last user message before the LLM call."""
-        responses = [
+        # AsyncMock.call_args_list captures the messages list by reference;
+        # the loop mutates that list across iterations, so we deepcopy on
+        # every call to preserve the state AT call time.
+        import copy
+        snapshots: list[list] = []
+
+        async def _capture(messages, **kwargs):
+            snapshots.append(copy.deepcopy(messages))
+            return next(_iter)
+
+        responses = iter([
             _action_response(0),
             _action_response(1),
             _action_response(2),
             _reflection_response(3),
             _final_answer_response(),
-        ]
-        loop = _build_loop(responses, reflection_interval=3, max_iterations=8)
+            _compile_response(),
+        ])
+        _iter = responses
+
+        llm = MagicMock()
+        llm.complete = AsyncMock(side_effect=_capture)
+        loop = ReactInvestigationLoop(
+            llm=llm,
+            tools={"search_logs": _build_loop.__wrapped__ if hasattr(_build_loop, "__wrapped__") else None},  # placeholder
+            known_services=["service-a"],
+            pool=None,
+            store=_FakeStore(),
+            max_iterations=8,
+            min_iteration_delay=0,
+            enable_reflection=True,
+            reflection_interval=3,
+            max_reflections=2,
+        )
+        # Override with a chunk-returning tool so stall detection doesn't fire.
+        _i = {"n": 0}
+        async def _tool(**_):
+            _i["n"] += 1
+            return [{"chunk_id": f"c{_i['n']}", "service": "service-a", "text": "x"}]
+        loop.tools = {"search_logs": _tool}
+        loop._wait_for_rate_limit = AsyncMock(return_value=None)
 
         await loop.investigate(QUERY_WITH_TIME_AND_SYMPTOM, resume=False)
 
-        # The 4th LLM call is the reflection one — inspect what was passed.
-        reflection_call = loop.llm.complete.call_args_list[3]
-        messages = reflection_call.args[0]
-        last_user = next(m for m in reversed(messages) if m.role == "user")
+        # The 4th LLM call (index 3) is the reflection one.
+        reflection_snapshot = snapshots[3]
+        last_user = next(m for m in reversed(reflection_snapshot) if m.role == "user")
         assert last_user.content == REFLECTION_PROMPT

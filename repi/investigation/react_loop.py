@@ -19,14 +19,25 @@ from repi.investigation.store import InvestigationStore
 from repi.intent.resolver import resolve as resolve_intent, ResolvedIntent, ClarificationNeeded
 from repi.investigation.sweep import auto_sweep
 from repi.investigation.schema import InvestigationAnswer, validate_answer
+from repi.investigation.compiler import compile_answer, synthesize_answer, CompileResult
 
 logger = logging.getLogger(__name__)
 
 
-# The canonical (and only) tool name for finalizing an investigation. The LLM
-# is taught this in the system prompt; the dispatcher recognises it at the
-# action site. No aliases — product is pre-prod, prompt drift isn't a concern.
-FINAL_ANSWER_TOOL = "submit_answer"
+# The ReAct loop is an evidence gatherer; it does NOT produce the final
+# InvestigationAnswer itself. That job belongs to `repi.investigation.compiler`,
+# which runs a separate, focused LLM call against the gathered evidence.
+#
+# `DONE_GATHERING_TOOL` is the LLM's signal to exit the gathering phase
+# voluntarily. It is dispatcher-only — not a real tool, no schema in
+# `TOOL_SCHEMAS`. Args: optional {"reason": "..."}.
+#
+# `LEGACY_SUBMIT_TOOL` is recognised for graceful migration: if a prompt
+# variant or older trace tells the model to call `submit_answer`, we treat
+# the call as a done-gathering signal (its args are discarded — the compiler
+# will produce the real answer from the actual evidence).
+DONE_GATHERING_TOOL = "done_gathering"
+LEGACY_SUBMIT_TOOL = "submit_answer"
 
 
 # Reflection turn injected every N action steps. The LLM is asked to step back,
@@ -42,73 +53,19 @@ REFLECTION_PROMPT = (
     "Stop. Before your next action, reflect:\n"
     "1. What hypotheses have you considered so far?\n"
     "2. What evidence supports or refutes each hypothesis?\n"
-    "3. What is the single highest-value next action — and why?\n"
-    "4. Termination check: ONLY if you have already pursued multiple distinct\n"
-    "   lines of inquiry (e.g. different time windows, different services,\n"
-    "   different log levels) AND each returned no useful evidence, you may\n"
-    "   submit with low confidence. Otherwise CONTINUE investigating — a\n"
-    "   single weak scan is not grounds for giving up.\n"
+    "3. What is the single highest-value next gathering action — and why?\n"
+    "4. Termination check: if you have pursued multiple distinct lines of\n"
+    "   inquiry and each returned no useful new evidence, your next turn\n"
+    "   should call `done_gathering`. Otherwise CONTINUE gathering.\n"
     "Reply with JSON of the form {\"thought\": \"...\"} containing your reflection. "
     "Do NOT issue a tool call on this turn."
 )
 
-def _strip_js_comments(text: str) -> str:
-    """Remove /* block comments */ and // line comments from JSON-like text.
-    Only strips // when it starts a line (after optional whitespace) to avoid
-    corrupting URLs like http:// inside string values."""
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    text = re.sub(r"^\s*//[^\n]*", "", text, flags=re.MULTILINE)
-    return text
-
-
-def parse_llm_response(raw: str) -> dict:
-    """Extract and parse JSON from LLM response, supporting multiple blocks and markdown fences."""
-    # Remove markdown fences
-    cleaned = re.sub(r"```json|```", "", raw).strip()
-
-    # Remove common prefixes like "Tool Call:" or "Final Answer:"
-    cleaned = re.sub(r"^(?:Tool Call|Final Answer):\s*", "", cleaned, flags=re.IGNORECASE)
-
-    # Strip JS-style comments that LLMs sometimes emit
-    cleaned = _strip_js_comments(cleaned)
-
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-
-    objects = _extract_json_objects(cleaned)
-    if not objects:
-        logger.error(f"Failed to parse JSON from LLM response. Raw length: {len(raw)}. Raw content: {raw}")
-        raise ValueError(f"No valid JSON found in LLM response. Check logs for full content.")
-    
-    if len(objects) == 1:
-        return objects[0]
-    
-    merged = {}
-    for obj in objects:
-        merged.update(obj)
-    return merged
-
-
-def _extract_json_objects(text: str) -> list[dict]:
-    objects = []
-    depth = 0
-    start = None
-    for i, ch in enumerate(text):
-        if ch == "{":
-            if depth == 0: start = i
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0 and start is not None:
-                candidate = text[start:i+1]
-                try:
-                    objects.append(json.loads(candidate))
-                except json.JSONDecodeError:
-                    pass
-                start = None
-    return objects
+# `parse_llm_response` lives in repi.llm.json_utils since Issue #49 — both
+# the loop and the eval judge share it. Re-export here so callers and the
+# tests/investigation/test_react_loop_parser.py module that imports it from
+# this module keep working.
+from repi.llm.json_utils import parse_llm_response  # noqa: F401
 
 
 @dataclass
@@ -144,6 +101,7 @@ class InvestigationResult:
     confidence: str
     duration_seconds: float
     evidence: list[dict] = field(default_factory=list)
+    stats: dict = field(default_factory=dict)
 
 class ReactInvestigationLoop:
     def __init__(
@@ -157,16 +115,20 @@ class ReactInvestigationLoop:
         min_iteration_delay: float = 2.0,
         enable_reflection: bool = True,
         reflection_interval: int = 3,
+        max_reflections: int = 2,
     ) -> None:
         self.llm = llm
         self.tools = tools
         self.known_services = known_services
         self.pool = pool
+        # `max_iterations` is the ACTION-step budget. Reflection turns and
+        # null-action re-prompts do not consume it (see Issue #48).
         self.max_iterations = max_iterations
         self.min_iteration_delay = min_iteration_delay
         self.store = store
         self.enable_reflection = enable_reflection
         self.reflection_interval = reflection_interval
+        self.max_reflections = max_reflections
         self._llm_call_timestamps: list[float] = []
 
     @staticmethod
@@ -231,6 +193,7 @@ class ReactInvestigationLoop:
         query: str,
         investigation_id: Optional[UUID] = None,
         on_step: Optional[Callable[[InvestigationStep], Awaitable[None]]] = None,
+        on_phase_change: Optional[Callable[[str], Awaitable[None]]] = None,
         known_services: list[str] | None = None,
         resume: bool = True,
     ) -> InvestigationResult:
@@ -333,6 +296,13 @@ class ReactInvestigationLoop:
         # the system message each turn so the LLM knows what's already been tried.
         tool_call_ledger: dict[str, dict] = {}
 
+        # Signal the gathering phase has begun (consumed by SSE stream).
+        if on_phase_change:
+            try:
+                await on_phase_change("gathering")
+            except Exception:
+                logger.debug("on_phase_change(gathering) hook raised", exc_info=True)
+
         messages = [
             Message(role="system", content=self._build_system_prompt()),
             Message(role="user", content=query)
@@ -400,45 +370,58 @@ class ReactInvestigationLoop:
 
             start_at_iteration = max(start_at_iteration, s.step_number)
 
-        final_answer_dict = {}
-        validation_retries = 0
-
-        # Count action steps since the last reflection so we can inject the
-        # forced re-plan every `reflection_interval` iterations. Replayed steps
-        # from a resumed investigation contribute to the count (reflections in
-        # the existing trace reset it) so resume doesn't immediately re-reflect.
+        # --- Action / reflection counters -----------------------------------
+        # `actions_taken` is the only thing that consumes `max_iterations`.
+        # Reflection turns and null-action re-prompts do NOT decrement the
+        # action budget — they live on their own counters.
+        actions_taken = 0
+        reflections_used = 0
         action_steps_since_reflection = 0
+        consecutive_empty_tool_calls = 0
         for s in existing_steps:
             if getattr(s, "kind", None) == "reflection":
                 action_steps_since_reflection = 0
-            else:
+                reflections_used += 1
+            elif getattr(s, "kind", None) is None and s.action:
                 action_steps_since_reflection += 1
 
-        for i in range(start_at_iteration, self.max_iterations):
-            if i > start_at_iteration:
+        next_step_number = start_at_iteration + 1
+        gathering_exit_reason = "max_actions_reached"
+        null_action_reprompted_this_turn = False
+
+        while actions_taken < self.max_iterations:
+            if next_step_number > start_at_iteration + 1:
                 await asyncio.sleep(self.min_iteration_delay)
 
             # --- Reflection turn ------------------------------------------------
             if (
                 self.enable_reflection
                 and self.reflection_interval > 0
+                and reflections_used < self.max_reflections
                 and action_steps_since_reflection >= self.reflection_interval
             ):
                 messages.append(Message(role="user", content=REFLECTION_PROMPT))
-                try:
-                    await self._wait_for_rate_limit()
-                    if self.store and investigation_obj:
-                        await self.store.increment_llm_calls(investigation_obj.id)
-                    raw_reflection = await self.llm.complete(messages)
-                except Exception as e:
-                    logger.error(f"Reflection iteration {i+1} failed: {e}")
-                    # Roll back the just-appended REFLECTION_PROMPT so the next
-                    # iteration doesn't see a dangling user turn with no assistant
-                    # reply — that would confuse the model on retry.
+                raw_reflection = None
+                for _refl_retry in range(3):
+                    try:
+                        await self._wait_for_rate_limit()
+                        raw_reflection = await self.llm.complete(messages)
+                        break
+                    except Exception as e:
+                        logger.warning(f"Reflection {next_step_number} attempt {_refl_retry+1}/3 failed: {e}")
+                        if _refl_retry < 2:
+                            await asyncio.sleep(15 * (2 ** _refl_retry))
+
+                if raw_reflection is None:
+                    logger.error(f"Reflection {next_step_number}: LLM call failed after 3 retries, skipping")
                     if messages and messages[-1].content == REFLECTION_PROMPT:
                         messages.pop()
                     action_steps_since_reflection = 0
+                    reflections_used += 1
                     continue
+
+                if self.store and investigation_obj:
+                    await self.store.increment_llm_calls(investigation_obj.id)
 
                 try:
                     parsed_reflection = parse_llm_response(raw_reflection)
@@ -456,7 +439,7 @@ class ReactInvestigationLoop:
                         reflection_thought = str(reflection_thought)
 
                 reflection_step = InvestigationStep(
-                    i + 1,
+                    next_step_number,
                     Thought(reflection_thought),
                     None,
                     None,
@@ -467,7 +450,7 @@ class ReactInvestigationLoop:
                 if self.store and investigation_obj:
                     await self.store.add_step(
                         investigation_id=investigation_obj.id,
-                        step_number=i + 1,
+                        step_number=next_step_number,
                         thought=reflection_thought,
                         action=None,
                         observation=None,
@@ -481,14 +464,63 @@ class ReactInvestigationLoop:
                 # turn's action is anchored to the re-plan.
                 messages.append(Message(role="assistant", content=raw_reflection))
 
+                next_step_number += 1
                 action_steps_since_reflection = 0
+                reflections_used += 1
                 continue
 
-            try:
-                await self._wait_for_rate_limit()
-                if self.store: await self.store.increment_llm_calls(investigation_obj.id)
+            # --- Graduated finalize prompts ---------------------------------
+            # As the action budget runs low, escalate toward exit. The loop
+            # never produces the final answer itself — `done_gathering` (or
+            # exhausting the budget) hands off to the compiler.
+            actions_remaining = self.max_iterations - actions_taken
+            if actions_remaining == 2:
+                messages.append(Message(
+                    role="user",
+                    content=(
+                        "You have 2 actions left before gathering ends. Only "
+                        "issue a tool call if it would materially change the "
+                        "final answer; otherwise call `done_gathering`."
+                    ),
+                ))
+            elif actions_remaining == 1:
+                messages.append(Message(
+                    role="user",
+                    content=(
+                        "Last action. The next turn should either call "
+                        "`done_gathering` or one final tool call. After this "
+                        "turn the gathering phase ends."
+                    ),
+                ))
 
-                raw_response = await self.llm.complete(messages)
+            # --- Ensure last message is user/system before calling LLM -----
+            if messages and messages[-1].role == "assistant":
+                messages.append(Message(role="user", content="Continue gathering evidence."))
+
+            # --- LLM call with retry -----------------------------------------------
+            raw_response = None
+            for _llm_retry in range(3):
+                try:
+                    await self._wait_for_rate_limit()
+                    raw_response = await self.llm.complete(messages)
+                    break
+                except Exception as e:
+                    logger.warning(f"Step {next_step_number} LLM call attempt {_llm_retry+1}/3 failed: {e}")
+                    if _llm_retry < 2:
+                        await asyncio.sleep(15 * (2 ** _llm_retry))
+
+            if raw_response is None:
+                logger.error(f"Step {next_step_number}: LLM call failed after 3 retries, ending gathering")
+                gathering_exit_reason = "llm_call_failed_repeatedly"
+                break
+
+            if self.store:
+                await self.store.increment_llm_calls(investigation_obj.id)
+
+            if self.store:
+                await self.store.increment_llm_calls(investigation_obj.id)
+
+            try:
                 parsed = parse_llm_response(raw_response)
 
                 _thought_raw = parsed.get("thought", "")
@@ -500,22 +532,31 @@ class ReactInvestigationLoop:
                 thought = Thought(content=_thought_raw)
                 action = None
                 observation = None
-                
-                is_repeat_call = False
-                if "action" in parsed:
-                    tool_name = parsed["action"].get("tool")
-                    tool_args = parsed["action"].get("args", {})
+                signal_done = False
 
-                    if tool_name == FINAL_ANSWER_TOOL:
-                        parsed["answer"] = tool_args
-                    else:
+                is_repeat_call = False
+                if "action" in parsed and isinstance(parsed["action"], dict):
+                    tool_name = parsed["action"].get("tool")
+                    tool_args = parsed["action"].get("args", {}) or {}
+
+                    if tool_name in (DONE_GATHERING_TOOL, LEGACY_SUBMIT_TOOL):
+                        signal_done = True
+                        gathering_exit_reason = (
+                            tool_args.get("reason", "model_signaled_done")
+                            if isinstance(tool_args, dict)
+                            else "model_signaled_done"
+                        )
+                        action = Action(tool_call=ToolCall(
+                            name=DONE_GATHERING_TOOL,
+                            args={"reason": str(gathering_exit_reason)},
+                        ))
+                    elif tool_name:
                         action = Action(tool_call=ToolCall(name=tool_name, args=tool_args))
 
                         if tool_name in self.tools:
                             ledger_key = self._ledger_key(tool_name, tool_args)
                             cached = tool_call_ledger.get(ledger_key)
                             if cached is not None:
-                                # Repeat call — short-circuit without invoking the tool.
                                 is_repeat_call = True
                                 observation = Observation(tool_result=ToolResult(
                                     tool_name=tool_name,
@@ -536,103 +577,204 @@ class ReactInvestigationLoop:
                                         "args": tool_args,
                                         "result": result,
                                     }
+                                    new_chunks = self._extract_chunks(result)
+                                    if not new_chunks:
+                                        consecutive_empty_tool_calls += 1
+                                    else:
+                                        consecutive_empty_tool_calls = 0
                                     if self.store:
-                                        new_chunks = self._extract_chunks(result)
                                         await self.store.add_chunks(investigation_obj.id, new_chunks)
                                 except Exception as e:
                                     logger.error(f"Tool failed: {e}")
                                     observation = Observation(tool_result=ToolResult(
                                         tool_name=tool_name, args=tool_args, result=None, error=str(e)
                                     ))
+                                    consecutive_empty_tool_calls += 1
                         else:
                             observation = Observation(tool_result=ToolResult(
                                 tool_name=tool_name, args=tool_args, result=None, error=f"Unknown tool '{tool_name}'"
                             ))
-                    
-                if action or thought.content:
-                    step = InvestigationStep(i + 1, thought, action, observation)
-                    processed_steps.append(step)
-                    action_steps_since_reflection += 1
 
-                    if self.store:
-                        await self.store.add_step(
-                            investigation_id=investigation_obj.id,
-                            step_number=i + 1,
-                            thought=thought.content,
-                            action=asdict(action.tool_call) if action else None,
-                            observation=asdict(observation.tool_result) if observation else None,
-                            kind=None,
-                        )
-
-                    if on_step: await on_step(step)
-                
-                if "answer" in parsed:
-                    ans_dict = parsed["answer"]
-
-                    chunks_obj = await self.store.get_chunks(investigation_obj.id) if self.store else []
-                    evidence_ids = {c.chunk_id for c in chunks_obj}
-                    
-                    is_valid, errors = validate_answer(ans_dict, evidence_ids)
-                    
-                    if not is_valid and validation_retries < 1:
-                        validation_retries += 1
-                        error_msg = f"VALIDATION ERROR: Your final answer did not match the required schema or references missing chunk_ids.\nErrors: {errors}\nPlease correct the final answer and try again."
-                        messages.append(Message(role="user", content=error_msg))
+                # --- Null-action guard ---------------------------------------
+                # If the model produced neither a tool call nor a done signal,
+                # give it ONE chance to recover without spending an action.
+                if action is None and not signal_done:
+                    if not null_action_reprompted_this_turn:
+                        null_action_reprompted_this_turn = True
+                        messages.append(Message(role="assistant", content=raw_response))
+                        messages.append(Message(
+                            role="user",
+                            content=(
+                                "Your previous reply had no tool call. Reply again "
+                                "with a JSON object containing an `action` — either a "
+                                "real tool call or `done_gathering` if you are done."
+                            ),
+                        ))
                         continue
-                    
-                    if not is_valid:
-                        ans_dict["confidence"] = "low"
-                        ans_dict.setdefault("gaps", []).append(f"Schema validation failed: {errors}")
-                    
-                    final_answer_dict = ans_dict
-                    if self.store:
-                        await self.store.finalize(investigation_obj.id, json.dumps(final_answer_dict))
+                    # Already re-prompted once this turn; force exit so the
+                    # compiler can still produce an answer.
+                    gathering_exit_reason = "model_emitted_thought_only_twice"
+                    logger.warning(
+                        "Step %d: model gave no action twice in a row; exiting gathering",
+                        next_step_number,
+                    )
                     break
-                
+
+                null_action_reprompted_this_turn = False
+
+                # --- Persist the step (signal or real action) ----------------
+                kind = "signal" if signal_done else None
+                step = InvestigationStep(next_step_number, thought, action, observation, kind=kind)
+                processed_steps.append(step)
+
+                if self.store:
+                    await self.store.add_step(
+                        investigation_id=investigation_obj.id,
+                        step_number=next_step_number,
+                        thought=thought.content,
+                        action=asdict(action.tool_call) if action else None,
+                        observation=asdict(observation.tool_result) if observation else None,
+                        kind=kind,
+                    )
+
+                if on_step:
+                    await on_step(step)
+
+                next_step_number += 1
+
+                if signal_done:
+                    break
+
+                # Real action steps advance the budget and the reflection counter.
+                actions_taken += 1
+                action_steps_since_reflection += 1
+
+                # Stall detection: two empty tool calls in a row exits gathering.
+                if consecutive_empty_tool_calls >= 2:
+                    gathering_exit_reason = "stalled_no_new_evidence"
+                    logger.info(
+                        "Exiting gathering early: %d consecutive tool calls returned no new chunks",
+                        consecutive_empty_tool_calls,
+                    )
+                    break
+
                 messages.append(Message(role="assistant", content=raw_response))
                 if observation and observation.tool_result:
                     res = observation.tool_result.result if observation.tool_result.result is not None else {"error": observation.tool_result.error}
                     prefix = "(repeat call — returning cached result)\n" if is_repeat_call else ""
                     messages.append(Message(role="user", content=f"{prefix}Observation:\n{json.dumps(res, default=str)}"))
 
-                # Refresh the system prompt with the current ledger so the next
-                # turn's LLM call sees an up-to-date "already tried" view.
                 if tool_call_ledger:
                     messages[0] = Message(
                         role="system",
                         content=self._build_system_prompt() + "\n\n" + self._ledger_summary(tool_call_ledger),
                     )
-                
+
             except Exception as e:
-                logger.error(f"Iteration {i+1} failed: {e}")
-                messages.append(Message(role="user", content=f"Internal error: {str(e)}. Please retry or summarize."))
+                logger.error(f"Step {next_step_number} failed during processing: {e}")
+                if messages and messages[-1].role == "assistant":
+                    messages.pop()
+                continue
 
-        if self.store:
-            chunks_obj = await self.store.get_chunks(investigation_obj.id)
-            evidence_chunks = [{"service": c.service, "timestamp": c.timestamp, "message": c.message} for c in chunks_obj]
-
-        # Defensive fallback: if the loop exited without a finalized answer
-        # (max iterations reached, repeated parse failures, etc.) emit a
-        # low-confidence stub instead of an empty {} so downstream consumers
-        # always see a valid shape with explicit gaps.
-        if not final_answer_dict:
-            final_answer_dict = {
-                "incident_window": {},
-                "affected_services": [],
-                "trigger_event": {},
-                "propagation_chain": [],
-                "root_cause": "unable_to_determine — investigation exited without a finalized answer",
-                "ruled_out_hypotheses": [],
-                "assumptions": [],
-                "confidence": "low",
-                "gaps": [
-                    "ReAct loop exhausted max_iterations without submitting an answer — "
-                    "no data may have been found in the resolved time window, or the LLM "
-                    "looped on tool calls without converging."
-                ],
+        # --- Compile phase --------------------------------------------------
+        # Gathering is done. Hand off to the compiler, which runs a single,
+        # focused LLM call against the evidence we collected and produces a
+        # validated InvestigationAnswer. The compiler internally falls back
+        # to a deterministic synthesis if its own LLM call fails twice.
+        chunks_obj = await self.store.get_chunks(investigation_obj.id) if self.store else []
+        evidence_chunks = [
+            {
+                "chunk_id": c.chunk_id,
+                "service": c.service,
+                "timestamp": str(c.timestamp),
+                "message": c.message,
             }
-            if self.store and investigation_obj:
-                await self.store.finalize(investigation_obj.id, json.dumps(final_answer_dict))
+            for c in chunks_obj
+        ]
+
+        if on_phase_change:
+            try:
+                await on_phase_change("compiling")
+            except Exception:
+                logger.debug("on_phase_change(compiling) hook raised", exc_info=True)
+
+        recent_thoughts = [
+            s.thought.content for s in processed_steps[-4:] if s.thought and s.thought.content
+        ]
+
+        try:
+            compile_result = await compile_answer(
+                llm=self.llm,
+                query=query,
+                resolved_intent=resolved_intent,
+                evidence=evidence_chunks,
+                tool_ledger=tool_call_ledger,
+                recent_thoughts=recent_thoughts,
+                known_services=self.known_services,
+            )
+            final_answer_dict = compile_result.answer
+            compile_source = compile_result.source
+            compile_attempts = compile_result.attempts
+            floor_adjustments = compile_result.floor_adjustments
+        except Exception as e:
+            logger.error("Compiler raised; falling back to deterministic synth: %s", e)
+            final_answer_dict = synthesize_answer(
+                query=query,
+                resolved_intent=resolved_intent,
+                evidence=evidence_chunks,
+                tool_ledger=tool_call_ledger,
+                extra_gaps=[f"compile_answer raised: {e}"],
+            )
+            compile_source = "deterministic_exception"
+            compile_attempts = 0
+            floor_adjustments = []
+
+        # Persist the compile step so the trace shows the phase boundary.
+        compile_thought = (
+            f"Compiled answer from {len(evidence_chunks)} evidence chunks across "
+            f"{len({c.get('service') for c in evidence_chunks if c.get('service')})} services "
+            f"(source={compile_source}, attempts={compile_attempts}, "
+            f"exit_reason={gathering_exit_reason})"
+        )
+        compile_step = InvestigationStep(
+            next_step_number,
+            Thought(compile_thought),
+            None,
+            None,
+            kind="compile",
+        )
+        processed_steps.append(compile_step)
+        if self.store:
+            await self.store.add_step(
+                investigation_id=investigation_obj.id,
+                step_number=next_step_number,
+                thought=compile_thought,
+                action=None,
+                observation=None,
+                kind="compile",
+            )
+        if on_step:
+            await on_step(compile_step)
+
+        if self.store and investigation_obj:
+            await self.store.finalize(investigation_obj.id, json.dumps(final_answer_dict))
+
+        stats = {
+            "iterations_used": actions_taken,
+            "reflections_used": reflections_used,
+            "chunks_gathered": len(evidence_chunks),
+            "tools_called": sorted({e["tool_name"] for e in tool_call_ledger.values()}),
+            "compile_source": compile_source,
+            "compile_attempts": compile_attempts,
+            "floor_adjustments": floor_adjustments,
+            "gathering_exit_reason": gathering_exit_reason,
+        }
+
+        if on_phase_change:
+            try:
+                await on_phase_change("done")
+            except Exception:
+                logger.debug("on_phase_change(done) hook raised", exc_info=True)
 
         return InvestigationResult(
             id=str(investigation_obj.id) if investigation_obj else "unknown",
@@ -642,52 +784,45 @@ class ReactInvestigationLoop:
             evidence_chunk_ids=[c.chunk_id for c in chunks_obj] if self.store else [],
             confidence=final_answer_dict.get("confidence", "low"),
             duration_seconds=time.time() - start_time,
-            evidence=evidence_chunks
+            evidence=evidence_chunks,
+            stats=stats,
         )
 
     def _build_system_prompt(self) -> str:
-        return f"""You are a senior SRE. Postgres is the source of truth for this investigation.
+        # Filter out the legacy `submit_answer` tool from the schema we
+        # advertise — this loop no longer produces the final answer.
+        gathering_tools = {k: v for k, v in TOOL_SCHEMAS.items() if k != LEGACY_SUBMIT_TOOL}
+        return f"""You are a senior SRE gathering evidence about an incident.
+Postgres is the source of truth for this investigation.
 
 KNOWN SERVICES: {self.known_services}
-TOOLS: {json.dumps(TOOL_SCHEMAS, indent=2)}
+TOOLS: {json.dumps(gathering_tools, indent=2)}
 
-GOAL: Identify the root cause of the reported issue using evidence from logs.
+YOUR ROLE: You are an EVIDENCE GATHERER. A separate "compile" step will turn
+the evidence you collect into the final structured answer. You do NOT produce
+that answer yourself.
 
 RESPONSE FORMAT (use exactly this shape on every turn — no exceptions):
 {{ "thought": "...", "action": {{ "tool": "<tool_name>", "args": {{...}} }} }}
 
-When you are ready to finalize, call the `submit_answer` tool:
-{{ "thought": "...", "action": {{ "tool": "submit_answer", "args": <InvestigationAnswer> }} }}
+When you believe you have gathered enough evidence (or that further
+investigation will not change the answer), signal exit by calling
+`done_gathering`:
+{{ "thought": "...", "action": {{ "tool": "done_gathering", "args": {{ "reason": "..." }} }} }}
 
-There is exactly one way to submit a final answer: the `submit_answer` tool.
-Do NOT emit a top-level "answer" key, "Final Answer:" prefix, or any other
-finalize convention.
-
-<InvestigationAnswer> Schema:
-{{
-  "incident_window": {{"start": "ISO8601", "end": "ISO8601"}},
-  "affected_services": ["service-a", "service-b"],
-  "trigger_event": {{"chunk_id": "uuid", "service": "...", "timestamp": "...", "log_line": "..."}},
-  "propagation_chain": [
-    {{"service": "...", "chunk_id": "...", "ts": "...", "what": "..."}}
-  ],
-  "root_cause": "one-sentence verdict",
-  "ruled_out_hypotheses": [
-    {{"hypothesis": "...", "why_ruled_out": "..."}}
-  ],
-  "assumptions": ["e.g. assumed 'Friday night' = ..."],
-  "confidence": "high | medium | low",
-  "gaps": ["missing logs for service-x", ...]
-}}
-
-CRITICAL RULES:
-1. Every chunk_id used in trigger_event or propagation_chain MUST have been retrieved by a tool first.
-2. ALWAYS correlate logs cross-service. Use scan_window.
-3. If confidence is not 'high', you MUST explain what is missing in 'gaps'.
-4. Do not hand-wave. Citing specific log lines and chunk_ids is mandatory.
-5. `ruled_out_hypotheses` MUST explicitly name every known service that appeared in scan_window/auto_sweep but is NOT in your `affected_services` — give a one-line rationale per service (e.g. "no errors in this window", "only downstream symptom", "coincidental but causally unrelated"). Generic hypotheses like "network outage" are not a substitute.
-6. `root_cause` MUST describe the FULL mechanism end-to-end, not just the trigger. Include the cascade chain (e.g. retry storm, pool exhaustion, key-distribution failure) so a reader understands WHY the trigger produced the user-visible symptom.
-7. If your tool calls return no data in the resolved time window, do NOT return an empty answer. Still call `submit_answer` with confidence='low' and put "no logs found in the resolved time window — possible misalignment between query phrasing and seeded data" in `gaps`.
+GATHERING PRINCIPLES:
+1. ALWAYS correlate logs cross-service. `scan_window` is usually the right
+   first call for a new window — it returns ERRORS plus pre-context for
+   each service that emitted them.
+2. Don't repeat tool calls with identical arguments — the dispatcher
+   dedupes them, but you still waste a turn.
+3. If a tool call returns nothing useful, vary the arguments (different
+   service, wider window, different level filter) before giving up on
+   that line of inquiry.
+4. If two consecutive tool calls return no new evidence, call
+   `done_gathering` — there is no value in spamming the dispatcher.
+5. Do NOT emit a "Final Answer:" prefix or fill in any
+   InvestigationAnswer schema. The compile step will produce that.
 
 Current UTC: {_dh.to_iso(_dh.now())}
 """

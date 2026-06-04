@@ -14,6 +14,48 @@ class LLMError(Exception):
         self.provider = provider
         self.model = model
 
+
+class LLMRateLimitError(LLMError):
+    """Raised when the provider returns 429. Do not retry-blast — wait."""
+
+    def __init__(self, provider: str, model: str, retry_after: float | None = None):
+        super().__init__(
+            f"rate limited" + (f" (retry after {retry_after}s)" if retry_after else ""),
+            provider, model,
+        )
+        self.retry_after = retry_after
+
+
+class LLMBadRequestError(LLMError):
+    """Raised for 4xx (non-429) — bad payload, bad auth, etc. NEVER retry."""
+
+    def __init__(self, provider: str, model: str, status_code: int, body: str):
+        super().__init__(f"HTTP {status_code}: {body[:300]}", provider, model)
+        self.status_code = status_code
+        self.body = body
+
+
+def _check_4xx(response: httpx.Response, provider: str, model: str) -> None:
+    """Raise typed errors for 4xx responses. 429 surfaces as a retryable
+    rate-limit error; other 4xx as bad-request (do not retry)."""
+    if response.status_code == 429:
+        retry_after = None
+        ra = response.headers.get("Retry-After")
+        if ra:
+            try:
+                retry_after = float(ra)
+            except ValueError:
+                pass
+        raise LLMRateLimitError(provider, model, retry_after=retry_after)
+    if 400 <= response.status_code < 500:
+        body = ""
+        try:
+            body = response.text
+        except Exception:
+            pass
+        logger.warning("%s %d body: %s", provider, response.status_code, body[:500])
+        raise LLMBadRequestError(provider, model, response.status_code, body)
+
 class OpenAIProvider(LLMProvider):
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         self._api_key = api_key
@@ -33,8 +75,11 @@ class OpenAIProvider(LLMProvider):
                         "temperature": temperature
                     }
                 )
+                _check_4xx(response, "openai", self._model)
                 response.raise_for_status()
                 return response.json()["choices"][0]["message"]["content"]
+        except LLMError:
+            raise
         except Exception as e:
             raise LLMError(str(e), "openai", self._model)
 
@@ -69,8 +114,11 @@ class AnthropicProvider(LLMProvider):
                         "temperature": temperature
                     }
                 )
+                _check_4xx(response, "anthropic", self._model)
                 response.raise_for_status()
                 return response.json()["content"][0]["text"]
+        except LLMError:
+            raise
         except Exception as e:
             raise LLMError(str(e), "anthropic", self._model)
 
@@ -98,8 +146,11 @@ class OllamaProvider(LLMProvider):
                         }
                     }
                 )
+                _check_4xx(response, "ollama", self._model)
                 response.raise_for_status()
                 return response.json()["message"]["content"]
+        except LLMError:
+            raise
         except Exception as e:
             raise LLMError(str(e), "ollama", self._model)
 
@@ -132,8 +183,11 @@ class GeminiProvider(LLMProvider):
                         }
                     }
                 )
+                _check_4xx(response, "gemini", self._model)
                 response.raise_for_status()
                 return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        except LLMError:
+            raise
         except Exception as e:
             raise LLMError(str(e), "gemini", self._model)
 
@@ -148,10 +202,15 @@ class MistralProvider(LLMProvider):
         self._url = "https://api.mistral.ai/v1/chat/completions"
 
     async def complete(self, messages: List[Message], max_tokens: int = 2000, temperature: float = 0.0) -> str:
-        MAX_RETRIES = 3
-        BASE_DELAY = 15.0  # seconds - Mistral free tier resets per minute
-        
-        for attempt in range(MAX_RETRIES):
+        MAX_TRANSIENT_RETRIES = 3   # network blips, timeouts, 5xx
+        MAX_RATE_LIMIT_WAITS = 10   # 429s — these don't count as failures, they're "wait and try again"
+        BASE_DELAY = 15.0           # seconds — Mistral free tier resets per minute
+
+        import random
+        transient_attempts = 0
+        rate_limit_waits = 0
+
+        while True:
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     response = await client.post(
@@ -164,36 +223,47 @@ class MistralProvider(LLMProvider):
                             "temperature": temperature
                         }
                     )
-                    
+
                     if response.status_code == 429:
-                        if attempt == MAX_RETRIES - 1:
-                            raise LLMError(f"Rate limited after {MAX_RETRIES} retries", "mistral", self._model)
-                        
-                        import random
+                        rate_limit_waits += 1
+                        if rate_limit_waits > MAX_RATE_LIMIT_WAITS:
+                            raise LLMRateLimitError("mistral", self._model)
+
                         retry_after = response.headers.get("Retry-After")
                         if retry_after:
                             try:
                                 delay = float(retry_after) + random.uniform(0, 2)
                                 source = "Retry-After header"
                             except ValueError:
-                                delay = BASE_DELAY * (2 ** attempt) + random.uniform(0, 5)
+                                delay = BASE_DELAY * (2 ** min(rate_limit_waits, 3)) + random.uniform(0, 5)
                                 source = "exponential backoff (invalid header)"
                         else:
-                            delay = BASE_DELAY * (2 ** attempt) + random.uniform(0, 5)
+                            delay = BASE_DELAY * (2 ** min(rate_limit_waits, 3)) + random.uniform(0, 5)
                             source = "exponential backoff"
-                            
-                        logger.warning(f"Mistral 429 — waiting {delay:.1f}s (source: {source}) before retry {attempt + 1}/{MAX_RETRIES}")
-                        await asyncio.sleep(delay)
-                        continue
 
+                        logger.warning(
+                            "Mistral 429 — waiting %.1fs (source: %s) — wait #%d/%d",
+                            delay, source, rate_limit_waits, MAX_RATE_LIMIT_WAITS,
+                        )
+                        await asyncio.sleep(delay)
+                        continue  # does NOT increment transient_attempts
+
+                    # 4xx (non-429): typed bad-request, no retry.
+                    _check_4xx(response, "mistral", self._model)
                     response.raise_for_status()
                     return response.json()["choices"][0]["message"]["content"]
+            except LLMRateLimitError:
+                raise
+            except LLMBadRequestError:
+                raise
             except Exception as e:
-                if isinstance(e, LLMError):
-                    raise
-                if attempt == MAX_RETRIES - 1:
+                transient_attempts += 1
+                if transient_attempts >= MAX_TRANSIENT_RETRIES:
                     raise LLMError(str(e), "mistral", self._model)
-                logger.warning(f"Mistral attempt {attempt + 1} failed: {e}. Retrying...")
+                logger.warning(
+                    "Mistral transient error (attempt %d/%d): %s",
+                    transient_attempts, MAX_TRANSIENT_RETRIES, e,
+                )
                 await asyncio.sleep(1.0)
         
     @property

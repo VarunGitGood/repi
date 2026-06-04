@@ -20,7 +20,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 export default function InvestigationDetailPage() {
   const { id } = useParams()
   const streamUrl = id ? `${API_BASE}/investigations/${id}/stream` : null
-  const { steps, answer, error, done, clarificationQuestion, awaitingClarification } = useSSE(streamUrl)
+  const { steps, answer, error, done, clarificationQuestion, awaitingClarification, phase, stats } = useSSE(streamUrl)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [reply, setReply] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -61,7 +61,13 @@ export default function InvestigationDetailPage() {
             {!done && !awaitingClarification ? (
               <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Investigation in progress...</span>
+                <span>
+                  {phase === "compiling"
+                    ? "Compiling answer..."
+                    : phase === "gathering"
+                      ? "Gathering evidence..."
+                      : "Investigation in progress..."}
+                </span>
               </div>
             ) : awaitingClarification ? (
               <Badge variant="outline" className="flex items-center gap-1 border-amber-500 text-amber-500 animate-pulse">
@@ -83,6 +89,43 @@ export default function InvestigationDetailPage() {
             We could fetch detail once if we want the query text. 
             For now, we'll assume the user knows what they searched. */}
       </div>
+
+      {/* Phase indicator strip */}
+      {!awaitingClarification && (phase || done) && (
+        <div className="mb-6 flex items-center gap-3 text-xs">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${
+            phase === "gathering"
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : phase === "compiling" || phase === "done" || done
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                : "border-border text-muted-foreground"
+          }`}>
+            {phase === "gathering" && !done ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-3 w-3" />
+            )}
+            <span>Gathering evidence</span>
+          </div>
+          <div className="h-px flex-1 bg-border" />
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${
+            phase === "compiling"
+              ? "border-violet-500/40 bg-violet-500/10 text-violet-400"
+              : phase === "done" || done
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                : "border-border text-muted-foreground"
+          }`}>
+            {phase === "compiling" ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : phase === "done" || done ? (
+              <CheckCircle2 className="h-3 w-3" />
+            ) : (
+              <ShieldCheck className="h-3 w-3" />
+            )}
+            <span>Compiling answer</span>
+          </div>
+        </div>
+      )}
 
       <Separator className="mb-8" />
 
@@ -111,6 +154,40 @@ export default function InvestigationDetailPage() {
               </div>
               <StructuredAnswerView data={answer} />
             </div>
+          </div>
+        )}
+
+        {/* Run stats */}
+        {stats && done && (
+          <div className="mt-4 text-xs text-muted-foreground grid grid-cols-2 sm:grid-cols-4 gap-3 px-2">
+            <div>
+              <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Iterations</div>
+              <div>{stats.iterations_used ?? 0}</div>
+            </div>
+            <div>
+              <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Reflections</div>
+              <div>{stats.reflections_used ?? 0}</div>
+            </div>
+            <div>
+              <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Chunks gathered</div>
+              <div>{stats.chunks_gathered ?? 0}</div>
+            </div>
+            <div>
+              <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Compile source</div>
+              <div>{stats.compile_source ?? "?"}</div>
+            </div>
+            {stats.tools_called && stats.tools_called.length > 0 && (
+              <div className="col-span-2 sm:col-span-4">
+                <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Tools called</div>
+                <div className="font-mono">{stats.tools_called.join(", ")}</div>
+              </div>
+            )}
+            {stats.gathering_exit_reason && (
+              <div className="col-span-2 sm:col-span-4">
+                <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Gathering exit</div>
+                <div className="font-mono">{stats.gathering_exit_reason}</div>
+              </div>
+            )}
           </div>
         )}
 
