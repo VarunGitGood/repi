@@ -25,10 +25,14 @@ def build_filter_expressions(filters: RetrievalFilters) -> list[Any]:
         else:
             exprs.append(LogChunk.log_level == str(filters.log_level).upper())
 
+    # asyncpg interprets naive datetimes via the process's local timezone when
+    # binding to `timestamptz` columns. Attach UTC explicitly at the DB
+    # boundary so a non-UTC host (e.g. IST/+05:30) doesn't silently shift the
+    # query window.
     if filters.time_from:
-        exprs.append(LogChunk.timestamp_start >= DateHandler.to_utc_naive(filters.time_from))
+        exprs.append(LogChunk.timestamp_start >= DateHandler.to_aware_utc(filters.time_from))
 
     if filters.time_to:
-        exprs.append(LogChunk.timestamp_end <= DateHandler.to_utc_naive(filters.time_to))
+        exprs.append(LogChunk.timestamp_end <= DateHandler.to_aware_utc(filters.time_to))
 
     return exprs
