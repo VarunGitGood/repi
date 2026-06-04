@@ -267,8 +267,10 @@ async def compile_answer(
     recent = recent_thoughts or []
     validation_errors: Optional[list[str]] = None
     last_parsed: dict = {}
+    attempts_made = 0
 
     for attempt in range(1, 3):
+        attempts_made = attempt
         messages = _build_compile_messages(
             query=query,
             resolved_intent=resolved_intent,
@@ -308,13 +310,13 @@ async def compile_answer(
     if last_parsed:
         adjusted, adjustments = enforce_floors(last_parsed, evidence)
         adjusted.setdefault("gaps", []).append(
-            f"Compiler answer failed validation after 2 attempts: {validation_errors}"
+            f"Compiler answer failed validation after {attempts_made} attempt(s): {validation_errors}"
         )
         adjusted["confidence"] = "low"
         return CompileResult(
             answer=adjusted,
             source="llm_invalid",
-            attempts=2,
+            attempts=attempts_made,
             floor_adjustments=adjustments,
         )
 
@@ -327,6 +329,6 @@ async def compile_answer(
     return CompileResult(
         answer=synthesized,
         source="deterministic",
-        attempts=2,
+        attempts=attempts_made,
         floor_adjustments=[],
     )
