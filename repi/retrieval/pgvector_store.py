@@ -25,14 +25,23 @@ class PgVectorStore:
         result = await self.session.exec(statement)
         chunk = result.one_or_none()
         
+        # The log_chunks.timestamp_{start,end} columns are TIMESTAMPTZ and the
+        # SQLModel declares DateTime(timezone=True). On a non-UTC host (e.g.
+        # IST/+05:30), passing a naive datetime here causes SQLAlchemy/asyncpg
+        # to interpret it as local time, silently shifting the stored value by
+        # the offset. Attach UTC explicitly so the write lands at the intended
+        # wall-clock UTC time regardless of host TZ.
+        ts_start = DateHandler.to_aware_utc(timestamp_start)
+        ts_end = DateHandler.to_aware_utc(timestamp_end)
+
         if chunk:
             chunk.embedding = embedding
             chunk.text = text
             chunk.source_service = source_service
             chunk.source_env = source_env
             chunk.log_level = log_level
-            chunk.timestamp_start = DateHandler.to_utc_naive(timestamp_start)
-            chunk.timestamp_end = DateHandler.to_utc_naive(timestamp_end)
+            chunk.timestamp_start = ts_start
+            chunk.timestamp_end = ts_end
             chunk.log_metadata = log_metadata
         else:
             chunk = LogChunk(
@@ -42,8 +51,8 @@ class PgVectorStore:
                 source_service=source_service,
                 source_env=source_env,
                 log_level=log_level,
-                timestamp_start=DateHandler.to_utc_naive(timestamp_start),
-                timestamp_end=DateHandler.to_utc_naive(timestamp_end),
+                timestamp_start=ts_start,
+                timestamp_end=ts_end,
                 log_metadata=log_metadata
             )
             self.session.add(chunk)

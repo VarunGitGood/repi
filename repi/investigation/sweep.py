@@ -17,6 +17,10 @@ async def auto_sweep(
     exclude_services: Optional[list[str]] = None,
 ) -> dict:
     exclude_services = exclude_services or []
+    # asyncpg + naive datetimes + a non-UTC host = silently shifted query
+    # window. Attach UTC at the DB boundary.
+    time_from = DateHandler.to_aware_utc(time_from)
+    time_to = DateHandler.to_aware_utc(time_to)
 
     if exclude_services:
         rows = await pool.fetch(
