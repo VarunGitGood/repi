@@ -12,7 +12,15 @@ from repi.retrieval.rrf import RRFRetrievalService
 
 logger = logging.getLogger(__name__)
 
-_parse_iso_timestamp = DateHandler.parse_iso
+def _parse_iso_timestamp(ts):
+    """Parse an ISO timestamp into a tz-aware UTC datetime.
+
+    asyncpg's `timestamptz` codec interprets *naive* Python datetimes via the
+    process's local timezone — on a non-UTC host that silently shifts query
+    windows. We attach UTC at the asyncpg boundary so internal "naive UTC"
+    callers don't have to know about it.
+    """
+    return DateHandler.to_aware_utc(DateHandler.parse_iso(ts))
 
 @dataclass
 class ToolCall:

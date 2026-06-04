@@ -138,11 +138,13 @@ async def stream_investigation(investigation_id: str):
                     "step_number": s.step_number,
                     "thought": s.thought,
                     "action": s.action,
-                    "observation": s.observation
+                    "observation": s.observation,
+                    "kind": getattr(s, "kind", None),
                 }
                 yield f"data: {json.dumps({'type': 'step', 'data': step_data})}\n\n"
 
             if investigation.status in ("completed", "failed"):
+                yield f"data: {json.dumps({'type': 'phase_change', 'data': {'phase': 'done'}})}\n\n"
                 yield f"data: {json.dumps({'type': 'done', 'data': {'answer': investigation.answer}})}\n\n"
                 return
 
@@ -158,14 +160,19 @@ async def stream_investigation(investigation_id: str):
                     "step_number": step.step_number,
                     "thought": step.thought.content,
                     "action": {"tool": step.action.tool_call.name, "args": step.action.tool_call.args} if step.action else None,
-                    "observation": step.observation.tool_result.result if step.observation else None
+                    "observation": step.observation.tool_result.result if step.observation else None,
+                    "kind": step.kind,
                 }
                 await queue.put({"type": "step", "data": step_data})
+
+            async def on_phase_change(phase: str):
+                await queue.put({"type": "phase_change", "data": {"phase": phase}})
 
             task = asyncio.create_task(loop.investigate(
                 investigation.query,
                 investigation_id=uuid_obj,
                 on_step=on_step,
+                on_phase_change=on_phase_change,
                 resume=True
             ))
 
@@ -178,10 +185,11 @@ async def stream_investigation(investigation_id: str):
                     yield f"data: {json.dumps(event)}\n\n"
                 except asyncio.TimeoutError:
                     continue
-            
+
             try:
                 result = await task
-                yield f"data: {json.dumps({'type': 'done', 'data': {'answer': result.answer}})}\n\n"
+                done_payload = {"answer": result.answer, "stats": result.stats}
+                yield f"data: {json.dumps({'type': 'done', 'data': done_payload})}\n\n"
             except Exception as e:
                 logger.error(f"Investigation failed: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"

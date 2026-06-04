@@ -33,6 +33,101 @@ class InvestigationAnswer(BaseModel):
     gaps: list[str]
 
 
+_CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
+_RANK_TO_CONFIDENCE = {0: "low", 1: "medium", 2: "high"}
+
+
+def _downgrade_confidence(current: str, by: int = 1) -> str:
+    rank = _CONFIDENCE_RANK.get(current, 0)
+    return _RANK_TO_CONFIDENCE[max(0, rank - by)]
+
+
+def _cited_chunk_ids(answer_dict: dict) -> set[str]:
+    cited: set[str] = set()
+    trig = (answer_dict.get("trigger_event") or {}).get("chunk_id")
+    if trig:
+        cited.add(trig)
+    for hop in answer_dict.get("propagation_chain") or []:
+        cid = hop.get("chunk_id")
+        if cid:
+            cited.add(cid)
+    return cited
+
+
+def enforce_floors(answer_dict: dict, evidence: list[dict]) -> tuple[dict, list[str]]:
+    """Apply confidence floors and consistency checks server-side.
+
+    Returns (adjusted_answer, list_of_adjustment_notes). The adjusted answer
+    is the SAME dict (mutated in-place) — callers that want immutability
+    should deep-copy before calling.
+
+    Rules:
+      - confidence='high' with <2 distinct cited chunk_ids → downgrade to 'medium'
+      - confidence != 'low' with empty gaps → downgrade to 'low'
+      - affected_services contains a service never seen in evidence → downgrade one notch
+    """
+    notes: list[str] = []
+
+    confidence = (answer_dict.get("confidence") or "").lower()
+    if confidence not in _CONFIDENCE_RANK:
+        answer_dict["confidence"] = "low"
+        notes.append(f"confidence was {confidence!r}; coerced to 'low'")
+        confidence = "low"
+
+    cited = _cited_chunk_ids(answer_dict)
+    if confidence == "high" and len(cited) < 2:
+        answer_dict["confidence"] = _downgrade_confidence(confidence, by=1)
+        confidence = answer_dict["confidence"]
+        gap_msg = f"downgraded high→medium: only {len(cited)} chunk_id citation(s) in answer"
+        answer_dict.setdefault("gaps", []).append(gap_msg)
+        notes.append(gap_msg)
+
+    # "Non-low + no gaps" is no longer an auto-low: a model that produces a
+    # rich propagation_chain backed by 3+ chunk citations has actually shown
+    # its work, so missing `gaps` is a mild documentation issue, not a sign
+    # the answer is unsupported. Downgrade ONE notch (high→medium, medium→low)
+    # only when citations are sparse (<3); above that, leave confidence alone
+    # but record the missing-gaps fact as a soft signal.
+    gaps = answer_dict.get("gaps") or []
+    if confidence != "low" and not gaps:
+        if len(cited) >= 3:
+            note = "no gaps listed despite non-low confidence (≥3 chunk citations — leaving as-is)"
+            notes.append(note)
+        else:
+            answer_dict["confidence"] = _downgrade_confidence(confidence, by=1)
+            confidence = answer_dict["confidence"]
+            gap_msg = "downgraded one notch: claimed non-low confidence, listed no gaps, <3 citations"
+            answer_dict.setdefault("gaps", []).append(gap_msg)
+            notes.append(gap_msg)
+
+    # affected_services consistency: only flag services that appear NOWHERE
+    # in the evidence — neither as the chunk's `service` field nor anywhere
+    # in the chunk text. A service mentioned in another service's log line
+    # (e.g. "caller=api-gateway" inside a verification-svc chunk) is real
+    # evidence and shouldn't trigger a downgrade.
+    evidence_services = {c.get("service") for c in evidence if c.get("service")}
+    evidence_text = " ".join(
+        str(c.get("message") or c.get("text") or "") for c in evidence
+    ).lower()
+    affected = answer_dict.get("affected_services") or []
+    unseen = [
+        s for s in affected
+        if s not in evidence_services and s.lower() not in evidence_text
+    ]
+    if unseen and evidence_services:
+        downgraded = _downgrade_confidence(confidence, by=1)
+        if downgraded != confidence:
+            answer_dict["confidence"] = downgraded
+        gap_msg = (
+            f"affected_services {unseen!r} never appeared in tool results or "
+            "any chunk text (downgraded confidence one notch as a precaution)"
+        )
+        answer_dict.setdefault("gaps", []).append(gap_msg)
+        notes.append(gap_msg)
+
+    return answer_dict, notes
+
+
 def validate_answer(answer_dict: dict, evidence_chunk_ids: set[str]) -> tuple[bool, list[str]]:
     errors: list[str] = []
 
