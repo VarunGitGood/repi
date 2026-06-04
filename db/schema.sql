@@ -102,3 +102,27 @@ CREATE TABLE IF NOT EXISTS watcher_offsets (
 );
 
 CREATE INDEX IF NOT EXISTS watcher_offsets_config_idx ON watcher_offsets (watcher_config_id);
+
+-- Leaderboard: one row per (eval-run, dataset). Auto-written by eval/run_evals.py.
+-- Used to track per-model scores across datasets over time.
+CREATE TABLE IF NOT EXISTS leaderboard (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id             UUID NOT NULL,
+    provider           TEXT NOT NULL,
+    model              TEXT NOT NULL,
+    dataset            TEXT NOT NULL,
+    aggregate_score    NUMERIC(4,3) NOT NULL,
+    status             TEXT NOT NULL,
+    judge_provider     TEXT NOT NULL,
+    judge_model        TEXT NOT NULL,
+    criteria           JSONB NOT NULL DEFAULT '[]',
+    raw_judge_response TEXT,
+    stats              JSONB NOT NULL DEFAULT '{}',
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS leaderboard_run_idx     ON leaderboard (run_id);
+CREATE INDEX IF NOT EXISTS leaderboard_model_idx   ON leaderboard (model);
+CREATE INDEX IF NOT EXISTS leaderboard_dataset_idx ON leaderboard (dataset);
+CREATE INDEX IF NOT EXISTS leaderboard_score_idx   ON leaderboard (dataset, aggregate_score DESC);
+CREATE INDEX IF NOT EXISTS leaderboard_created_idx ON leaderboard (created_at DESC);

@@ -91,6 +91,23 @@ class DateHandler:
             return None
         return dt.isoformat()
 
+    @staticmethod
+    def to_aware_utc(dt: datetime | None) -> datetime | None:
+        """Attach UTC tzinfo to a naive datetime, or normalize an aware one to UTC.
+
+        Use this at the asyncpg / SQLAlchemy boundary: the project's internal
+        convention is "naive UTC everywhere" but asyncpg interprets naive
+        datetimes via the *Python process's* local timezone when binding them
+        to `timestamptz` columns. On a non-UTC host (e.g. IST/+05:30) this
+        silently shifts every query window by the offset and yields wrong
+        results. Always pass tz-aware UTC across the DB boundary.
+        """
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=_UTC)
+        return dt.astimezone(_UTC)
+
     def to_user_tz(self, dt: datetime) -> datetime:
         """Convert a naive-UTC datetime to an aware datetime in the user's timezone."""
         return dt.replace(tzinfo=_UTC).astimezone(self.user_tz)

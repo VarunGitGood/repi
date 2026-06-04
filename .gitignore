@@ -31,3 +31,7 @@ Thumbs.db
 # Local smoke tests / dev scripts
 scripts/
 
+# Eval output artefacts (legacy bug.json + opt-in --out path)
+bug.json
+eval/results/
+

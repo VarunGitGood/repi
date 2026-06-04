@@ -9,6 +9,7 @@ import logging
 from typing import Optional
 
 from repi.llm.provider import LLMProvider, Message
+from repi.llm.json_utils import parse_llm_response
 from eval.criteria import build_criteria, active_criterion_names
 from eval.results import CriterionScore, JudgeResult
 
@@ -37,19 +38,22 @@ IMPORTANT RULES:
 1. Score SEMANTIC correctness, not exact string matches. "pool exhausted" and
    "exhausting its connection pool" mean the same thing. "key rotation" and
    "rotated the signing key" are equivalent.
-2. Each criterion gets a score from 0.0 to 1.0:
+2. For each criterion, FIRST write the explanation describing what the answer
+   got right and what it missed, THEN choose a score that is consistent with
+   that explanation. Do not commit to a number before you have reasoned about
+   the evidence — score-first reasoning produces post-hoc rationalisations.
+3. Each criterion gets a score from 0.0 to 1.0:
    - 1.0 = fully correct
    - 0.7-0.9 = mostly correct with minor omissions
    - 0.4-0.6 = partially correct, significant gaps
    - 0.1-0.3 = mostly wrong or missing key elements
    - 0.0 = completely wrong or absent
-3. Provide a brief explanation for each score.
 4. Return ONLY valid JSON — no markdown fences, no commentary outside the JSON.
 
-Return this exact JSON structure:
+Return this exact JSON structure (note: explanation comes BEFORE score):
 {
   "scores": [
-    {"name": "<criterion_name>", "score": <float 0.0-1.0>, "explanation": "<why>"},
+    {"name": "<criterion_name>", "explanation": "<reasoning>", "score": <float 0.0-1.0>},
     ...
   ]
 }
@@ -76,63 +80,50 @@ def _build_judge_prompt(
     ]
 
 
-def _parse_judge_response(
-    raw: str,
-    dataset_name: str,
-    model_under_test: str,
-    judge_model: str,
-    criterion_names: list[str],
-) -> JudgeResult:
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
-
+def _parse_judge_payload(raw: str) -> dict | None:
+    """Try to extract the judge's scores JSON from a raw reply. Returns None
+    if no JSON can be parsed at all. Uses the shared `parse_llm_response`
+    helper for robust fence/comment/embedded-object handling."""
     try:
-        parsed = json.loads(cleaned)
-    except (json.JSONDecodeError, ValueError) as exc:
-        logger.warning("Judge returned unparseable response: %s", exc)
-        criteria = [
-            CriterionScore(name=n, score=0.0, explanation="Judge response was not valid JSON.")
-            for n in criterion_names
-        ]
-        return JudgeResult(
-            dataset=dataset_name,
-            model_under_test=model_under_test,
-            judge_model=judge_model,
-            aggregate_score=0.0,
-            criteria=criteria,
-            raw_judge_response=raw,
-        )
+        return parse_llm_response(raw)
+    except (ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Judge reply could not be parsed: %s", exc)
+        return None
 
-    scores_raw = parsed.get("scores", [])
 
-    scored: dict[str, CriterionScore] = {}
-    for entry in scores_raw:
+def _scores_from_parsed(
+    parsed: dict,
+    criterion_names: list[str],
+) -> dict[str, CriterionScore]:
+    out: dict[str, CriterionScore] = {}
+    for entry in parsed.get("scores", []) or []:
         name = entry.get("name", "")
         if name not in set(criterion_names):
             continue
-        scored[name] = CriterionScore(
+        out[name] = CriterionScore(
             name=name,
             score=max(0.0, min(1.0, float(entry.get("score", 0)))),
             explanation=entry.get("explanation", ""),
         )
+    return out
 
+
+def _judge_result_from_scores(
+    *,
+    dataset_name: str,
+    model_under_test: str,
+    judge_model: str,
+    criterion_names: list[str],
+    scored: dict[str, CriterionScore],
+    raw: str,
+    not_scored_explanation: str = "Judge did not return a score for this criterion.",
+) -> JudgeResult:
     criteria: list[CriterionScore] = []
     for name in criterion_names:
-        if name in scored:
-            criteria.append(scored[name])
-        else:
-            criteria.append(CriterionScore(
-                name=name,
-                score=0.0,
-                explanation="Judge did not return a score for this criterion.",
-            ))
-
+        criteria.append(scored.get(name) or CriterionScore(
+            name=name, score=0.0, explanation=not_scored_explanation,
+        ))
     aggregate = sum(c.score for c in criteria) / len(criteria) if criteria else 0.0
-
     return JudgeResult(
         dataset=dataset_name,
         model_under_test=model_under_test,
@@ -164,13 +155,108 @@ def deterministic_precheck(answer: dict) -> Optional[list[str]]:
     return errors if errors else None
 
 
+DETERMINISTIC_CRITERIA = {"confidence_calibration", "gap_awareness"}
+
+
+def score_deterministic(answer: dict, expected: dict) -> dict[str, CriterionScore]:
+    """Score criteria that can be evaluated without an LLM call."""
+    ea = expected.get("expected_answer", {})
+    scores: dict[str, CriterionScore] = {}
+
+    # confidence_calibration: exact string match
+    expected_conf = ea.get("confidence")
+    if expected_conf:
+        actual_conf = answer.get("confidence", "")
+        if actual_conf == expected_conf:
+            scores["confidence_calibration"] = CriterionScore(
+                name="confidence_calibration",
+                score=1.0,
+                explanation=f"Confidence correctly set to '{expected_conf}'.",
+            )
+        else:
+            scores["confidence_calibration"] = CriterionScore(
+                name="confidence_calibration",
+                score=0.0,
+                explanation=f"Expected confidence '{expected_conf}', got '{actual_conf}'.",
+            )
+
+    # gap_awareness: keyword overlap check
+    gaps_required = ea.get("gaps_must_include_one_of")
+    if gaps_required:
+        gaps = answer.get("gaps") or []
+        if not gaps:
+            scores["gap_awareness"] = CriterionScore(
+                name="gap_awareness",
+                score=0.0,
+                explanation="Gaps list is empty.",
+            )
+        else:
+            gaps_text = " ".join(str(g).lower() for g in gaps)
+            matched = any(
+                _keyword_overlap(expected_gap, gaps_text)
+                for expected_gap in gaps_required
+            )
+            if matched:
+                scores["gap_awareness"] = CriterionScore(
+                    name="gap_awareness",
+                    score=1.0,
+                    explanation="Gaps list includes content matching expected gaps.",
+                )
+            else:
+                scores["gap_awareness"] = CriterionScore(
+                    name="gap_awareness",
+                    score=0.4,
+                    explanation="Gaps list is non-empty but doesn't clearly match expected gap descriptions.",
+                )
+
+    return scores
+
+
+def _keyword_overlap(expected_phrase: str, actual_text: str) -> bool:
+    """Check whether enough content words from the expected phrase appear in the
+    actual text. Skips short filler words (≤3 chars) to focus on meaningful terms."""
+    keywords = [w for w in expected_phrase.lower().split() if len(w) > 3]
+    if not keywords:
+        return expected_phrase.lower() in actual_text
+    hits = sum(1 for k in keywords if k in actual_text)
+    return hits / len(keywords) >= 0.4
+
+
+_PARSE_RETRY_USER_PROMPT = (
+    "Your previous reply could not be parsed as JSON. Reply again with ONLY "
+    "the JSON object matching the {\"scores\": [...]} shape — no commentary, "
+    "no markdown fences."
+)
+
+
 class LLMJudge:
     def __init__(self, llm: LLMProvider):
         self._llm = llm
+        # Populated per `score()` call so callers can introspect after a run.
+        self.last_parse_attempts: int = 0
 
     @property
     def model_name(self) -> str:
         return self._llm.model_name
+
+    async def _ask_judge(
+        self,
+        messages: list[Message],
+    ) -> tuple[str, dict | None, int]:
+        """Issue the judge LLM call. On parse failure, retry once with a
+        clarification turn. Returns (last_raw_reply, parsed_or_None, attempts)."""
+        raw = await self._llm.complete(messages, max_tokens=2000, temperature=0.0)
+        parsed = _parse_judge_payload(raw)
+        if parsed is not None:
+            return raw, parsed, 1
+
+        retry_messages = messages + [
+            Message(role="assistant", content=raw),
+            Message(role="user", content=_PARSE_RETRY_USER_PROMPT),
+        ]
+        raw_retry = await self._llm.complete(retry_messages, max_tokens=2000, temperature=0.0)
+        parsed_retry = _parse_judge_payload(raw_retry)
+        return raw_retry, parsed_retry, 2
 
     async def score(
         self,
@@ -179,16 +265,46 @@ class LLMJudge:
         dataset_name: str,
         model_under_test: str,
     ) -> JudgeResult:
-        criterion_names = active_criterion_names(expected)
-        criteria_text = build_criteria(expected)
-        messages = _build_judge_prompt(answer, expected, criteria_text, criterion_names)
+        all_names = active_criterion_names(expected)
 
-        raw = await self._llm.complete(messages, max_tokens=2000, temperature=0.0)
+        det_scores = score_deterministic(answer, expected)
+        llm_names = [n for n in all_names if n not in det_scores]
 
-        return _parse_judge_response(
-            raw=raw,
-            dataset_name=dataset_name,
+        raw = ""
+        llm_scored: dict[str, CriterionScore] = {}
+        self.last_parse_attempts = 0
+
+        if llm_names:
+            criteria_text = build_criteria(expected, only_names=llm_names)
+            messages = _build_judge_prompt(answer, expected, criteria_text, llm_names)
+            raw, parsed, attempts = await self._ask_judge(messages)
+            self.last_parse_attempts = attempts
+            if parsed is not None:
+                llm_scored = _scores_from_parsed(parsed, llm_names)
+
+        criteria: list[CriterionScore] = []
+        for name in all_names:
+            if name in det_scores:
+                criteria.append(det_scores[name])
+            elif name in llm_scored:
+                criteria.append(llm_scored[name])
+            else:
+                # The judge call ran but returned no score for this name (parse
+                # failed, model skipped it, etc). 0.0 with an honest reason.
+                explanation = (
+                    "Judge response was not valid JSON after retry."
+                    if self.last_parse_attempts >= 2 and not llm_scored
+                    else "Judge did not return a score for this criterion."
+                )
+                criteria.append(CriterionScore(name=name, score=0.0, explanation=explanation))
+
+        aggregate = sum(c.score for c in criteria) / len(criteria) if criteria else 0.0
+
+        return JudgeResult(
+            dataset=dataset_name,
             model_under_test=model_under_test,
             judge_model=self._llm.model_name,
-            criterion_names=criterion_names,
+            aggregate_score=round(aggregate, 3),
+            criteria=criteria,
+            raw_judge_response=raw,
         )

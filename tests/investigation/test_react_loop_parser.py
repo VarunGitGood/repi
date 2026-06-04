@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pytest
 import numpy as np
-from repi.investigation.react_loop import parse_llm_response, _extract_json_objects
+from repi.investigation.react_loop import parse_llm_response  # re-export of json_utils.parse_llm_response
+from repi.llm.json_utils import _extract_json_objects
 from repi.models.domain import SearchResult
 
 class TestExtractJsonObjects:

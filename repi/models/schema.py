@@ -2,9 +2,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, List, Any
 from uuid import UUID, uuid4
-from sqlmodel import SQLModel, Field, Column, JSON
+from sqlmodel import SQLModel, Field, JSON
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import TEXT, ARRAY, Index, String, Column
+from sqlalchemy import TEXT, ARRAY, Index, String, Column, DateTime
 from pydantic import field_validator
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -29,8 +29,18 @@ class LogChunk(SQLModel, table=True):
     log_level: Optional[str] = Field(default=None, index=True)
     component: Optional[str] = Field(default=None)
     request_id: Optional[str] = Field(default=None)
-    timestamp_start: Optional[datetime] = Field(default=None, index=True)
-    timestamp_end: Optional[datetime] = Field(default=None)
+    # DB column is TIMESTAMPTZ (see db/schema.sql). Declaring the SQLAlchemy
+    # column with timezone=True keeps the ORM in sync with the schema — without
+    # this, SQLAlchemy binds the parameter as TIMESTAMP WITHOUT TIME ZONE and
+    # rejects tz-aware Python datetimes from the asyncpg boundary.
+    timestamp_start: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), index=True),
+    )
+    timestamp_end: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True)),
+    )
     ingested_at: datetime = Field(default_factory=datetime.utcnow)
     text: str = Field(sa_column=Column(TEXT, nullable=False))
     id_values: Optional[List[str]] = Field(default=None, sa_column=Column(ARRAY(String)))
