@@ -11,7 +11,7 @@ Run:
 """
 from __future__ import annotations
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from repi.core.container import get_container
@@ -30,7 +30,7 @@ SERVICES = {
 
 
 def last_monday() -> date:
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     days_back = (today.weekday() - 0) % 7 or 7  # Monday=0; if today IS Monday, go back 7
     return today - timedelta(days=days_back)
 
