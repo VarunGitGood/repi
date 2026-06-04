@@ -16,21 +16,34 @@ def _action_response(tool: str, args: dict) -> str:
     return json.dumps({"thought": f"calling {tool}", "action": {"tool": tool, "args": args}})
 
 
-def _final_answer_response() -> str:
+def _done_signal_response() -> str:
     return json.dumps({
-        "thought": "done",
-        "answer": {
-            "confidence": "high",
-            "affected_services": ["svc"],
-            "trigger_event": {},
-            "propagation_chain": [],
-            "ruled_out_hypotheses": [],
-            "assumptions": [],
-            "gaps": [],
-            "incident_window": {},
-            "root_cause": "test",
-        },
+        "thought": "done gathering",
+        "action": {"tool": "done_gathering", "args": {"reason": "test_complete"}},
     })
+
+
+def _compile_response() -> str:
+    """The compiler's LLM call returns a bare InvestigationAnswer JSON object."""
+    return json.dumps({
+        "confidence": "low",
+        "affected_services": ["svc"],
+        "trigger_event": {},
+        "propagation_chain": [],
+        "ruled_out_hypotheses": [
+            {"hypothesis": "other", "why_ruled_out": "no evidence in window"},
+        ],
+        "assumptions": [],
+        "gaps": ["test fixture: no real evidence to grade"],
+        "incident_window": {},
+        "root_cause": "test",
+    })
+
+
+# Backwards-compat alias for tests that just need the gathering loop to exit
+# and the compiler to produce something.
+def _final_answer_response() -> str:
+    return _done_signal_response()
 
 
 class _FakeInvestigation:
@@ -94,6 +107,7 @@ class TestLedgerDedupe:
             _action_response("search_logs", {"query": "timeout", "service": "svc"}),
             _action_response("search_logs", {"query": "timeout", "service": "svc"}),
             _final_answer_response(),
+            _compile_response(),
         ]
         loop = _build_loop(responses, tool=tool)
 
@@ -110,6 +124,7 @@ class TestLedgerDedupe:
             _action_response("search_logs", {"query": "x", "service": "svc"}),
             _action_response("search_logs", {"service": "svc", "query": "x"}),  # reordered
             _final_answer_response(),
+            _compile_response(),
         ]
         loop = _build_loop(responses, tool=tool)
 
@@ -125,6 +140,7 @@ class TestLedgerDedupe:
             _action_response("search_logs", {"q": "a"}),
             _action_response("search_logs", {"q": "a"}),
             _final_answer_response(),
+            _compile_response(),
         ]
         loop = _build_loop(responses, tool=tool)
 
@@ -144,6 +160,7 @@ class TestLedgerDedupe:
         responses = [
             _action_response("search_logs", {"q": "foo"}),
             _final_answer_response(),
+            _compile_response(),
         ]
         loop = _build_loop(responses, tool=tool)
 
@@ -163,6 +180,7 @@ class TestLedgerDedupe:
             _action_response("search_logs", {"q": "a"}),
             _action_response("search_logs", {"q": "b"}),
             _final_answer_response(),
+            _compile_response(),
         ]
         loop = _build_loop(responses, tool=tool)
 

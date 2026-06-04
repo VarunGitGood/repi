@@ -10,19 +10,38 @@ from __future__ import annotations
 import json
 
 
-def build_criteria(expected: dict) -> str:
+_CRITERION_BUILDERS: list[tuple[str, str]] = [
+    ("trigger_identification", "_trigger_criterion"),
+    ("root_cause_accuracy", "_root_cause_criterion"),
+    ("propagation_chain", "_propagation_criterion"),
+    ("red_herring_handling", "_red_herring_criterion"),
+    ("confidence_calibration", "_confidence_criterion"),
+    ("gap_awareness", "_gap_criterion"),
+    ("hallucination_avoidance", "_hallucination_criterion"),
+]
+
+
+def build_criteria(expected: dict, only_names: list[str] | None = None) -> str:
     ea = expected.get("expected_answer", {})
     sections: list[str] = []
 
-    sections.append(_trigger_criterion(ea))
-    sections.append(_root_cause_criterion(ea))
-    sections.append(_propagation_criterion(ea))
-    sections.append(_red_herring_criterion(ea))
-    sections.append(_confidence_criterion(ea))
-    sections.append(_gap_criterion(ea))
-    sections.append(_hallucination_criterion(ea))
+    builders_by_name = {
+        "_trigger_criterion": _trigger_criterion,
+        "_root_cause_criterion": _root_cause_criterion,
+        "_propagation_criterion": _propagation_criterion,
+        "_red_herring_criterion": _red_herring_criterion,
+        "_confidence_criterion": _confidence_criterion,
+        "_gap_criterion": _gap_criterion,
+        "_hallucination_criterion": _hallucination_criterion,
+    }
 
-    sections = [s for s in sections if s]
+    for name, builder_name in _CRITERION_BUILDERS:
+        if only_names is not None and name not in only_names:
+            continue
+        section = builders_by_name[builder_name](ea)
+        if section:
+            sections.append(section)
+
     return "\n\n".join(sections)
 
 

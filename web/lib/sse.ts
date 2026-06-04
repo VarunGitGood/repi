@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react"
 
+export type StepKind = null | "reflection" | "signal" | "compile"
+
 export interface Step {
   step_number: number
   thought: string
@@ -10,6 +12,20 @@ export interface Step {
     args: any
   }
   observation?: any
+  kind?: StepKind
+}
+
+export type InvestigationPhase = "gathering" | "compiling" | "done"
+
+export interface InvestigationStats {
+  iterations_used?: number
+  reflections_used?: number
+  chunks_gathered?: number
+  tools_called?: string[]
+  compile_source?: string
+  compile_attempts?: number
+  floor_adjustments?: string[]
+  gathering_exit_reason?: string
 }
 
 export function useSSE(url: string | null) {
@@ -19,6 +35,8 @@ export function useSSE(url: string | null) {
   const [done, setDone] = useState(false)
   const [clarificationQuestion, setClarificationQuestion] = useState<string | null>(null)
   const [awaitingClarification, setAwaitingClarification] = useState(false)
+  const [phase, setPhase] = useState<InvestigationPhase | null>(null)
+  const [stats, setStats] = useState<InvestigationStats | null>(null)
 
   const connect = useCallback(() => {
     if (!url) return
@@ -29,6 +47,8 @@ export function useSSE(url: string | null) {
     setDone(false)
     setClarificationQuestion(null)
     setAwaitingClarification(false)
+    setPhase(null)
+    setStats(null)
 
     const eventSource = new EventSource(url)
 
@@ -43,8 +63,12 @@ export function useSSE(url: string | null) {
           }
           return [...prev, data]
         })
+      } else if (type === "phase_change") {
+        setPhase(data.phase)
       } else if (type === "done") {
         setAnswer(data.answer)
+        if (data.stats) setStats(data.stats)
+        setPhase("done")
         setDone(true)
         eventSource.close()
       } else if (type === "clarification_request") {
@@ -75,5 +99,14 @@ export function useSSE(url: string | null) {
     }
   }, [connect])
 
-  return { steps, answer, error, done, clarificationQuestion, awaitingClarification }
+  return {
+    steps,
+    answer,
+    error,
+    done,
+    clarificationQuestion,
+    awaitingClarification,
+    phase,
+    stats,
+  }
 }

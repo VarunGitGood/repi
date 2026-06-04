@@ -166,6 +166,6 @@ Schema file: `db/schema.sql` (applied via `make migrate` or automatically by `re
 
 Tests use `pytest-asyncio`. `tests/investigation/conftest.py` provides shared async fixtures. Tests mock LLM providers and database — integration tests against a live DB are not currently configured.
 
-The eval harness (`eval/run_evals.py`) seeds three scripted datasets and grades the LLM's investigation against `expected.json`; bugs are written to `bug.json` at the repo root.
+The eval harness (`eval/run_evals.py`) seeds three scripted datasets and grades the investigation against `expected.json` via the `LLMJudge` (a separate provider from the model under test). Results are printed to stdout; pass `--out <path>` to also write a JSON artefact. The judge auto-selects an alternative provider from configured keys (OpenAI → Anthropic → Gemini → Mistral) so self-grading is avoided by default. The ReAct loop only **gathers evidence** (Issue #48); the final `InvestigationAnswer` is produced by a separate compile-LLM call in `repi/investigation/compiler.py`.
 
 Default LLM model: Mistral `mistral-large-latest`.
