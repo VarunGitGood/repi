@@ -514,10 +514,7 @@ class ReactInvestigationLoop:
                 gathering_exit_reason = "llm_call_failed_repeatedly"
                 break
 
-            if self.store:
-                await self.store.increment_llm_calls(investigation_obj.id)
-
-            if self.store:
+            if self.store and investigation_obj:
                 await self.store.increment_llm_calls(investigation_obj.id)
 
             try:

@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, List, Any
 from uuid import UUID, uuid4
-from sqlmodel import SQLModel, Field, Column, JSON
+from sqlmodel import SQLModel, Field, JSON
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import TEXT, ARRAY, Index, String, Column, DateTime
 from pydantic import field_validator
