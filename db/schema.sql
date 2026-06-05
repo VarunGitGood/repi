@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS leaderboard (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Issue #46: distinguish runs by embedding backend (sentence-transformers vs fastembed).
+-- Distinguish runs by embedding backend (torch vs fastembed).
 ALTER TABLE leaderboard
     ADD COLUMN IF NOT EXISTS embedding_backend TEXT NOT NULL DEFAULT 'unknown';
 

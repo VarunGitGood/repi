@@ -1,9 +1,7 @@
 """Shared JSON-extraction helpers for LLM replies.
 
-Lifted out of `repi.investigation.react_loop` so the eval judge can use the
-same robust parser (Issue #49). Behavior is identical to the prior
-`react_loop.parse_llm_response` — markdown fences, common prefixes, JS
-comments, and embedded JSON objects are all handled.
+Handles markdown fences, common prefixes, JS-style comments inside the
+payload, and JSON objects embedded in free-form text.
 """
 from __future__ import annotations
 import json

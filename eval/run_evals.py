@@ -135,7 +135,7 @@ def create_judge(args: dict, mut_provider_name: str) -> LLMJudge:
             judge.provider_name = name
             return judge
 
-    # No alternative provider available — hard fail per Issue #49 contract.
+    # No alternative provider available — hard fail rather than self-grade.
     raise RuntimeError(
         f"Judge provider auto-selection failed: model-under-test is '{mut}' and no "
         "alternative provider key is configured. Configure a second provider key "
@@ -412,8 +412,7 @@ async def main():
         suffix = (" [" + " ".join(bits) + "]") if bits else ""
         print(f"    {r['status'].upper():18s}  {score_str}  {r['dataset']}{suffix}")
 
-    # Optional machine-readable output. No file is written by default —
-    # bug.json was retired in Issue #49.
+    # Optional machine-readable output; no file is written by default.
     out_path = args.get("out_path")
     if out_path:
         path_obj = Path(out_path)

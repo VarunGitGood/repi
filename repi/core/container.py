@@ -22,7 +22,6 @@ from repi.embeddings import Embedder, create_embedder
 import asyncpg
 from typing import Optional
 
-# Configure logging from settings (config.json — no env reads).
 _log_level = settings.LOG_LEVEL.upper()
 if settings.REPI_ENV.lower() == "development":
     _log_level = "DEBUG"
@@ -42,15 +41,13 @@ class Container:
         )
         self.pool: Optional[asyncpg.Pool] = None
 
-        # Model load takes a few seconds (importing the backend + reading
-        # weights). Defer until first /ingest or /investigate so startup
-        # stays fast and /health / /config answer in <1s.
+        # Embedder load is deferred so /health and /config answer in <1s.
         self._embedder: Optional[Embedder] = None
         self.known_services: list[str] = []
 
-        # LLM init is *lazy*: a fresh install has no API key, but the API still
-        # needs to boot so the user can POST /config. Routes that actually need
-        # the LLM call require_llm() and surface a 409 if it's still missing.
+        # LLM init is best-effort: a fresh install has no API key, but the
+        # API still needs to boot so the user can POST /config. Routes that
+        # need the LLM call require_llm() and 409 if it's still missing.
         self.llm_provider: Optional[LLMProvider] = None
         self.query_expander: Optional[QueryExpander] = None
         self.llm_init_error: Optional[str] = None
@@ -102,12 +99,7 @@ class Container:
         return self.async_session_maker()
 
     async def init_db(self) -> None:
-        """Apply db/schema.sql then open the connection pool.
-
-        asyncpg executes the full file natively — no statement splitting needed.
-        Every statement in schema.sql is idempotent (IF NOT EXISTS), so this is
-        safe to run on every startup.
-        """
+        """Apply db/schema.sql (idempotent) and open the connection pool."""
         import pathlib
 
         schema_file = pathlib.Path(__file__).resolve().parent.parent.parent / "db" / "schema.sql"
