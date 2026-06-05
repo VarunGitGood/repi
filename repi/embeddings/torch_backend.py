@@ -1,12 +1,12 @@
-"""sentence-transformers/torch backend for `all-MiniLM-L6-v2` (384-dim).
+"""torch (via sentence-transformers) backend for `all-MiniLM-L6-v2` (384-dim).
 
-Kept as the protocol's reference implementation so eval runs can A/B
-the two backends. NOTE: the `sentence-transformers` + `torch` packages
-are NOT in the default dependency set (issue #46 removed them to fit
-Railway's 512 MB tier). To use this backend for an A/B comparison:
+Reference implementation kept so eval runs can A/B torch vs ONNX. The
+two underlying packages — `sentence-transformers` and `torch` — are NOT
+in the default dependency set (issue #46 removed them to fit Railway's
+512 MB tier). To use this backend for an A/B comparison:
 
     uv sync --group eval-compat       # installs sentence-transformers + CPU torch
-    # then set "EMBEDDING_BACKEND": "sentence-transformers" in .repi/config.json
+    # then set "EMBEDDING_BACKEND": "torch" in .repi/config.json
     uv sync                           # when done — drops the group again
 
 Vectors are byte-identical to the fastembed backend; the comparison is
@@ -21,8 +21,8 @@ from repi.embeddings.base import Embedder
 logger = logging.getLogger(__name__)
 
 
-class SentenceTransformersEmbedder(Embedder):
-    name = "sentence-transformers"
+class TorchEmbedder(Embedder):
+    name = "torch"
     dim = 384
 
     def __init__(self) -> None:
@@ -30,7 +30,7 @@ class SentenceTransformersEmbedder(Embedder):
 
     def _load(self):
         if self._model is None:
-            logger.info("Loading SentenceTransformer all-MiniLM-L6-v2 (first use) …")
+            logger.info("Loading torch all-MiniLM-L6-v2 (first use) …")
             from sentence_transformers import SentenceTransformer
             self._model = SentenceTransformer("all-MiniLM-L6-v2")
         return self._model
