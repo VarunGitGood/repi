@@ -18,11 +18,9 @@ from repi.investigation.store import InvestigationStore
 from repi.investigation.tools import (
     search_logs, get_timeline, scan_window, get_service_summary, get_all_services
 )
+from repi.embeddings import Embedder, create_embedder
 import asyncpg
-from typing import TYPE_CHECKING, Optional
-
-if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
+from typing import Optional
 
 # Configure logging from settings (config.json — no env reads).
 _log_level = settings.LOG_LEVEL.upper()
@@ -44,11 +42,10 @@ class Container:
         )
         self.pool: Optional[asyncpg.Pool] = None
 
-        # SentenceTransformer load takes ~10s (importing torch + transformers,
-        # then loading the model file). Defer the whole thing so startup stays
-        # fast — /health and /config answer in <1s, the model is only paid for
-        # on first /ingest or /investigate.
-        self._model: Optional["SentenceTransformer"] = None
+        # Model load takes a few seconds (importing the backend + reading
+        # weights). Defer until first /ingest or /investigate so startup
+        # stays fast and /health / /config answer in <1s.
+        self._embedder: Optional[Embedder] = None
         self.known_services: list[str] = []
 
         # LLM init is *lazy*: a fresh install has no API key, but the API still
@@ -92,15 +89,13 @@ class Container:
         return self.llm_provider
 
     @property
-    def model(self) -> "SentenceTransformer":
-        if self._model is None:
-            logger.info("Loading SentenceTransformer (first use) …")
-            from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer("all-MiniLM-L6-v2")
-        return self._model
+    def embedder(self) -> Embedder:
+        if self._embedder is None:
+            self._embedder = create_embedder(settings.EMBEDDING_BACKEND)
+        return self._embedder
 
     def embedding_func(self, texts: list[str]):
-        return self.model.encode(texts, convert_to_numpy=True)
+        return self.embedder.embed(texts)
 
     def get_session(self):
         """Return an async context manager that yields a DB session."""

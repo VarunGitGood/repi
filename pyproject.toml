@@ -12,8 +12,7 @@ dependencies = [
     "uvicorn[standard]>=0.30.1,<0.31.0",
     "python-multipart>=0.0.9,<0.0.10",
     "rich>=13.7.1,<14",
-    "sentence-transformers>=3.0.1,<4",
-    "torch>=2.0,<3",
+    "fastembed>=0.4,<0.8",
     "pydantic>=2.7.4,<3",
     "sqlalchemy>=2.0.31,<3",
     "numpy>=1.26.4,<2",
@@ -46,13 +45,3 @@ packages = ["repi"]
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 pythonpath = ["."]
-
-# repi runs on CPU only — pull torch from the PyTorch CPU index so we don't
-# drag ~4 GB of CUDA libraries (nvidia/*, triton) into the runtime image.
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[tool.uv.sources]
-torch = [{ index = "pytorch-cpu" }]

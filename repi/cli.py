@@ -94,7 +94,7 @@ def _setup_logging() -> None:
         # Third-party libraries that set their own logger level via setLevel
         # need to be quieted explicitly — basicConfig only affects loggers
         # without an explicit level.
-        for name in ("sentence_transformers", "httpx", "asyncio"):
+        for name in ("fastembed", "httpx", "asyncio"):
             logging.getLogger(name).setLevel(logging.WARNING)
 
 
@@ -572,10 +572,11 @@ def _check_llm_key(settings) -> tuple[bool, str]:
 
 def _check_embedding() -> tuple[bool, str]:
     try:
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer("all-MiniLM-L6-v2")
-        vec = model.encode("ok")
-        return True, f"all-MiniLM-L6-v2, dim={len(vec)}"
+        from repi.core.config import settings
+        from repi.embeddings import create_embedder
+        embedder = create_embedder(settings.EMBEDDING_BACKEND)
+        vec = embedder.embed(["ok"])[0]
+        return True, f"{embedder.name} (all-MiniLM-L6-v2), dim={len(vec)}"
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
 
@@ -585,7 +586,7 @@ def doctor(
     skip_embedding: bool = typer.Option(
         False,
         "--skip-embedding",
-        help="Skip the SentenceTransformer round-trip (faster, network-free).",
+        help="Skip the embedding model round-trip (faster, network-free).",
     ),
 ) -> None:
     """Run health checks against Python, Postgres, pgvector, Redis, LLM key, and embeddings."""
