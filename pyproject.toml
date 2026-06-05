@@ -35,7 +35,7 @@ dev = [
     "pytest-asyncio>=1.3.0,<2",
 ]
 # Optional group: install with `uv sync --group eval-compat` to enable the
-# legacy sentence-transformers/torch backend for A/B comparison evals.
+# torch backend (via sentence-transformers) for A/B comparison evals.
 # NOT in the default install — keeps the production image slim.
 eval-compat = [
     "sentence-transformers>=3.0.1,<4",
