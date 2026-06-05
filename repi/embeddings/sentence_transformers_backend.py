@@ -3,11 +3,14 @@
 Kept as the protocol's reference implementation so eval runs can A/B
 the two backends. NOTE: the `sentence-transformers` + `torch` packages
 are NOT in the default dependency set (issue #46 removed them to fit
-Railway's 512 MB tier). To use this backend, install them locally:
+Railway's 512 MB tier). To use this backend for an A/B comparison:
 
-    uv add sentence-transformers torch
+    uv sync --group eval-compat       # installs sentence-transformers + CPU torch
+    # then set "EMBEDDING_BACKEND": "sentence-transformers" in .repi/config.json
+    uv sync                           # when done — drops the group again
 
-Then set `EMBEDDING_BACKEND="sentence-transformers"` in `.repi/config.json`.
+Vectors are byte-identical to the fastembed backend; the comparison is
+only useful for confirming no regression on the eval harness.
 """
 from __future__ import annotations
 
