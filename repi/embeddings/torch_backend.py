@@ -1,16 +1,14 @@
-"""torch (via sentence-transformers) backend for `all-MiniLM-L6-v2` (384-dim).
+"""Torch backend (via sentence-transformers) for `all-MiniLM-L6-v2` (384-dim).
 
 Reference implementation kept so eval runs can A/B torch vs ONNX. The
-two underlying packages — `sentence-transformers` and `torch` — are NOT
-in the default dependency set (issue #46 removed them to fit Railway's
-512 MB tier). To use this backend for an A/B comparison:
+torch + sentence-transformers packages are not in the default install
+(they are ~790 MB on disk); enable them with the `eval-compat` group:
 
-    uv sync --group eval-compat       # installs sentence-transformers + CPU torch
-    # then set "EMBEDDING_BACKEND": "torch" in .repi/config.json
-    uv sync                           # when done — drops the group again
+    uv sync --group eval-compat
+    # set "EMBEDDING_BACKEND": "torch" in .repi/config.json
+    uv sync                           # remove the group when done
 
-Vectors are byte-identical to the fastembed backend; the comparison is
-only useful for confirming no regression on the eval harness.
+Vectors are byte-identical to the fastembed backend.
 """
 from __future__ import annotations
 

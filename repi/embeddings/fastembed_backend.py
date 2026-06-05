@@ -1,8 +1,8 @@
-"""fastembed/ONNX backend for `all-MiniLM-L6-v2` (384-dim).
+"""Fastembed (ONNX Runtime) backend for `all-MiniLM-L6-v2` (384-dim).
 
-Default backend. Loads the same model weights as sentence-transformers
-through ONNX Runtime, so output vectors are byte-identical to the torch
-path while disk/RSS are an order of magnitude smaller.
+Default backend. Same model weights as the torch path, executed through
+ONNX Runtime; vectors are byte-identical while disk/RSS are an order of
+magnitude smaller.
 """
 from __future__ import annotations
 

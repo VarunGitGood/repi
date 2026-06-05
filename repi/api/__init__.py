@@ -30,7 +30,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict this to the frontend URL
+    allow_origins=["*"],  # tighten to the frontend URL in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,8 +44,8 @@ app.include_router(config_router, tags=["config"])
 
 @app.get("/health", tags=["health"])
 async def health():
-    """Cheap liveness + LLM-config probe. Always 200 once the API is up; the
-    `llm_configured` flag tells the UI whether to nudge the user to /config."""
+    """Liveness + LLM-config probe. Always 200 once the API is up; the
+    `llm_configured` flag tells clients whether /config setup is needed."""
     container = get_container()
     return {
         "status": "ok",
@@ -65,7 +65,6 @@ async def list_services():
         configs = list(res.all())
     
     if not configs:
-        # Fallback to names from log_chunks if no configs
         await container.init_known_services()
         return {"services": [{"name": s, "env": "unknown", "enabled": True} for s in container.known_services]}
         
