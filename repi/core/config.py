@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # WORKER
     WATCHER_CONFIG_REFRESH_SECS: int = 30
 
+    # EMBEDDINGS
+    # "fastembed" (default — ONNX, ~50 MB) or "sentence-transformers" (torch, ~790 MB).
+    # Vectors are byte-identical between the two; the switch is purely about
+    # image size / RSS. See issue #46. Concrete impls in repi/embeddings/.
+    EMBEDDING_BACKEND: str = "fastembed"
+
     # WEB UI
     UI_PORT: int = 3000
 

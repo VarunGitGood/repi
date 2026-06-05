@@ -121,8 +121,13 @@ CREATE TABLE IF NOT EXISTS leaderboard (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Issue #46: distinguish runs by embedding backend (sentence-transformers vs fastembed).
+ALTER TABLE leaderboard
+    ADD COLUMN IF NOT EXISTS embedding_backend TEXT NOT NULL DEFAULT 'unknown';
+
 CREATE INDEX IF NOT EXISTS leaderboard_run_idx     ON leaderboard (run_id);
 CREATE INDEX IF NOT EXISTS leaderboard_model_idx   ON leaderboard (model);
 CREATE INDEX IF NOT EXISTS leaderboard_dataset_idx ON leaderboard (dataset);
 CREATE INDEX IF NOT EXISTS leaderboard_score_idx   ON leaderboard (dataset, aggregate_score DESC);
 CREATE INDEX IF NOT EXISTS leaderboard_created_idx ON leaderboard (created_at DESC);
+CREATE INDEX IF NOT EXISTS leaderboard_backend_idx ON leaderboard (embedding_backend);
