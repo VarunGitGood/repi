@@ -94,7 +94,7 @@ def _setup_logging() -> None:
         # Third-party libraries that set their own logger level via setLevel
         # need to be quieted explicitly — basicConfig only affects loggers
         # without an explicit level.
-        for name in ("fastembed", "httpx", "asyncio"):
+        for name in ("fastembed", "sentence_transformers", "httpx", "asyncio"):
             logging.getLogger(name).setLevel(logging.WARNING)
 
 

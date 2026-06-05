@@ -35,6 +35,11 @@ async def update_config(new_config: dict):
         merged = {**existing, **new_config}
         validated = Settings(**merged)
 
+        # Fail fast on an unknown EMBEDDING_BACKEND so we don't persist a
+        # value that would 500 on first /ingest or /investigate.
+        from repi.embeddings import create_embedder
+        create_embedder(validated.EMBEDDING_BACKEND)
+
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_PATH, "w") as f:
             json.dump(validated.model_dump(), f, indent=2)
