@@ -87,8 +87,11 @@ class Container:
 
     @property
     def embedder(self) -> Embedder:
-        if self._embedder is None:
-            self._embedder = create_embedder(settings.EMBEDDING_BACKEND)
+        # Rebuild if the configured backend changed (PUT /config can flip it
+        # at runtime via settings.reload()).
+        configured = (settings.EMBEDDING_BACKEND or "").strip().lower()
+        if self._embedder is None or self._embedder.name != configured:
+            self._embedder = create_embedder(configured)
         return self._embedder
 
     def embedding_func(self, texts: list[str]):

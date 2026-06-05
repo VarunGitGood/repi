@@ -7,7 +7,6 @@ magnitude smaller.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from repi.embeddings.base import Embedder
 
