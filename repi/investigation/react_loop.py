@@ -61,10 +61,7 @@ REFLECTION_PROMPT = (
     "Do NOT issue a tool call on this turn."
 )
 
-# `parse_llm_response` lives in repi.llm.json_utils since Issue #49 — both
-# the loop and the eval judge share it. Re-export here so callers and the
-# tests/investigation/test_react_loop_parser.py module that imports it from
-# this module keep working.
+# Shared with the eval judge; re-exported so existing callers keep working.
 from repi.llm.json_utils import parse_llm_response  # noqa: F401
 
 
@@ -121,8 +118,8 @@ class ReactInvestigationLoop:
         self.tools = tools
         self.known_services = known_services
         self.pool = pool
-        # `max_iterations` is the ACTION-step budget. Reflection turns and
-        # null-action re-prompts do not consume it (see Issue #48).
+        # Action-step budget; reflection turns and null-action re-prompts
+        # do not consume it.
         self.max_iterations = max_iterations
         self.min_iteration_delay = min_iteration_delay
         self.store = store

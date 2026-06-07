@@ -135,7 +135,7 @@ def create_judge(args: dict, mut_provider_name: str) -> LLMJudge:
             judge.provider_name = name
             return judge
 
-    # No alternative provider available — hard fail per Issue #49 contract.
+    # No alternative provider available — hard fail rather than self-grade.
     raise RuntimeError(
         f"Judge provider auto-selection failed: model-under-test is '{mut}' and no "
         "alternative provider key is configured. Configure a second provider key "
@@ -281,6 +281,7 @@ async def _write_leaderboard_row(
     mut_model: str,
     judge_provider: str,
     judge_model: str,
+    embedding_backend: str,
 ) -> None:
     """Insert one leaderboard row. Best-effort: any failure is logged and swallowed
     so the eval run is never blocked by persistence."""
@@ -293,8 +294,9 @@ async def _write_leaderboard_row(
                 """
                 INSERT INTO leaderboard (
                     run_id, provider, model, dataset, aggregate_score,
-                    status, judge_provider, judge_model, criteria, stats
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
+                    status, judge_provider, judge_model, criteria, stats,
+                    embedding_backend
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)
                 """,
                 run_id,
                 mut_provider,
@@ -306,6 +308,7 @@ async def _write_leaderboard_row(
                 judge_model,
                 json.dumps(result.get("criteria", []) or []),
                 json.dumps(result.get("stats", {}) or {}),
+                embedding_backend,
             )
     except Exception as e:
         # Never block the eval run on a persistence failure.
@@ -335,7 +338,9 @@ async def main():
     run_id = uuid4()
     judge_provider = getattr(judge, "provider_name", "unknown")
     mut_model = container.llm_provider.model_name if container.llm_provider else "unknown"
+    embedding_backend = _settings.EMBEDDING_BACKEND
     print(f"  [run]    run_id: {run_id}")
+    print(f"  [config] embedding_backend: {embedding_backend}")
 
     all_results = []
 
@@ -376,6 +381,7 @@ async def main():
             mut_model=mut_model,
             judge_provider=judge_provider,
             judge_model=judge.model_name,
+            embedding_backend=embedding_backend,
         )
 
     # Summary
@@ -406,8 +412,7 @@ async def main():
         suffix = (" [" + " ".join(bits) + "]") if bits else ""
         print(f"    {r['status'].upper():18s}  {score_str}  {r['dataset']}{suffix}")
 
-    # Optional machine-readable output. No file is written by default —
-    # bug.json was retired in Issue #49.
+    # Optional machine-readable output; no file is written by default.
     out_path = args.get("out_path")
     if out_path:
         path_obj = Path(out_path)
