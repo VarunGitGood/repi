@@ -74,24 +74,19 @@ const QUICKSTART_STEPS: Array<{
   language?: string
 }> = [
     {
-      title: "Install dependencies",
-      note: "Resolves the lockfile into a local virtualenv via uv.",
-      code: "uv sync",
+      title: "Grab the compose file",
+      note: "One file wires Postgres + Redis + the prebuilt repi image (backend + UI in a single container) from GHCR. No clone, no Python toolchain.",
+      code: "curl -O https://raw.githubusercontent.com/VarunGitGood/repi/main/docker-compose.yml",
     },
     {
-      title: "Bootstrap",
-      note: "Starts Postgres + Redis in Docker, prompts for an LLM provider and API key, writes .repi/config.json, applies the schema. Idempotent — safe to re-run.",
-      code: "repi init --with-docker",
+      title: "Bring up the stack",
+      note: "Pulls ghcr.io/varungitgood/repi:latest (multi-arch, ~500 MB) and starts everything in the background. Config persists in the named volume across restarts.",
+      code: "docker compose up -d",
     },
     {
-      title: "Start the API",
-      note: "Runs on http://localhost:8000. Swagger UI at /docs.",
-      code: "repi serve",
-    },
-    {
-      title: "Start the UI",
-      note: "Runs on http://localhost:3000 (configurable via UI_PORT). Open this in a second terminal.",
-      code: "repi ui",
+      title: "Open the UI and add your LLM key",
+      note: "Visit http://localhost:3000, jump to the Config page, pick a provider, paste your API key, save. The API hot-reloads — no restart needed.",
+      code: "open http://localhost:3000",
     },
   ]
 
@@ -153,7 +148,7 @@ const ENV_VARS = [
   {
     name: "UI_PORT",
     default: "3000",
-    description: "Port the web UI binds to (read by `repi ui`)",
+    description: "Port the web UI binds to",
   },
   {
     name: "WATCHER_CONFIG_REFRESH_SECS",
@@ -255,7 +250,7 @@ export default function DocsPage() {
             <div className="absolute inset-0 bg-foreground/20 blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
             <div className="relative font-mono text-sm bg-muted/50 backdrop-blur-sm border border-foreground/5 px-6 py-3.5 rounded-2xl text-muted-foreground flex items-center gap-3">
               <span className="opacity-40 select-none">$</span>
-              repi init --with-docker
+              docker compose up -d
             </div>
           </div>
         </section>
@@ -292,7 +287,7 @@ export default function DocsPage() {
             <div className="text-center mb-24">
               <h2 className="text-5xl font-black tracking-tight mb-6">Up and running in 5m</h2>
               <p className="text-lg text-muted-foreground font-medium">
-                Prerequisites: Docker, Python 3.11+, uv, Node.js (for the web UI).
+                Prerequisites: Docker. That&apos;s it.
               </p>
             </div>
             <div className="relative space-y-24">
@@ -345,7 +340,7 @@ export default function DocsPage() {
                   <h3 className="text-xl font-bold">Start the worker</h3>
                 </div>
                 <div className="rounded-2xl overflow-hidden border border-foreground/[0.03] shadow-lg shadow-foreground/[0.01]">
-                  <CodeBlock code="python -m repi.worker" language="bash" />
+                  <CodeBlock code="docker compose exec app python -m repi.worker" language="bash" />
                 </div>
               </div>
             </div>
@@ -359,10 +354,8 @@ export default function DocsPage() {
               <h2 className="text-4xl font-black tracking-tight mb-4">Configuration</h2>
               <p className="text-lg text-muted-foreground font-medium max-w-2xl">
                 All settings live in{" "}
-                <code className="font-mono text-sm bg-muted px-2 py-0.5 rounded-md border border-foreground/5">.repi/config.json</code>
-                {" "}— created by{" "}
-                <code className="font-mono text-sm bg-muted px-2 py-0.5 rounded-md border border-foreground/5">repi init</code>{" "}
-                and editable via the web UI&apos;s Config page. Shell env vars and{" "}
+                <code className="font-mono text-sm bg-muted px-2 py-0.5 rounded-md border border-foreground/5">/app/.repi/config.json</code>
+                {" "}inside the container — seeded with docker-aware defaults on first boot, then editable via the web UI&apos;s Config page (the API hot-reloads). Shell env vars and{" "}
                 <code className="font-mono text-sm bg-muted px-2 py-0.5 rounded-md border border-foreground/5">.env</code>{" "}
                 files are intentionally ignored.
               </p>
@@ -416,7 +409,7 @@ export default function DocsPage() {
               <div className="absolute inset-0 bg-background/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative font-mono text-base bg-background/10 border border-background/20 px-8 py-4 rounded-2xl inline-block backdrop-blur-md">
                 <span className="opacity-40 mr-3 select-none">$</span>
-                repi init --with-docker
+                docker compose up -d
               </div>
             </div>
           </div>

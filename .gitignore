@@ -3,6 +3,7 @@
 .env.local
 .env.*.local
 config.json
+.claude
 
 # Python
 __pycache__/
@@ -34,4 +35,7 @@ scripts/
 # Eval output artefacts (legacy bug.json + opt-in --out path)
 bug.json
 eval/results/
+
+# Closure / launch tracker (private; not for public repo)
+todo/
 
