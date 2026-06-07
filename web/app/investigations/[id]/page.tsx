@@ -1,26 +1,106 @@
 "use client"
 
 import { useParams } from "next/navigation"
-import { useSSE } from "@/lib/sse"
+import { useCallback } from "react"
+import { useSSE, Step, InvestigationPhase, InvestigationStats } from "@/lib/sse"
 import { InvestigationStepCard } from "@/components/investigation-step"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, CheckCircle2, Loader2, Search, ShieldCheck } from "lucide-react"
+import { AlertCircle, CheckCircle2, Search, ShieldCheck } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { StructuredAnswerView } from "@/components/structured-answer"
 import { Input } from "@/components/ui/input"
 import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Spinner } from "@/components/ui/spinner"
+import { statusBadgeProps } from "@/lib/status"
+import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
+// Statuses where the SSE stream is not useful: the run is over, or no events
+// will arrive without further user action. `awaiting_clarification` is NOT in
+// here — the stream emits the clarification_request event immediately and then
+// closes; after the user submits a clarify reply, the REST refetch flips status
+// to running and the stream reconnects.
+const TERMINAL_STATUSES = new Set(["completed", "failed"]);
+
+type RestState = {
+  loading: boolean;
+  status: string | null;
+  steps: Step[];
+  answer: string | null;
+  stats: InvestigationStats | null;
+  pendingQuestion: string | null;
+  error: string | null;
+};
+
 export default function InvestigationDetailPage() {
   const { id } = useParams()
-  const streamUrl = id ? `${API_BASE}/investigations/${id}/stream` : null
-  const { steps, answer, error, done, clarificationQuestion, awaitingClarification, phase, stats } = useSSE(streamUrl)
+  const [rest, setRest] = useState<RestState>({
+    loading: true,
+    status: null,
+    steps: [],
+    answer: null,
+    stats: null,
+    pendingQuestion: null,
+    error: null,
+  })
+
+  const fetchRest = useCallback(async () => {
+    if (!id) return
+    try {
+      const data = await api.investigations.get(id as string)
+      setRest({
+        loading: false,
+        status: data.status,
+        steps: (data.steps ?? []).map((s: any) => ({
+          step_number: s.step_number,
+          thought: s.thought,
+          action: s.action ?? undefined,
+          observation: s.observation ?? undefined,
+          kind: s.kind ?? null,
+        })),
+        answer: data.answer ?? null,
+        stats: data.stats ?? null,
+        pendingQuestion: data.pending_question ?? null,
+        error: null,
+      })
+    } catch (err: any) {
+      setRest((r) => ({ ...r, loading: false, error: err.message }))
+    }
+  }, [id])
+
+  useEffect(() => {
+    fetchRest()
+  }, [fetchRest])
+
+  // Only open SSE for investigations that are still progressing. Replayed
+  // streams trigger a spurious `onerror` when the server closes cleanly
+  // (EventSource interprets close as failure), so for terminal states we
+  // render directly from REST.
+  const shouldStream = !rest.loading && rest.status !== null && !TERMINAL_STATUSES.has(rest.status)
+  const streamUrl = shouldStream && id ? `${API_BASE}/investigations/${id}/stream` : null
+  const sse = useSSE(streamUrl)
+
+  const steps: Step[] = shouldStream ? sse.steps : rest.steps
+  const answer = shouldStream ? sse.answer : rest.answer
+  const error = shouldStream ? sse.error : rest.error
+  const done = shouldStream ? sse.done : true
+  const clarificationQuestion = shouldStream ? sse.clarificationQuestion : rest.pendingQuestion
+  const awaitingClarification = shouldStream
+    ? sse.awaitingClarification
+    : rest.status === "awaiting_clarification"
+  const phase: InvestigationPhase | null = shouldStream
+    ? sse.phase
+    : rest.status === "completed" || rest.status === "failed"
+      ? "done"
+      : null
+  const stats = shouldStream ? sse.stats : rest.stats
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const [reply, setReply] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -31,6 +111,15 @@ export default function InvestigationDetailPage() {
     }
   }, [steps, done, awaitingClarification])
 
+  // Live-stream errors (connection lost during a running investigation) deserve
+  // an immediate toast — Alert below stays for persistence, toast catches the
+  // user's attention if they're scrolled away.
+  useEffect(() => {
+    if (shouldStream && sse.error) {
+      toast.error(sse.error)
+    }
+  }, [shouldStream, sse.error])
+
   const handleClarify = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!reply.trim() || submitting) return
@@ -40,6 +129,10 @@ export default function InvestigationDetailPage() {
       await api.investigations.clarify(id as string, reply)
       setReply("")
       toast.success("Clarification sent. Investigation resuming...")
+      // Re-fetch so rest.status transitions from awaiting_clarification → running.
+      // That flips shouldStream, which mounts a fresh SSE connection to pick up
+      // the resumed run.
+      await fetchRest()
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -48,6 +141,14 @@ export default function InvestigationDetailPage() {
   }
 
   if (!id) return null
+
+  if (rest.loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+        <Spinner size="lg" label="Loading investigation..." />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full max-w-4xl mx-auto px-6 py-8">
@@ -60,7 +161,7 @@ export default function InvestigationDetailPage() {
           <div className="flex items-center gap-2">
             {!done && !awaitingClarification ? (
               <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner size="sm" />
                 <span>
                   {phase === "compiling"
                     ? "Compiling answer..."
@@ -70,24 +171,35 @@ export default function InvestigationDetailPage() {
                 </span>
               </div>
             ) : awaitingClarification ? (
-              <Badge variant="outline" className="flex items-center gap-1 border-amber-500 text-amber-500 animate-pulse">
-                <Loader2 className="h-3 w-3 animate-spin" /> Awaiting Clarification
-              </Badge>
+              (() => {
+                const b = statusBadgeProps("awaiting_clarification")
+                return (
+                  <Badge variant={b.variant} className={cn("flex items-center gap-1 animate-pulse", b.className)}>
+                    <Spinner size="sm" /> Awaiting Clarification
+                  </Badge>
+                )
+              })()
             ) : error ? (
-              <Badge variant="destructive" className="flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" /> Failed
-              </Badge>
+              (() => {
+                const b = statusBadgeProps("failed")
+                return (
+                  <Badge variant={b.variant} className={cn("flex items-center gap-1", b.className)}>
+                    <AlertCircle className="h-3 w-3" /> Failed
+                  </Badge>
+                )
+              })()
             ) : (
-              <Badge variant="default" className="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600">
-                <CheckCircle2 className="h-3 w-3" /> Completed
-              </Badge>
+              (() => {
+                const b = statusBadgeProps("completed")
+                return (
+                  <Badge variant={b.variant} className={cn("flex items-center gap-1", b.className)}>
+                    <CheckCircle2 className="h-3 w-3" /> Completed
+                  </Badge>
+                )
+              })()
             )}
           </div>
         </div>
-        
-        {/* Placeholder for query if we had it, but SSE currently doesn't send it. 
-            We could fetch detail once if we want the query text. 
-            For now, we'll assume the user knows what they searched. */}
       </div>
 
       {/* Phase indicator strip */}
@@ -101,7 +213,7 @@ export default function InvestigationDetailPage() {
                 : "border-border text-muted-foreground"
           }`}>
             {phase === "gathering" && !done ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Spinner size="sm" />
             ) : (
               <CheckCircle2 className="h-3 w-3" />
             )}
@@ -116,7 +228,7 @@ export default function InvestigationDetailPage() {
                 : "border-border text-muted-foreground"
           }`}>
             {phase === "compiling" ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Spinner size="sm" />
             ) : phase === "done" || done ? (
               <CheckCircle2 className="h-3 w-3" />
             ) : (
@@ -168,14 +280,18 @@ export default function InvestigationDetailPage() {
               <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Reflections</div>
               <div>{stats.reflections_used ?? 0}</div>
             </div>
-            <div>
-              <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Chunks gathered</div>
-              <div>{stats.chunks_gathered ?? 0}</div>
-            </div>
-            <div>
-              <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Compile source</div>
-              <div>{stats.compile_source ?? "?"}</div>
-            </div>
+            {stats.chunks_gathered !== undefined && (
+              <div>
+                <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Chunks gathered</div>
+                <div>{stats.chunks_gathered}</div>
+              </div>
+            )}
+            {stats.compile_source && (
+              <div>
+                <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Compile source</div>
+                <div>{stats.compile_source}</div>
+              </div>
+            )}
             {stats.tools_called && stats.tools_called.length > 0 && (
               <div className="col-span-2 sm:col-span-4">
                 <div className="font-bold text-foreground/70 uppercase tracking-wider text-[10px]">Tools called</div>
@@ -206,14 +322,14 @@ export default function InvestigationDetailPage() {
                   &quot;{clarificationQuestion}&quot;
                 </p>
                 <form onSubmit={handleClarify} className="flex gap-2">
-                  <Input 
-                    placeholder="Your reply..." 
+                  <Input
+                    placeholder="Your reply..."
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
                     className="flex-1 bg-background/50"
                   />
                   <Button type="submit" disabled={!reply.trim() || submitting} size="sm" className="bg-amber-500 hover:bg-amber-600 text-black font-bold">
-                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume"}
+                    {submitting ? <Spinner size="sm" /> : "Resume"}
                   </Button>
                 </form>
               </CardContent>
@@ -229,7 +345,7 @@ export default function InvestigationDetailPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        
+
         <div ref={bottomRef} className="h-1" />
       </div>
     </div>

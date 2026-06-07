@@ -6,6 +6,7 @@ import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Play, Sparkles } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 import { toast } from "sonner"
 
 export default function NewInvestigationPage() {
@@ -63,7 +64,9 @@ export default function NewInvestigationPage() {
             disabled={loading || !query.trim()}
             className="rounded-full px-8 shadow-lg shadow-primary/20"
           >
-            {loading ? "Initializing..." : (
+            {loading ? (
+              <Spinner size="sm" label="Initializing..." />
+            ) : (
               <>
                 <Play className="mr-2 h-4 w-4 fill-current" />
                 Run Investigation

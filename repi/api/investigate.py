@@ -22,9 +22,15 @@ class InvestigateRequest(BaseModel):
 class InvestigationStepModel(BaseModel):
     step_number: int
     thought: str
+    # Legacy preview fields — kept for back-compat with anything that may still
+    # read them. The list endpoint returns empty steps anyway.
     tool_name: Optional[str] = None
     tool_args: Optional[dict] = None
     observation_preview: Optional[str] = None
+    # Rich shape the UI uses to render a step identically to the SSE stream.
+    action: Optional[dict] = None
+    observation: Optional[dict] = None
+    kind: Optional[str] = None
 
 class InvestigationResponse(BaseModel):
     id: str
@@ -33,6 +39,8 @@ class InvestigationResponse(BaseModel):
     answer: Optional[str] = None
     created_at: datetime
     steps: List[InvestigationStepModel]
+    pending_question: Optional[str] = None
+    stats: Optional[dict] = None
 
 class SimpleInvestigationResponse(BaseModel):
     id: str
@@ -134,10 +142,18 @@ async def stream_investigation(investigation_id: str):
 
             steps = await store.get_steps(uuid_obj)
             for s in steps:
+                # Persisted shape is {name, args}; the UI consumes {tool, args}
+                # from the live SSE path. Normalize so replayed and live steps
+                # render through the same component path.
+                action_obj = None
+                if s.action:
+                    tool_name = s.action.get("tool") or s.action.get("name")
+                    if tool_name:
+                        action_obj = {"tool": tool_name, "args": s.action.get("args")}
                 step_data = {
                     "step_number": s.step_number,
                     "thought": s.thought,
-                    "action": s.action,
+                    "action": action_obj,
                     "observation": s.observation,
                     "kind": getattr(s, "kind", None),
                 }
@@ -208,31 +224,60 @@ async def get_investigation(investigation_id: str):
 
     container = get_container()
     async with container.get_session() as session:
-        loop = container.get_investigation_loop(session)
-        store = loop.store
-        
+        # Read-only fetch — go through the store directly. Using
+        # get_investigation_loop() here would call require_llm() and 409 when no
+        # LLM key is configured, blocking access to completed investigations.
+        store = container.get_investigation_store(session)
+
         investigation = await store.get_by_id(uuid_obj)
         if not investigation:
             raise HTTPException(status_code=404, detail="Investigation not found")
-        
+
         steps_data = await store.get_steps(uuid_obj)
         
     steps = []
+    tools_called: set[str] = set()
+    iterations = 0
+    reflections = 0
     for s in steps_data:
         obs_str = str(s.observation.get("result") or s.observation.get("error")) if s.observation else None
+        tool_name = (s.action.get("name") or s.action.get("tool")) if s.action else None
+        tool_args = s.action.get("args") if s.action else None
+        # The SSE stream sends action as {tool, args}; mirror that so the UI can
+        # render replayed steps with the same component path as live ones.
+        action_obj = {"tool": tool_name, "args": tool_args} if tool_name else None
         steps.append(InvestigationStepModel(
             step_number=s.step_number,
             thought=s.thought,
-            tool_name=s.action.get("name") or s.action.get("tool") if s.action else None,
-            tool_args=s.action.get("args") if s.action else None,
-            observation_preview=obs_str[:200] + "..." if obs_str and len(obs_str) > 200 else obs_str
+            tool_name=tool_name,
+            tool_args=tool_args,
+            observation_preview=obs_str[:200] + "..." if obs_str and len(obs_str) > 200 else obs_str,
+            action=action_obj,
+            observation=s.observation,
+            kind=getattr(s, "kind", None),
         ))
-        
+        if s.kind == "reflection":
+            reflections += 1
+        elif not s.kind:
+            iterations += 1
+        if tool_name:
+            tools_called.add(tool_name)
+
+    stats: Optional[dict] = None
+    if investigation.status in ("completed", "failed"):
+        stats = {
+            "iterations_used": iterations,
+            "reflections_used": reflections,
+            "tools_called": sorted(tools_called),
+        }
+
     return InvestigationResponse(
         id=str(investigation.id),
         query=investigation.query,
         status=investigation.status,
         answer=investigation.answer,
         created_at=investigation.created_at,
-        steps=steps
+        steps=steps,
+        pending_question=investigation.pending_question,
+        stats=stats,
     )

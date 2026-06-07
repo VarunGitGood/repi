@@ -2,22 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Terminal } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { isPublicMode } from "@/lib/public-mode";
+import { Brand } from "@/components/brand";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export function Navbar() {
   const pathname = usePathname() || "/";
-  // /repi/* is treated as public — docs, future demo, marketing.
   const isPublic = pathname.startsWith("/repi");
+  const publicDeploy = isPublicMode();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center max-w-7xl mx-auto px-4">
-        <div className="mr-4 flex">
+        <div className="mr-4 flex flex-1">
           <Link
             href={isPublic ? "/repi/docs" : "/investigations"}
             className="mr-6 flex items-center space-x-2"
           >
-            <Terminal className="h-6 w-6 text-primary" />
+            <Brand size={24} />
             <span className="font-bold inline-block">repi</span>
           </Link>
           {!isPublic && (
@@ -37,6 +41,15 @@ export function Navbar() {
             </nav>
           )}
         </div>
+        {isPublic && !publicDeploy && (
+          <Link
+            href="/investigations"
+            className={cn(buttonVariants({ size: "sm" }), "rounded-full")}
+          >
+            Open Investigations
+            <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+          </Link>
+        )}
       </div>
     </header>
   );

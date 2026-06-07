@@ -8,7 +8,8 @@ import { Switch } from "@/components/ui/switch"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { Save, AlertCircle, Eye, EyeOff } from "lucide-react"
+import { Save, Eye, EyeOff } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 
 export function ConfigForm() {
   const [config, setConfig] = useState<any>(null)
@@ -43,7 +44,13 @@ export function ConfigForm() {
     }
   }
 
-  if (loading) return <div>Loading config...</div>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20 text-muted-foreground">
+        <Spinner size="lg" label="Loading config..." />
+      </div>
+    )
+  }
   if (!config) return <div>Error loading config.</div>
 
   const handleChange = (key: string, value: any) => {
@@ -207,8 +214,14 @@ export function ConfigForm() {
 
       <div className="flex justify-end pt-4">
         <Button size="lg" onClick={handleSave} disabled={saving}>
-          <Save className="mr-2 h-4 w-4" />
-          {saving ? "Saving..." : "Save Settings"}
+          {saving ? (
+            <Spinner size="sm" label="Saving..." />
+          ) : (
+            <>
+              <Save className="mr-2 h-4 w-4" />
+              Save Settings
+            </>
+          )}
         </Button>
       </div>
     </div>

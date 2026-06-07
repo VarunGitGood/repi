@@ -54,11 +54,11 @@ class RedisCacheService:
         # Sort kwargs to ensure deterministic key
         sorted_args = json.dumps(kwargs, sort_keys=True, default=str)
         arg_hash = hashlib.md5(sorted_args.encode()).hexdigest()
-        return f"lograg:tool:{tool_name}:{arg_hash}"
+        return f"repi:tool:{tool_name}:{arg_hash}"
 
     def make_embedding_key(self, text: str) -> str:
         text_hash = hashlib.md5(text.encode()).hexdigest()
-        return f"lograg:embed:{text_hash}"
+        return f"repi:embed:{text_hash}"
 
 # Global instance for easy access
 cache = RedisCacheService()

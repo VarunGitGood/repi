@@ -64,7 +64,7 @@ PROVIDER_KEY_ENV = {
     "gemini": "GEMINI_API_KEY",
 }
 
-DEFAULT_DB_URL = "postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg"
+DEFAULT_DB_URL = "postgresql+asyncpg://repi_user:password_here@localhost:5432/repi"
 DEFAULT_REDIS_URL = "redis://localhost:6379"
 
 
