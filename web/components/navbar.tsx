@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { isPublicMode } from "@/lib/public-mode";
 import { Brand } from "@/components/brand";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export function Navbar() {
   const pathname = usePathname() || "/";
@@ -41,11 +42,12 @@ export function Navbar() {
           )}
         </div>
         {isPublic && !publicDeploy && (
-          <Link href="/investigations">
-            <Button size="sm" className="rounded-full">
-              Open Investigations
-              <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-            </Button>
+          <Link
+            href="/investigations"
+            className={cn(buttonVariants({ size: "sm" }), "rounded-full")}
+          >
+            Open Investigations
+            <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
           </Link>
         )}
       </div>
