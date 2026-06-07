@@ -1,6 +1,7 @@
 import {
-  Terminal, Search, Bot, Eye, Layers, Clock, Database, Globe,
+  Search, Bot, Eye, Layers, Clock, Database, Globe,
 } from "lucide-react"
+import { Brand } from "@/components/brand"
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -25,6 +26,7 @@ import {
 } from "@/components/ui/table"
 import { ThemeToggle } from "@/components/docs/theme-toggle"
 import { CodeBlock } from "@/components/docs/code-block"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -67,28 +69,57 @@ const FEATURES = [
   },
 ]
 
-const QUICKSTART_STEPS: Array<{
-  title: string
-  note?: string
+interface InstallPath {
+  value: string
+  label: string
+  tagline: string
+  prereqs: string
   code: string
-  language?: string
-}> = [
-    {
-      title: "Grab the compose file",
-      note: "One file wires Postgres + Redis + the prebuilt repi image (backend + UI in a single container) from GHCR. No clone, no Python toolchain.",
-      code: "curl -O https://raw.githubusercontent.com/VarunGitGood/repi/main/docker-compose.yml",
-    },
-    {
-      title: "Bring up the stack",
-      note: "Pulls ghcr.io/varungitgood/repi:latest (multi-arch, ~500 MB) and starts everything in the background. Config persists in the named volume across restarts.",
-      code: "docker compose up -d",
-    },
-    {
-      title: "Open the UI and add your LLM key",
-      note: "Visit http://localhost:3000, jump to the Config page, pick a provider, paste your API key, save. The API hot-reloads — no restart needed.",
-      code: "open http://localhost:3000",
-    },
-  ]
+}
+
+const INSTALL_PATHS: InstallPath[] = [
+  {
+    value: "docker",
+    label: "Docker",
+    tagline: "Prebuilt image. Backend + UI + Postgres + Redis in one compose stack.",
+    prereqs: "Docker, git",
+    code: `# Get the compose file (clone or copy from GitHub)
+git clone https://github.com/VarunGitGood/repi.git && cd repi
+
+# Pulls ghcr.io/varungitgood/repi:latest and starts db + redis + app
+docker compose up -d
+
+# Open http://localhost:3000 → Config → paste your LLM key → save`,
+  },
+  {
+    value: "local",
+    label: "Local dev",
+    tagline: "Hack on the code with hot-reload. Docker runs only db + redis; backend + UI run on the host.",
+    prereqs: "Docker, Python 3.11+, uv, Node.js",
+    code: `git clone https://github.com/VarunGitGood/repi.git && cd repi
+uv sync
+
+# db + redis up, prompts provider/key, writes .repi/config.json, applies schema
+uv run repi init --with-docker
+
+# Terminal 1: API on :8000 (auto-reload in development)
+uv run repi serve
+
+# Terminal 2: web UI on :3000 (Next.js HMR)
+uv run repi ui`,
+  },
+  {
+    value: "image",
+    label: "Pull image",
+    tagline: "Just grab the multi-arch image. Bring your own Postgres + Redis.",
+    prereqs: "Docker, a running Postgres (with pgvector) and Redis",
+    code: `# Pull the latest published image (~500 MB, multi-arch)
+docker pull ghcr.io/varungitgood/repi:latest
+
+# Or pin a release
+docker pull ghcr.io/varungitgood/repi:v0.1.0`,
+  },
+]
 
 const REGISTER_WATCHER_CODE = `curl -X POST http://localhost:8000/watchers \\
   -H "Content-Type: application/json" \\
@@ -107,7 +138,7 @@ const ENV_VARS = [
   },
   {
     name: "DATABASE_URL",
-    default: "postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg",
+    default: "postgresql+asyncpg://repi_user:password_here@localhost:5432/repi",
     description: "PostgreSQL asyncpg connection URL",
   },
   {
@@ -178,9 +209,7 @@ export default function DocsPage() {
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2.5">
-              <div className="bg-foreground text-background p-1 rounded-md">
-                <Terminal className="h-4 w-4" />
-              </div>
+              <Brand size={28} />
               <span className="font-bold tracking-tight text-base">repi</span>
               <Badge variant="outline" className="text-[10px] uppercase tracking-widest font-bold py-0 h-5 px-1.5 opacity-60">
                 docs
@@ -246,13 +275,6 @@ export default function DocsPage() {
               </Button>
             </a>
           </div>
-          <div className="group relative">
-            <div className="absolute inset-0 bg-foreground/20 blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="relative font-mono text-sm bg-muted/50 backdrop-blur-sm border border-foreground/5 px-6 py-3.5 rounded-2xl text-muted-foreground flex items-center gap-3">
-              <span className="opacity-40 select-none">$</span>
-              docker compose up -d
-            </div>
-          </div>
         </section>
 
         {/* ── Features ──────────────────────────────────────────────────────────── */}
@@ -284,33 +306,36 @@ export default function DocsPage() {
         {/* ── Quick Start ───────────────────────────────────────────────────────── */}
         <section id="quickstart" className="scroll-mt-32 py-32 px-6 border-t border-foreground/[0.03] bg-muted/10">
           <div className="max-w-4xl mx-auto">
-            <div className="text-center mb-24">
+            <div className="text-center mb-16">
               <h2 className="text-5xl font-black tracking-tight mb-6">Up and running in 5m</h2>
               <p className="text-lg text-muted-foreground font-medium">
-                Prerequisites: Docker. That&apos;s it.
+                Pick the path that fits how you want to run repi.
               </p>
             </div>
-            <div className="relative space-y-24">
-              {/* Timeline line */}
-              <div className="absolute left-[15px] top-2 bottom-2 w-px bg-foreground/5 hidden sm:block" />
-
-              {QUICKSTART_STEPS.map((step, i) => (
-                <div key={step.title} className="relative flex flex-col sm:flex-row gap-8 sm:gap-16 group">
-                  <div className="relative z-10 flex-shrink-0 w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center font-black text-xs shadow-lg shadow-foreground/20 group-hover:scale-125 transition-transform">
-                    {i + 1}
+            <Tabs defaultValue="docker" className="!gap-6">
+              <TabsList className="self-center">
+                {INSTALL_PATHS.map((path) => (
+                  <TabsTrigger key={path.value} value={path.value}>
+                    {path.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              {INSTALL_PATHS.map((path) => (
+                <TabsContent key={path.value} value={path.value} className="space-y-6">
+                  <div className="space-y-2">
+                    <p className="text-base text-muted-foreground font-medium leading-relaxed">
+                      {path.tagline}
+                    </p>
+                    <p className="text-xs uppercase tracking-widest font-bold text-muted-foreground/70">
+                      Prerequisites: <span className="text-foreground/80 normal-case tracking-normal font-medium">{path.prereqs}</span>
+                    </p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-2xl font-black mb-4 tracking-tight">{step.title}</h3>
-                    {step.note && (
-                      <p className="text-base text-muted-foreground mb-6 font-medium leading-relaxed">{step.note}</p>
-                    )}
-                    <div className="shadow-2xl shadow-foreground/[0.02] hover:shadow-foreground/[0.05] transition-shadow rounded-2xl overflow-hidden border border-foreground/[0.03]">
-                      <CodeBlock code={step.code} language={step.language ?? "bash"} />
-                    </div>
+                  <div className="shadow-2xl shadow-foreground/[0.02] hover:shadow-foreground/[0.05] transition-shadow rounded-2xl overflow-hidden border border-foreground/[0.03]">
+                    <CodeBlock code={path.code} language="bash" />
                   </div>
-                </div>
+                </TabsContent>
               ))}
-            </div>
+            </Tabs>
           </div>
         </section>
 
@@ -421,9 +446,7 @@ export default function DocsPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-16 items-start mb-24">
               <div className="md:col-span-2">
                 <div className="flex items-center gap-3 mb-6">
-                  <div className="bg-foreground text-background p-1.5 rounded-lg">
-                    <Terminal className="h-5 w-5" />
-                  </div>
+                  <Brand size={32} />
                   <span className="font-black text-xl tracking-tight">repi</span>
                 </div>
                 <p className="text-lg text-muted-foreground leading-relaxed font-medium max-w-sm">

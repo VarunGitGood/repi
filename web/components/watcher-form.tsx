@@ -7,11 +7,13 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { toast } from "sonner"
-import { Plus, Trash2, Loader2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 
 export function WatcherForm() {
   const [watchers, setWatchers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
   const [newWatcher, setNewWatcher] = useState({ service_name: "", watch_path: "", env: "production" })
 
   useEffect(() => {
@@ -34,13 +36,16 @@ export function WatcherForm() {
       toast.error("Please fill in service name and path")
       return
     }
+    setAdding(true)
     try {
       await api.watchers.create(newWatcher)
       setNewWatcher({ service_name: "", watch_path: "", env: "production" })
       loadWatchers()
       toast.success("Watcher added")
     } catch (err: any) {
-      toast.error("Failed to add watcher")
+      toast.error(err?.message ?? "Failed to add watcher")
+    } finally {
+      setAdding(false)
     }
   }
 
@@ -80,7 +85,9 @@ export function WatcherForm() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                  <div className="flex justify-center text-muted-foreground">
+                    <Spinner size="lg" />
+                  </div>
                 </TableCell>
               </TableRow>
             ) : watchers.length === 0 ? (
@@ -141,9 +148,15 @@ export function WatcherForm() {
                 />
               </TableCell>
               <TableCell colSpan={2}>
-                <Button size="sm" className="w-full h-8" onClick={handleAdd}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add
+                <Button size="sm" className="w-full h-8" onClick={handleAdd} disabled={adding}>
+                  {adding ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add
+                    </>
+                  )}
                 </Button>
               </TableCell>
             </TableRow>

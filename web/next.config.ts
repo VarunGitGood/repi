@@ -11,8 +11,6 @@ const apiTarget =
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  // No <Image> usage in the app — disabling optimization lets Next's standalone
-  // tracer drop `sharp` + libvips (~33 MB) from the production bundle.
   images: { unoptimized: true },
   async rewrites() {
     return [
