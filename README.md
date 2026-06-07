@@ -128,7 +128,7 @@ All keys live in `.repi/config.json` (see `config.example.json` for the full sch
 |----------|---------|-------------|
 | `REPI_ENV` | `production` | `production` \| `development`. Production = quiet logs, no auto-reload. |
 | `LOG_LEVEL` | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR`. |
-| `DATABASE_URL` | `postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg` | PostgreSQL asyncpg URL. The docker image ships a docker-aware default (`db:5432`). |
+| `DATABASE_URL` | `postgresql+asyncpg://repi_user:password_here@localhost:5432/repi` | PostgreSQL asyncpg URL. The docker image ships a docker-aware default (`db:5432`). |
 | `LLM_PROVIDER` | `openai` | `openai` \| `anthropic` \| `mistral` \| `gemini` \| `ollama` |
 | `LLM_MODEL` | provider default | Override model name |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` | — | Provider API key. Set the one that matches your `LLM_PROVIDER`. |

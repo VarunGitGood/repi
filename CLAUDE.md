@@ -139,7 +139,7 @@ repi/
 `PUT /api/config` is a **partial merge**, not a replace — it reads the existing file, applies the payload on top, then validates via `Settings(**merged)` and writes back. Without the merge, a partial payload like `{"MISTRAL_API_KEY": "sk-..."}` would clobber `DATABASE_URL` with the localhost class default and break the running container instantly. Strict REST nit: this is PATCH semantics under a PUT name; see TODO in `repi/api/config.py`.
 
 Required:
-- `DATABASE_URL` — PostgreSQL asyncpg URL (host default: `postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg`; docker default uses `db:5432`).
+- `DATABASE_URL` — PostgreSQL asyncpg URL (host default: `postgresql+asyncpg://repi_user:password_here@localhost:5432/repi`; docker default uses `db:5432`).
 - `LLM_PROVIDER` — `openai` | `anthropic` | `mistral` | `gemini` | `ollama` (default: `openai`).
 - Provider API key — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`, or `LLM_API_KEY`.
 

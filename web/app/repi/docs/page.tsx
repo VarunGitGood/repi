@@ -138,7 +138,7 @@ const ENV_VARS = [
   },
   {
     name: "DATABASE_URL",
-    default: "postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg",
+    default: "postgresql+asyncpg://repi_user:password_here@localhost:5432/repi",
     description: "PostgreSQL asyncpg connection URL",
   },
   {

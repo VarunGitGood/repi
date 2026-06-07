@@ -1,6 +1,7 @@
 "use client"
 
 import { useParams } from "next/navigation"
+import { useCallback } from "react"
 import { useSSE, Step, InvestigationPhase, InvestigationStats } from "@/lib/sse"
 import { InvestigationStepCard } from "@/components/investigation-step"
 import { Badge } from "@/components/ui/badge"
@@ -20,7 +21,12 @@ import { toast } from "sonner"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
-const TERMINAL_STATUSES = new Set(["completed", "failed", "awaiting_clarification"]);
+// Statuses where the SSE stream is not useful: the run is over, or no events
+// will arrive without further user action. `awaiting_clarification` is NOT in
+// here — the stream emits the clarification_request event immediately and then
+// closes; after the user submits a clarify reply, the REST refetch flips status
+// to running and the stream reconnects.
+const TERMINAL_STATUSES = new Set(["completed", "failed"]);
 
 type RestState = {
   loading: boolean;
@@ -44,34 +50,33 @@ export default function InvestigationDetailPage() {
     error: null,
   })
 
-  useEffect(() => {
+  const fetchRest = useCallback(async () => {
     if (!id) return
-    let cancelled = false
-    api.investigations.get(id as string)
-      .then((data) => {
-        if (cancelled) return
-        setRest({
-          loading: false,
-          status: data.status,
-          steps: (data.steps ?? []).map((s: any) => ({
-            step_number: s.step_number,
-            thought: s.thought,
-            action: s.action ?? undefined,
-            observation: s.observation ?? undefined,
-            kind: s.kind ?? null,
-          })),
-          answer: data.answer ?? null,
-          stats: data.stats ?? null,
-          pendingQuestion: data.pending_question ?? null,
-          error: null,
-        })
+    try {
+      const data = await api.investigations.get(id as string)
+      setRest({
+        loading: false,
+        status: data.status,
+        steps: (data.steps ?? []).map((s: any) => ({
+          step_number: s.step_number,
+          thought: s.thought,
+          action: s.action ?? undefined,
+          observation: s.observation ?? undefined,
+          kind: s.kind ?? null,
+        })),
+        answer: data.answer ?? null,
+        stats: data.stats ?? null,
+        pendingQuestion: data.pending_question ?? null,
+        error: null,
       })
-      .catch((err) => {
-        if (cancelled) return
-        setRest((r) => ({ ...r, loading: false, error: err.message }))
-      })
-    return () => { cancelled = true }
+    } catch (err: any) {
+      setRest((r) => ({ ...r, loading: false, error: err.message }))
+    }
   }, [id])
+
+  useEffect(() => {
+    fetchRest()
+  }, [fetchRest])
 
   // Only open SSE for investigations that are still progressing. Replayed
   // streams trigger a spurious `onerror` when the server closes cleanly
@@ -124,6 +129,10 @@ export default function InvestigationDetailPage() {
       await api.investigations.clarify(id as string, reply)
       setReply("")
       toast.success("Clarification sent. Investigation resuming...")
+      // Re-fetch so rest.status transitions from awaiting_clarification → running.
+      // That flips shouldStream, which mounts a fresh SSE connection to pick up
+      // the resumed run.
+      await fetchRest()
     } catch (err: any) {
       toast.error(err.message)
     } finally {

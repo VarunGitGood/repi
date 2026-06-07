@@ -21,6 +21,6 @@ export function statusBadgeProps(status: string): StatusBadgeStyle {
     case "started":
       return { variant: "secondary", className: "", label: status }
     default:
-      return { variant: "secondary", className: "", label: status.replace("_", " ") }
+      return { variant: "secondary", className: "", label: status.replaceAll("_", " ") }
   }
 }

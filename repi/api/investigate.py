@@ -142,10 +142,18 @@ async def stream_investigation(investigation_id: str):
 
             steps = await store.get_steps(uuid_obj)
             for s in steps:
+                # Persisted shape is {name, args}; the UI consumes {tool, args}
+                # from the live SSE path. Normalize so replayed and live steps
+                # render through the same component path.
+                action_obj = None
+                if s.action:
+                    tool_name = s.action.get("tool") or s.action.get("name")
+                    if tool_name:
+                        action_obj = {"tool": tool_name, "args": s.action.get("args")}
                 step_data = {
                     "step_number": s.step_number,
                     "thought": s.thought,
-                    "action": s.action,
+                    "action": action_obj,
                     "observation": s.observation,
                     "kind": getattr(s, "kind", None),
                 }
