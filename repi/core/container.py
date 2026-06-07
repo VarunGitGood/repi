@@ -18,13 +18,10 @@ from repi.investigation.store import InvestigationStore
 from repi.investigation.tools import (
     search_logs, get_timeline, scan_window, get_service_summary, get_all_services
 )
+from repi.embeddings import Embedder, create_embedder
 import asyncpg
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
-if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
-
-# Configure logging from settings (config.json — no env reads).
 _log_level = settings.LOG_LEVEL.upper()
 if settings.REPI_ENV.lower() == "development":
     _log_level = "DEBUG"
@@ -44,16 +41,13 @@ class Container:
         )
         self.pool: Optional[asyncpg.Pool] = None
 
-        # SentenceTransformer load takes ~10s (importing torch + transformers,
-        # then loading the model file). Defer the whole thing so startup stays
-        # fast — /health and /config answer in <1s, the model is only paid for
-        # on first /ingest or /investigate.
-        self._model: Optional["SentenceTransformer"] = None
+        # Embedder load is deferred so /health and /config answer in <1s.
+        self._embedder: Optional[Embedder] = None
         self.known_services: list[str] = []
 
-        # LLM init is *lazy*: a fresh install has no API key, but the API still
-        # needs to boot so the user can POST /config. Routes that actually need
-        # the LLM call require_llm() and surface a 409 if it's still missing.
+        # LLM init is best-effort: a fresh install has no API key, but the
+        # API still needs to boot so the user can POST /config. Routes that
+        # need the LLM call require_llm() and 409 if it's still missing.
         self.llm_provider: Optional[LLMProvider] = None
         self.query_expander: Optional[QueryExpander] = None
         self.llm_init_error: Optional[str] = None
@@ -92,27 +86,23 @@ class Container:
         return self.llm_provider
 
     @property
-    def model(self) -> "SentenceTransformer":
-        if self._model is None:
-            logger.info("Loading SentenceTransformer (first use) …")
-            from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer("all-MiniLM-L6-v2")
-        return self._model
+    def embedder(self) -> Embedder:
+        # Rebuild if the configured backend changed (PUT /config can flip it
+        # at runtime via settings.reload()).
+        configured = (settings.EMBEDDING_BACKEND or "").strip().lower()
+        if self._embedder is None or self._embedder.name != configured:
+            self._embedder = create_embedder(configured)
+        return self._embedder
 
     def embedding_func(self, texts: list[str]):
-        return self.model.encode(texts, convert_to_numpy=True)
+        return self.embedder.embed(texts)
 
     def get_session(self):
         """Return an async context manager that yields a DB session."""
         return self.async_session_maker()
 
     async def init_db(self) -> None:
-        """Apply db/schema.sql then open the connection pool.
-
-        asyncpg executes the full file natively — no statement splitting needed.
-        Every statement in schema.sql is idempotent (IF NOT EXISTS), so this is
-        safe to run on every startup.
-        """
+        """Apply db/schema.sql (idempotent) and open the connection pool."""
         import pathlib
 
         schema_file = pathlib.Path(__file__).resolve().parent.parent.parent / "db" / "schema.sql"

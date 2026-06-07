@@ -16,18 +16,11 @@ async def get_config():
 
 @router.put("/config")
 async def update_config(new_config: dict):
-    """Update the configuration and save to config.json.
+    """Merge `new_config` on top of the existing config.json and reload.
 
-    Merges `new_config` on top of the existing config.json (or class defaults
-    if no file yet). A partial PUT — e.g. `{"MISTRAL_API_KEY": "sk-…"}` — must
-    NOT clobber DATABASE_URL/REDIS_URL etc. with their localhost defaults,
-    which would break the running app instantly under docker.
-
-    TODO: this is PATCH semantics under a PUT name. The merge exists because
-    config lives in a JSON file (no column-level update primitive like a DB
-    UPDATE would give us). Cleaner long-term: either rename to PATCH /config,
-    or split into PUT (full replace) + PATCH (partial merge). For v0 we keep
-    PUT-as-PATCH to avoid a UI change.
+    Semantically a PATCH: a partial body (e.g. `{"MISTRAL_API_KEY": "..."}`)
+    must not clobber unsent fields with their class defaults, which would
+    break a running container instantly.
     """
     try:
         from repi.core.config import Settings
@@ -41,6 +34,11 @@ async def update_config(new_config: dict):
 
         merged = {**existing, **new_config}
         validated = Settings(**merged)
+
+        # Fail fast on an unknown EMBEDDING_BACKEND so we don't persist a
+        # value that would 500 on first /ingest or /investigate.
+        from repi.embeddings import create_embedder
+        create_embedder(validated.EMBEDDING_BACKEND)
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_PATH, "w") as f:
