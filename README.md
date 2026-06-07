@@ -18,15 +18,24 @@ repi/
 └── models/         # SQLModel tables: log_chunks, investigations, investigation_steps, investigation_chunks, watcher_configs, watcher_offsets
 ```
 
-## Run with Docker (quickstart)
+## Getting started
 
-Multi-arch images (linux/amd64 + linux/arm64) are published to GitHub Container Registry on every push to `main` and every tagged release. The image bundles the FastAPI backend (`:8000`) and the Next.js UI (`:3000`) in one container.
+There are two supported ways to run repi. Pick one.
+
+### Option 1a — Run it (Docker only)
+
+The fastest path. No clone, no Python toolchain, no Node. Multi-arch images (linux/amd64 + linux/arm64) are published to GHCR on every push to `main` and every tagged release. The image bundles the FastAPI backend (`:8000`) and the Next.js UI (`:3000`) in one container.
+
+**Prerequisites:** Docker.
 
 ```bash
-# Bring up Postgres + Redis + repi app (backend + UI)
+# Grab the compose file (defines db + redis + the repi app image from GHCR)
+curl -O https://raw.githubusercontent.com/VarunGitGood/repi/main/docker-compose.yml
+
+# Bring up Postgres + Redis + repi (backend + UI)
 docker compose up -d
 
-# Open the UI
+# Open the UI, visit /config, paste your LLM provider key, save.
 open http://localhost:3000
 ```
 
@@ -36,19 +45,20 @@ On first start, the entrypoint seeds `/app/.repi/config.json` from a baked-in de
 - Visit the **Config** page in the UI, pick a provider, paste your API key, save. The API hot-reloads.
 - Your config persists across `docker compose down` (lost only on `down -v`).
 
-Override the image tag (e.g. to pin a release) via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.1.0 docker compose up -d`.
+Pin a release via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.1.0 docker compose up -d`.
 
-## Local development (contributors)
+### Option 1b — Hack on it (contributor / dev path)
 
-Flow for hacking on repi from a fresh clone. End users who `pipx install repi` (once D1 lands) call the same commands without the `uv run` prefix — see `/repi/docs` for the install-and-run path.
+For editing the codebase with hot-reload + breakpoints. Docker runs only the infra (Postgres + Redis); backend and UI run on the host so changes pick up instantly.
 
-**Prerequisites:** Docker, Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js (for the web UI).
+**Prerequisites:** Docker, Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js.
 
 ```bash
+git clone https://github.com/VarunGitGood/repi.git && cd repi
 uv sync                                 # resolve lockfile into .venv
 uv run repi init --with-docker          # db + redis up, prompts provider/key, writes .repi/config.json, applies schema
-uv run repi serve                       # terminal 1: API on :8000
-uv run repi ui                          # terminal 2: web UI on :3000
+uv run repi serve                       # terminal 1: API on :8000 (auto-reload in development)
+uv run repi ui                          # terminal 2: web UI on :3000 (Next.js HMR)
 uv run repi stop                        # when done: tear down docker stack
 ```
 

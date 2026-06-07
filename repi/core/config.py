@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = Field(default="INFO", description="Logging level (DEBUG/INFO/WARNING/ERROR)")
 
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/lograg",
+        default="postgresql+asyncpg://lograg_user:password_here@localhost:5432/lograg",
         description="Postgres connection string (asyncpg format)"
     )
 

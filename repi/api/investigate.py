@@ -9,7 +9,7 @@ from uuid import UUID
 from datetime import datetime
 
 from repi.core.container import get_container
-from repi.investigation.react_loop import InvestigationResult, InvestigationStep
+from repi.investigation.react_loop import InvestigationStep
 
 logger = logging.getLogger("repi.api.investigate")
 
