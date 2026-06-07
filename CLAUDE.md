@@ -47,6 +47,9 @@ docker compose up -d
 # Apply DB schema manually (rarely needed — `repi init` runs it)
 make migrate   # runs psql against db/schema.sql
 
+# Wipe investigation history (keeps ingested log_chunks, watchers, leaderboard)
+make reset-investigations   # TRUNCATE investigations CASCADE
+
 # Ingest a log file (via HTTP API)
 curl -X POST -F "service=my-svc" -F "file=@/path/to/app.log" http://localhost:8000/ingest
 
