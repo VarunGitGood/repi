@@ -24,25 +24,36 @@ class InvestigationStore:
         result = await self.session.exec(statement)
         return list(result.all())
 
-    async def get_or_create(self, query: str) -> Investigation:
-        """Find an existing active investigation for the same query or create a new one."""
+    async def get_or_create(
+        self,
+        query: str,
+        conversation_id: Optional[UUID] = None,
+    ) -> Investigation:
+        """Find an existing active investigation for the same (query, conversation)
+        or create a new one. Same query in a *different* conversation creates a
+        fresh investigation — investigations are conversation-scoped."""
         statement = select(Investigation).where(
             Investigation.query == query,
-            Investigation.status == "started"
+            Investigation.status == "started",
+            Investigation.conversation_id == conversation_id,
         ).order_by(desc(Investigation.created_at)).limit(1)
-        
+
         result = await self.session.exec(statement)
         investigation = result.first()
-        
+
         if investigation:
             logger.info(f"Resuming existing investigation: {investigation.id}")
             return investigation
-            
-        return await self.create(query)
 
-    async def create(self, query: str) -> Investigation:
+        return await self.create(query, conversation_id=conversation_id)
+
+    async def create(
+        self,
+        query: str,
+        conversation_id: Optional[UUID] = None,
+    ) -> Investigation:
         """Always create a fresh investigation."""
-        investigation = Investigation(query=query)
+        investigation = Investigation(query=query, conversation_id=conversation_id)
         self.session.add(investigation)
         await self.session.commit()
         await self.session.refresh(investigation)

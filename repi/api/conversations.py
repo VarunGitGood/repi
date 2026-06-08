@@ -1,0 +1,131 @@
+"""GET /conversations + GET /conversations/{id} (A2 slice — minimal).
+
+The sidebar lists conversations ordered by `updated_at`. Clicking one returns
+chat turns and investigations interleaved chronologically, each carrying a
+`mode` discriminator so the UI can pick the right component to render.
+"""
+from __future__ import annotations
+
+import logging
+from typing import List, Literal, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from sqlmodel import select
+
+from repi.core.container import get_container
+from repi.models.schema import ChatMessage, Conversation, Investigation
+
+logger = logging.getLogger("repi.api.conversations")
+
+router = APIRouter()
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class TranscriptTurn(BaseModel):
+    mode: Literal["chat", "investigate"]
+    id: str
+    role: Optional[str] = None  # "user" | "assistant" for chat turns
+    content: str
+    chunk_ids: List[str] = []
+    confidence: Optional[str] = None
+    status: Optional[str] = None  # investigation status (chat turns leave this null)
+    created_at: str
+
+
+class ConversationDetail(BaseModel):
+    id: str
+    title: Optional[str]
+    created_at: str
+    updated_at: str
+    turns: List[TranscriptTurn]
+
+
+@router.get("/conversations", response_model=List[ConversationSummary])
+async def list_conversations(limit: int = 50):
+    container = get_container()
+    async with container.async_session_maker() as session:
+        stmt = (
+            select(Conversation)
+            .order_by(Conversation.updated_at.desc())
+            .limit(limit)
+        )
+        res = await session.exec(stmt)
+        rows = list(res.all())
+    return [
+        ConversationSummary(
+            id=str(c.id),
+            title=c.title,
+            created_at=c.created_at.isoformat(),
+            updated_at=c.updated_at.isoformat(),
+        )
+        for c in rows
+    ]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
+async def get_conversation(conversation_id: str):
+    try:
+        cid = UUID(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation id")
+
+    container = get_container()
+    async with container.async_session_maker() as session:
+        conv_res = await session.exec(select(Conversation).where(Conversation.id == cid))
+        conv = conv_res.first()
+        if conv is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        msg_res = await session.exec(
+            select(ChatMessage)
+            .where(ChatMessage.conversation_id == cid)
+            .order_by(ChatMessage.created_at)
+        )
+        chat_msgs = list(msg_res.all())
+
+        inv_res = await session.exec(
+            select(Investigation)
+            .where(Investigation.conversation_id == cid)
+            .order_by(Investigation.created_at)
+        )
+        investigations = list(inv_res.all())
+
+    # Interleave chronologically. Each row carries a `mode` so the UI knows
+    # whether to render a ChatMessage component or an InvestigationStep view.
+    turns: List[TranscriptTurn] = []
+    for m in chat_msgs:
+        turns.append(TranscriptTurn(
+            mode="chat",
+            id=str(m.id),
+            role=m.role,
+            content=m.content,
+            chunk_ids=list(m.chunk_ids or []),
+            confidence=m.confidence,
+            created_at=m.created_at.isoformat(),
+        ))
+    for inv in investigations:
+        turns.append(TranscriptTurn(
+            mode="investigate",
+            id=str(inv.id),
+            content=inv.query,  # the user's prompt that started the investigation
+            confidence=None,
+            status=inv.status,
+            created_at=inv.created_at.isoformat(),
+        ))
+    turns.sort(key=lambda t: t.created_at)
+
+    return ConversationDetail(
+        id=str(conv.id),
+        title=conv.title,
+        created_at=conv.created_at.isoformat(),
+        updated_at=conv.updated_at.isoformat(),
+        turns=turns,
+    )
