@@ -343,15 +343,9 @@ function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete }: In
           <Badge variant="outline" className="ml-1 text-[10px]">
             {phase ?? (done ? "done" : "starting…")}
           </Badge>
-          <a
-            href={`/investigations/${investigationId}`}
-            className="ml-auto text-primary hover:underline"
-          >
-            Open full view →
-          </a>
         </div>
         {clarificationQuestion && (
-          <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs">
             Awaiting clarification: {clarificationQuestion}
           </div>
         )}
@@ -361,12 +355,14 @@ function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete }: In
           ))}
         </div>
         {answer && (
-          <div className="rounded-md border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 text-sm whitespace-pre-wrap">
-            {answer}
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm whitespace-pre-wrap">
+            {answer
+              .replace(/\s*\[chunk:[^\]]+\]/gi, "")
+              .replace(/\s*\[chunk_id:[^\]]+\]/gi, "")}
           </div>
         )}
         {error && (
-          <div className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
             {error}
           </div>
         )}

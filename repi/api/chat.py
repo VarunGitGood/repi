@@ -98,13 +98,17 @@ def _chat_confidence(chunks: list[dict], entities: list[str]) -> str:
 
 CHAT_SYSTEM_PROMPT = """\
 You answer the user's question using ONLY the log lines provided below.
-Be terse: the user is debugging; cite chunk_ids inline like [chunk:abc123]
-when you reference a specific line. Do NOT invent log content. If the
-provided lines do not answer the question, say so plainly — "the logs
-provided don't show that" is a valid answer.
+Be terse and human-readable: the user is debugging.
 
-CITATION RULE: you may only reference chunk_id values from the evidence
-block. Every assertion about what happened must cite at least one chunk_id.
+When you reference what happened, quote the relevant log line directly or
+describe it (e.g. "auth-svc retried 4 times before degrading to manual
+sync"). Do NOT include chunk_id values, hashes, or other internal
+identifiers in your answer — they are noise to the user. Stick to service
+names, timestamps, and the substance of the log lines.
+
+Do NOT invent log content. If the provided lines do not answer the
+question, say so plainly — "the logs provided don't show that" is a valid
+answer.
 """
 
 

@@ -18,7 +18,7 @@ export function Navbar() {
       <div className="container flex h-14 items-center max-w-7xl mx-auto px-4">
         <div className="mr-4 flex flex-1">
           <Link
-            href={isPublic ? "/repi/docs" : "/investigations"}
+            href={isPublic ? "/repi/docs" : "/"}
             className="mr-6 flex items-center space-x-2"
           >
             <Brand size={24} />
@@ -27,10 +27,10 @@ export function Navbar() {
           {!isPublic && (
             <nav className="flex items-center space-x-6 text-sm font-medium">
               <Link
-                href="/investigations"
+                href="/"
                 className="transition-colors hover:text-foreground/80 text-foreground"
               >
-                Investigations
+                Chat
               </Link>
               <Link
                 href="/config"
@@ -43,10 +43,10 @@ export function Navbar() {
         </div>
         {isPublic && !publicDeploy && (
           <Link
-            href="/investigations"
+            href="/"
             className={cn(buttonVariants({ size: "sm" }), "rounded-full")}
           >
-            Open Investigations
+            Open Chat
             <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
           </Link>
         )}
