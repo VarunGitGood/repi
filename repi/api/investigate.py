@@ -90,6 +90,7 @@ async def investigate(request: InvestigateRequest):
         # Lazy import — chat/conversations live alongside this module.
         from repi.models.schema import Conversation
         from sqlmodel import select as sm_select
+        from sqlalchemy import text as sa_text
 
         conversation_id = request.conversation_id
         if conversation_id is None:
@@ -108,6 +109,16 @@ async def investigate(request: InvestigateRequest):
 
         store = container.get_investigation_store(session)
         investigation = await store.get_or_create(request.query, conversation_id=conversation_id)
+
+        # Bump the conversation's updated_at so the sidebar surfaces the
+        # thread to the top even when activity is investigation-side rather
+        # than chat-side. Without this, running /investigate in an existing
+        # conversation doesn't refresh its position in the sidebar list.
+        await session.execute(
+            sa_text("UPDATE conversations SET updated_at = NOW() WHERE id = :cid"),
+            {"cid": conversation_id},
+        )
+        await session.commit()
 
     # /stream handles execution: replays from DB if done, runs the loop live if not.
     return SimpleInvestigationResponse(

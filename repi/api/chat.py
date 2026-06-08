@@ -177,7 +177,10 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                         "conversation_id": str(conversation_id),
                     })
                     # Persist a clarification turn so the transcript view
-                    # has something to render on reload.
+                    # has something to render on reload, AND bump
+                    # conversations.updated_at so the sidebar still floats
+                    # this thread to the top (otherwise a clarify-only turn
+                    # leaves the row stamped at user-message time only).
                     async with container.async_session_maker() as session:
                         session.add(ChatMessage(
                             conversation_id=conversation_id,
@@ -186,6 +189,10 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                             chunk_ids=[],
                             confidence="low",
                         ))
+                        await session.execute(
+                            sa_text("UPDATE conversations SET updated_at = NOW() WHERE id = :cid"),
+                            {"cid": conversation_id},
+                        )
                         await session.commit()
                     yield _sse("done", {
                         "chunk_ids": [],
