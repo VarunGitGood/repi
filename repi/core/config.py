@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     ENABLE_REFLECTION: bool = True
     REFLECTION_INTERVAL: int = 3
 
+    # Extra entity-detection regex patterns. Industry-standard IDs (UUID, W3C
+    # trace/span ids, ULID, Stripe/Twilio-style prefixed ids, AWS resource ids,
+    # git SHAs, hyphenated IDs containing a digit) are matched out of the box
+    # by `repi.intent.resolver`. Use this to add organisation-specific shapes
+    # (e.g. an HDFS shop adds r"\bblk_-?\d+\b"; a Stripe-internal logger adds
+    # r"\bach_[A-Za-z0-9]{16,}\b"). Each entry is compiled with re.IGNORECASE.
+    ENTITY_REGEX_EXTRA: List[str] = Field(default_factory=list)
+
     model_config = SettingsConfigDict(extra="ignore")
 
     @classmethod

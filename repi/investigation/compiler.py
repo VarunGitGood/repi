@@ -296,7 +296,10 @@ async def compile_answer(
         last_parsed = parsed
         is_valid, errors = validate_answer(parsed, evidence_ids)
         if is_valid:
-            adjusted, adjustments = enforce_floors(parsed, evidence)
+            adjusted, adjustments = enforce_floors(
+                parsed, evidence,
+                resolved_entities=list(getattr(resolved_intent, "entities", []) or []),
+            )
             return CompileResult(
                 answer=adjusted,
                 source="llm",
@@ -308,7 +311,10 @@ async def compile_answer(
         validation_errors = errors
 
     if last_parsed:
-        adjusted, adjustments = enforce_floors(last_parsed, evidence)
+        adjusted, adjustments = enforce_floors(
+            last_parsed, evidence,
+            resolved_entities=list(getattr(resolved_intent, "entities", []) or []),
+        )
         adjusted.setdefault("gaps", []).append(
             f"Compiler answer failed validation after {attempts_made} attempt(s): {validation_errors}"
         )
