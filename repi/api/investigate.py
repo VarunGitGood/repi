@@ -18,6 +18,10 @@ router = APIRouter()
 class InvestigateRequest(BaseModel):
     query: str
     resume: bool = True
+    # Optional thread back to a chat surface (A1/A2). If omitted, a new
+    # conversation row is created and its id returned so the UI can attach
+    # subsequent /chat turns to the same thread.
+    conversation_id: Optional[UUID] = None
 
 class InvestigationStepModel(BaseModel):
     step_number: int
@@ -45,6 +49,7 @@ class InvestigationResponse(BaseModel):
 class SimpleInvestigationResponse(BaseModel):
     id: str
     status: str
+    conversation_id: Optional[str] = None
 
 class ClarifyRequest(BaseModel):
     reply: str
@@ -73,17 +78,42 @@ async def list_investigations(limit: int = 20):
 async def investigate(request: InvestigateRequest):
     """
     Start an autonomous log investigation (non-blocking).
+
+    `conversation_id` threads this investigation back to a chat surface for the
+    transcript view. If omitted, a new conversation is created and returned.
+    /investigate itself is stateless w.r.t. prior chat turns (Deep Research
+    model) — the link is purely for UI threading.
     """
     container = get_container()
     container.require_llm()  # 409 up front if no API key has been configured yet.
     async with container.get_session() as session:
+        # Lazy import — chat/conversations live alongside this module.
+        from repi.models.schema import Conversation
+        from sqlmodel import select as sm_select
+
+        conversation_id = request.conversation_id
+        if conversation_id is None:
+            conv = Conversation(title=request.query[:80])
+            session.add(conv)
+            await session.commit()
+            await session.refresh(conv)
+            conversation_id = conv.id
+        else:
+            # Validate it exists; if not, materialise with the caller's id.
+            stmt = sm_select(Conversation).where(Conversation.id == conversation_id)
+            res = await session.exec(stmt)
+            if res.first() is None:
+                session.add(Conversation(id=conversation_id, title=request.query[:80]))
+                await session.commit()
+
         store = container.get_investigation_store(session)
-        investigation = await store.get_or_create(request.query)
+        investigation = await store.get_or_create(request.query, conversation_id=conversation_id)
 
     # /stream handles execution: replays from DB if done, runs the loop live if not.
     return SimpleInvestigationResponse(
         id=str(investigation.id),
-        status=investigation.status
+        status=investigation.status,
+        conversation_id=str(conversation_id),
     )
 
 @router.post("/investigations/{investigation_id}/clarify", response_model=SimpleInvestigationResponse)

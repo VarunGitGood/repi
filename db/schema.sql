@@ -32,6 +32,31 @@ CREATE INDEX IF NOT EXISTS log_chunks_timestamp_idx      ON log_chunks (timestam
 -- a corpus that grows with every ingest.
 CREATE INDEX IF NOT EXISTS log_chunks_text_trgm_idx       ON log_chunks USING gin (text gin_trgm_ops);
 
+-- Conversations: chat-first surface (A1/A2). One conversation interleaves
+-- /chat turns and /investigate runs, threaded by conversation_id. /investigate
+-- is intentionally stateless w.r.t. prior chat history (Deep Research model);
+-- the FK is only there so the UI can render an interleaved transcript.
+CREATE TABLE IF NOT EXISTS conversations (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title      TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS conversations_updated_at_idx ON conversations (updated_at DESC);
+
+-- Chat messages: one row per user/assistant turn in /chat. `chunk_ids` carries
+-- the citations the assistant referenced for that turn (empty for user turns).
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    role            TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    chunk_ids       TEXT[] NOT NULL DEFAULT '{}',
+    confidence      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS chat_messages_conv_idx ON chat_messages (conversation_id, created_at);
+
 -- Investigations: ReAct loop sessions
 CREATE TABLE IF NOT EXISTS investigations (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -44,11 +69,17 @@ CREATE TABLE IF NOT EXISTS investigations (
     services_seen      JSONB NOT NULL DEFAULT '[]',
     total_llm_calls    INT NOT NULL DEFAULT 0,
     answer             TEXT,
-    pending_question   TEXT
+    pending_question   TEXT,
+    conversation_id    UUID REFERENCES conversations(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS investigations_status_idx     ON investigations (status);
 CREATE INDEX IF NOT EXISTS investigations_created_at_idx ON investigations (created_at DESC);
+CREATE INDEX IF NOT EXISTS investigations_conv_idx       ON investigations (conversation_id, created_at);
+
+-- Idempotent add for older DBs that pre-date the chat surface.
+ALTER TABLE investigations
+    ADD COLUMN IF NOT EXISTS conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL;
 
 -- Investigation steps: individual ReAct thought → action → observation records
 CREATE TABLE IF NOT EXISTS investigation_steps (
