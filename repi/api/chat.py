@@ -42,6 +42,7 @@ from repi.investigation.tools import find_logs_by_id
 from repi.llm.provider import Message
 from repi.models.filters import RetrievalFilters
 from repi.models.schema import ChatMessage, Conversation
+from repi.retrieval.cluster_view import cluster_chunks
 
 logger = logging.getLogger("repi.api.chat")
 
@@ -318,11 +319,29 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 )
                 await session.commit()
 
+            # Event clusters across the retrieved top-K. Singletons are
+            # dropped (they're already in the per-turn timeline); the panel
+            # gives the user the "1842x JWT failures, 347x DB timeouts"
+            # compression rather than a raw chunk list. Caveat the UI must
+            # carry: this is *per-turn* over the retrieved chunks, not a
+            # corpus-wide aggregate.
+            clusters = [
+                {
+                    "signature": v.signature,
+                    "count": v.count,
+                    "services": v.services,
+                    "first_ts": v.first_ts,
+                    "last_ts": v.last_ts,
+                }
+                for v in cluster_chunks(chunks)
+            ]
+
             yield _sse("done", {
                 "chunk_ids": cited_ids,
                 "confidence": confidence,
                 "conversation_id": str(conversation_id),
                 "entities": entities,
+                "clusters": clusters,
             })
 
         except Exception as e:
