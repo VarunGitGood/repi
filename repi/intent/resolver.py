@@ -34,7 +34,97 @@ class ResolvedIntent:
     time_to: datetime | None
     services: list[str] = field(default_factory=list)
     symptoms: list[str] = field(default_factory=list)
+    entities: list[str] = field(default_factory=list)
     assumed: list[str] = field(default_factory=list)
+
+
+# Entity regex layer — industry-standard ID shapes. Patterns run in priority
+# order (longer/more-specific first); overlapping spans are claimed by the
+# first match, so a UUID isn't re-emitted as 6 hex fragments. Every pattern
+# here is a recognised production ID class; org-specific shapes (HDFS
+# `blk_…`, custom `tenant:…` schemes, etc.) go in Settings.ENTITY_REGEX_EXTRA
+# rather than being baked in here.
+DEFAULT_ENTITY_PATTERNS: list[str] = [
+    # RFC 4122 UUID
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+    # AWS ARN
+    r"\barn:aws:[\w-]+:[\w-]*:\d{12}:[\w/.:_-]+\b",
+    # AWS resource ID (i-…, vol-…, sg-…, ami-…, snap-…, vpc-…, subnet-…, eni-…, rtb-…)
+    r"\b(?:i|vol|sg|ami|snap|vpc|subnet|eni|rtb)-[0-9a-f]{8,17}\b",
+    # ULID (Crockford base32, 26 chars). No L/I/O/U.
+    r"\b[0-9A-HJKMNP-TV-Z]{26}\b",
+    # W3C TraceContext trace-id (exactly 32 lowercase hex)
+    r"\b[0-9a-f]{32}\b",
+    # W3C TraceContext span-id (exactly 16 lowercase hex)
+    r"\b[0-9a-f]{16}\b",
+    # Stripe / Twilio / Auth0 style prefixed ID: 2–8 letter prefix + underscore
+    # + 6+ alphanumeric body. Matches ch_xxx, pi_xxx, cus_xxx, req_xxx, evt_xxx,
+    # whsec_xxx, and most internal prefix conventions.
+    r"\b[a-z]{2,8}_[A-Za-z0-9]{6,}\b",
+    # Git commit SHA-like (7–40 hex, MUST contain at least one a–f so epoch
+    # timestamps like 1717000000 don't get captured).
+    r"\b(?=[0-9a-f]{7,40}\b)[0-9a-f]*[a-f][0-9a-f]*\b",
+    # Hyphenated identifier containing at least one digit. Catches order-12345,
+    # k8s pod names like nginx-7d4b8c-xyz12, build IDs like rel-2024-06-10.
+    # Excludes English compounds (post-mortem, self-service) which have no digit.
+    r"\b[A-Za-z][\w]*-[\w.-]*\d[\w.-]*\b",
+]
+
+
+def _compile_patterns(extra: list[str] | None = None) -> list[re.Pattern]:
+    """Compile defaults + user-supplied entity patterns, case-insensitive.
+
+    `extra` comes from `settings.ENTITY_REGEX_EXTRA` at call time so a hot-
+    reloaded config picks up new patterns without restart. Invalid regexes
+    are warned about and skipped, not raised.
+    """
+    patterns = list(DEFAULT_ENTITY_PATTERNS)
+    for p in (extra or []):
+        try:
+            re.compile(p)
+        except re.error:
+            logger.warning("ENTITY_REGEX_EXTRA pattern %r is not a valid regex — skipping", p)
+            continue
+        patterns.append(p)
+    return [re.compile(p, re.IGNORECASE) for p in patterns]
+
+
+def _extract_entities(
+    query: str,
+    known_services: list[str],
+    extra_patterns: list[str] | None = None,
+) -> list[str]:
+    """Pull ID-like tokens from the raw (case-preserved) query.
+
+    Defaults cover industry-standard ID shapes: UUID, AWS ARN/resource IDs,
+    ULID, W3C trace/span IDs, Stripe-style prefixed IDs, git SHAs, and
+    hyphenated IDs with at least one digit. `extra_patterns` lets each
+    deployment add its own shapes (e.g. an HDFS shop adds
+    r"\\bblk_-?\\d+\\b" via `ENTITY_REGEX_EXTRA`).
+
+    Matches deduped case-insensitively; spans claimed by an earlier
+    (more-specific) pattern aren't re-matched by later (more-general) ones;
+    `known_services` are stripped so `cart-svc` doesn't double-count.
+    """
+    known_lower = {s.lower() for s in known_services}
+    compiled = _compile_patterns(extra_patterns)
+    seen: set[str] = set()
+    claimed: list[tuple[int, int]] = []
+    out: list[str] = []
+    for pat in compiled:
+        for m in pat.finditer(query):
+            start, end = m.span()
+            if any(s < end and start < e for s, e in claimed):
+                continue
+            token = m.group(0)
+            key = token.lower()
+            if key in seen or key in known_lower:
+                claimed.append((start, end))
+                continue
+            seen.add(key)
+            claimed.append((start, end))
+            out.append(token)
+    return out
 
 
 @dataclass
@@ -79,7 +169,6 @@ def resolve(
     time_from: datetime | None = None
     time_to: datetime | None = None
     assumed: list[str] = []
-    missing_dims: list[str] = []
 
     # ── Time parsing ──────────────────────────────────────────────────────────
 
@@ -211,7 +300,10 @@ def resolve(
             day_midnight = _most_recent_weekday(dow, now_local, force_last_week=force_last)
 
             if ambiguous_weekday and now_local.weekday() == dow:
-                missing_dims.append("time")
+                # "thursday" said on a Thursday with no "last"/"this" — genuinely
+                # ambiguous which Thursday. Leave time unset; the gate decides
+                # whether to clarify based on whether other dims rescue us.
+                pass
             else:
                 if pod:
                     start_h, end_h = PARTS_OF_DAY[pod]
@@ -278,34 +370,44 @@ def resolve(
                     found_services.append(svc)
                 break
 
-    # Check for unrecognized service-like words
-    svc_like = re.findall(r"\b\w+(?:-\w+)+\b|\b\w+svc\b|\b\w+service\b|\b\w+api\b", q)
-    for word in svc_like:
-        if not any(_levenshtein(word, s.lower()) <= 2 for s in known_services):
-            if "service" not in missing_dims:
-                missing_dims.append("service")
-
     if not found_services:
         assumed.append("no service named in query — searching all known services")
 
     # ── Symptom extraction ────────────────────────────────────────────────────
     found_symptoms = [kw for kw in SYMPTOM_VOCAB if kw in q]
 
+    # ── Entity extraction ─────────────────────────────────────────────────────
+    # Run against the *original* (case-preserved) query so hex/UUID matching
+    # is faithful. Settings are imported lazily to avoid an import cycle and
+    # to let tests pass `extra_patterns` directly without touching the global.
+    extra_patterns: list[str] = []
+    try:
+        from repi.core.config import settings  # local import — avoids cycle at module load
+        extra_patterns = list(getattr(settings, "ENTITY_REGEX_EXTRA", []) or [])
+    except Exception:
+        # Settings unavailable (e.g. in a unit test): fall back to defaults only.
+        pass
+    found_entities = _extract_entities(query, known_services, extra_patterns=extra_patterns)
+
     # ── Ambiguity check ───────────────────────────────────────────────────────
-    if time_from is None and "time" not in missing_dims:
-        if not found_symptoms:
-            missing_dims.append("time")
+    # New contract: clarify ONLY when all three of {id, service, time} are
+    # missing. Symptoms (5xx, timeout, etc.) do not satisfy the gate.
+    # The internal "ambiguous_weekday" branch above may still flag time as
+    # missing — honour that only if no entity/service rescues us.
+    if time_from is None and not found_services and not found_entities:
+        return ClarificationNeeded(
+            question=(
+                "I need at least one of: an identifier (a request ID, trace ID, "
+                "customer ID, or any unique token), a service name, or a time "
+                "window (e.g. 'last 2 hours'). Which do you have?"
+            ),
+            missing_dims=["id_or_service_or_time"],
+        )
 
-    if missing_dims:
-        question = _build_question(missing_dims, known_services)
-        return ClarificationNeeded(question=question, missing_dims=missing_dims)
+    # Time may legitimately remain None. Downstream (react_loop + tools) handles
+    # the unbounded-window case explicitly — no silent default-to-last-1-hour.
 
-    if time_from is None:
-        time_from = dh.local_to_utc(now_local - timedelta(hours=1))
-        time_to = dh.local_to_utc(now_local)
-        assumed.append("no time specified — defaulting to last 1 hour")
-
-    if time_to is None:
+    if time_from is not None and time_to is None:
         time_to = dh.local_to_utc(now_local)
 
     return ResolvedIntent(
@@ -313,22 +415,8 @@ def resolve(
         time_to=time_to,
         services=found_services,
         symptoms=found_symptoms,
+        entities=found_entities,
         assumed=assumed,
     )
 
 
-def _build_question(missing_dims: list[str], known_services: list[str]) -> str:
-    parts: list[str] = []
-    if "time" in missing_dims:
-        parts.append(
-            "when did this happen? "
-            "(e.g. 'last Friday evening around 10pm', 'yesterday morning', 'last 2 hours')"
-        )
-    if "service" in missing_dims and known_services:
-        svc_list = ", ".join(known_services)
-        parts.append(f"which service are you asking about? Known services: {svc_list}")
-
-    if len(parts) == 1:
-        return "Could you clarify: " + parts[0]
-    items = "\n".join(f"- {p}" for p in parts)
-    return f"A couple of quick questions before I start:\n{items}"

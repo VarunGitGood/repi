@@ -16,7 +16,7 @@ from repi.retrieval.query_expander import QueryExpander
 from repi.investigation.react_loop import ReactInvestigationLoop
 from repi.investigation.store import InvestigationStore
 from repi.investigation.tools import (
-    search_logs, get_timeline, scan_window, get_service_summary, get_all_services
+    search_logs, get_timeline, scan_window, get_service_summary, get_all_services, find_logs_by_id
 )
 from repi.embeddings import Embedder, create_embedder
 import asyncpg
@@ -175,11 +175,20 @@ class Container:
             await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
             return res
 
+        async def cached_find_logs_by_id(**kwargs):
+            key = cache.make_key("find_logs_by_id", **kwargs)
+            hit = await cache.get(key)
+            if hit: return hit
+            res = await find_logs_by_id(self.pool, **kwargs)
+            await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
+            return res
+
         tools = {
             "search_logs": cached_search_logs,
             "get_timeline": lambda **kwargs: get_timeline(self.pool, **kwargs),
             "scan_window": cached_scan_window,
             "get_service_summary": cached_service_summary,
+            "find_logs_by_id": cached_find_logs_by_id,
         }
         
         return ReactInvestigationLoop(

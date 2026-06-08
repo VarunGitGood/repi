@@ -280,6 +280,41 @@ async def scan_window(
         "total": len(logs),
     }
 
+async def find_logs_by_id(
+    pool: asyncpg.Pool,
+    entity: str,
+    top_k: int = 50,
+) -> list[dict]:
+    """Substring match a literal ID against `log_chunks.text`.
+
+    Use this when the user mentions a specific token (block id, request id,
+    hash, hyphenated identifier, UUID). Semantic search is unreliable for
+    literal IDs — pgvector won't surface a chunk just because it contains
+    one specific string. ILIKE goes against the pg_trgm GIN index for sub-
+    linear lookup.
+    """
+    if not entity or not entity.strip():
+        return []
+    rows = await pool.fetch(
+        """
+        SELECT chunk_id, source_service, log_level, timestamp_start, text
+        FROM log_chunks
+        WHERE text ILIKE '%' || $1 || '%'
+        ORDER BY timestamp_start DESC
+        LIMIT $2
+        """,
+        entity.strip(),
+        top_k,
+    )
+    return [{
+        "chunk_id": str(r["chunk_id"]),
+        "service": r["source_service"],
+        "level": r["log_level"],
+        "timestamp_start": DateHandler.to_iso(r["timestamp_start"]),
+        "text": r["text"],
+    } for r in rows]
+
+
 async def get_service_summary(
     pool: asyncpg.Pool,
     service: str,
@@ -377,6 +412,18 @@ TOOL_SCHEMAS = {
             "service": "string (required)",
             "time_from": "ISO8601 string | null",
             "time_to": "ISO8601 string | null"
+        }
+    },
+    "find_logs_by_id": {
+        "description": (
+            "Substring match a literal ID/token against log_chunks.text. "
+            "Use this FIRST when the query mentions an entity ID (block id, "
+            "request id, hash, UUID, hyphenated identifier) — semantic search "
+            "will often miss specific tokens. Returns chunks ordered most-recent first."
+        ),
+        "args": {
+            "entity": "string (required) — the literal ID/token to search for",
+            "top_k": "int (default 50)",
         }
     },
     "submit_answer": {
