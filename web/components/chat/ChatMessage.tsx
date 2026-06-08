@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { AlertTriangle, Sparkles, User } from "lucide-react"
+import { EventClusters, type Cluster } from "@/components/chat/EventClusters"
 
 export type ChatMessageProps = {
   role: "user" | "assistant"
@@ -11,6 +12,7 @@ export type ChatMessageProps = {
   confidence?: "low" | "medium" | "high" | null
   isClarification?: boolean
   streaming?: boolean
+  clusters?: Cluster[]
 }
 
 // Strip raw chunk citations the LLM may still inline despite the system
@@ -31,6 +33,7 @@ export function ChatMessageView({
   confidence,
   isClarification,
   streaming,
+  clusters,
 }: ChatMessageProps) {
   const isUser = role === "user"
   const displayed = isUser ? content : cleanContent(content)
@@ -64,6 +67,9 @@ export function ChatMessageView({
               confidence: {confidence}
             </Badge>
           </div>
+        )}
+        {!isUser && clusters && clusters.length > 0 && (
+          <EventClusters clusters={clusters} />
         )}
       </div>
       {isUser && (
