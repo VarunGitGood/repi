@@ -826,10 +826,12 @@ investigation will not change the answer), signal exit by calling
 {{ "thought": "...", "action": {{ "tool": "done_gathering", "args": {{ "reason": "..." }} }} }}
 
 GATHERING PRINCIPLES:
-1. ENTITY FIRST. If the query mentions an entity ID (block id, request id,
-   hash, UUID, hyphenated identifier), call `find_logs_by_id` on the FIRST
-   action turn. Semantic + FTS retrieval will often miss specific tokens
-   because the English tokenizer fragments them.
+1. ENTITY FIRST. If the query mentions a literal identifier (UUID, W3C trace
+   or span id, ULID, a prefixed ID like ch_xxx / pi_xxx / cus_xxx, an AWS
+   resource id like i-0abc…, a git SHA, or any other unique token), call
+   `find_logs_by_id` on the FIRST action turn. Semantic + FTS retrieval
+   will often miss specific tokens because the English tokenizer fragments
+   them and embeddings don't preserve literal token identity.
 2. ALWAYS correlate logs cross-service. `scan_window` is usually the right
    first call when investigating a TIME WINDOW (no entity in play) — it
    returns ERRORS plus pre-context for each service that emitted them.
