@@ -34,7 +34,50 @@ class ResolvedIntent:
     time_to: datetime | None
     services: list[str] = field(default_factory=list)
     symptoms: list[str] = field(default_factory=list)
+    entities: list[str] = field(default_factory=list)
     assumed: list[str] = field(default_factory=list)
+
+
+# Entity regex layer. Order matters: longer/more-specific patterns first so
+# (e.g.) a UUID match isn't shadowed by the generic hex-hash one.
+ENTITY_PATTERNS = [
+    re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE),
+    re.compile(r"\bblk_-?\d+\b", re.IGNORECASE),
+    re.compile(r"\breq_[\w-]+\b", re.IGNORECASE),
+    re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE),
+    re.compile(r"\b[A-Za-z][\w]*(?:-[\w.]+){1,}\b"),
+]
+
+
+def _extract_entities(query: str, known_services: list[str]) -> list[str]:
+    """Pull ID-like tokens from the raw (case-preserved) query.
+
+    Patterns run in priority order (longer/more-specific first). Spans claimed
+    by an earlier pattern are not re-matched by later ones, so the trailing
+    digits of `blk_-1608…` aren't re-emitted as a hex hash and the segments of
+    a UUID aren't re-emitted as separate hex tokens.
+
+    Matches are deduped (case-insensitive) and stripped against `known_services`
+    so a known service name like 'cart-svc' isn't double-counted as an entity.
+    """
+    known_lower = {s.lower() for s in known_services}
+    seen: set[str] = set()
+    claimed: list[tuple[int, int]] = []
+    out: list[str] = []
+    for pat in ENTITY_PATTERNS:
+        for m in pat.finditer(query):
+            start, end = m.span()
+            if any(s < end and start < e for s, e in claimed):
+                continue
+            token = m.group(0)
+            key = token.lower()
+            if key in seen or key in known_lower:
+                claimed.append((start, end))
+                continue
+            seen.add(key)
+            claimed.append((start, end))
+            out.append(token)
+    return out
 
 
 @dataclass
@@ -79,7 +122,6 @@ def resolve(
     time_from: datetime | None = None
     time_to: datetime | None = None
     assumed: list[str] = []
-    missing_dims: list[str] = []
 
     # ── Time parsing ──────────────────────────────────────────────────────────
 
@@ -211,7 +253,10 @@ def resolve(
             day_midnight = _most_recent_weekday(dow, now_local, force_last_week=force_last)
 
             if ambiguous_weekday and now_local.weekday() == dow:
-                missing_dims.append("time")
+                # "thursday" said on a Thursday with no "last"/"this" — genuinely
+                # ambiguous which Thursday. Leave time unset; the gate decides
+                # whether to clarify based on whether other dims rescue us.
+                pass
             else:
                 if pod:
                     start_h, end_h = PARTS_OF_DAY[pod]
@@ -278,34 +323,35 @@ def resolve(
                     found_services.append(svc)
                 break
 
-    # Check for unrecognized service-like words
-    svc_like = re.findall(r"\b\w+(?:-\w+)+\b|\b\w+svc\b|\b\w+service\b|\b\w+api\b", q)
-    for word in svc_like:
-        if not any(_levenshtein(word, s.lower()) <= 2 for s in known_services):
-            if "service" not in missing_dims:
-                missing_dims.append("service")
-
     if not found_services:
         assumed.append("no service named in query — searching all known services")
 
     # ── Symptom extraction ────────────────────────────────────────────────────
     found_symptoms = [kw for kw in SYMPTOM_VOCAB if kw in q]
 
+    # ── Entity extraction ─────────────────────────────────────────────────────
+    # Run against the *original* (case-preserved) query so hex/UUID matching
+    # is faithful. The function lower-cases internally for dedup.
+    found_entities = _extract_entities(query, known_services)
+
     # ── Ambiguity check ───────────────────────────────────────────────────────
-    if time_from is None and "time" not in missing_dims:
-        if not found_symptoms:
-            missing_dims.append("time")
+    # New contract: clarify ONLY when all three of {id, service, time} are
+    # missing. Symptoms (5xx, timeout, etc.) do not satisfy the gate.
+    # The internal "ambiguous_weekday" branch above may still flag time as
+    # missing — honour that only if no entity/service rescues us.
+    if time_from is None and not found_services and not found_entities:
+        return ClarificationNeeded(
+            question=(
+                "I need at least one of: an ID (e.g. blk_42, req_abc), a service name, "
+                "or a time window (e.g. 'last 2 hours'). Which do you have?"
+            ),
+            missing_dims=["id_or_service_or_time"],
+        )
 
-    if missing_dims:
-        question = _build_question(missing_dims, known_services)
-        return ClarificationNeeded(question=question, missing_dims=missing_dims)
+    # Time may legitimately remain None. Downstream (react_loop + tools) handles
+    # the unbounded-window case explicitly — no silent default-to-last-1-hour.
 
-    if time_from is None:
-        time_from = dh.local_to_utc(now_local - timedelta(hours=1))
-        time_to = dh.local_to_utc(now_local)
-        assumed.append("no time specified — defaulting to last 1 hour")
-
-    if time_to is None:
+    if time_from is not None and time_to is None:
         time_to = dh.local_to_utc(now_local)
 
     return ResolvedIntent(
@@ -313,22 +359,8 @@ def resolve(
         time_to=time_to,
         services=found_services,
         symptoms=found_symptoms,
+        entities=found_entities,
         assumed=assumed,
     )
 
 
-def _build_question(missing_dims: list[str], known_services: list[str]) -> str:
-    parts: list[str] = []
-    if "time" in missing_dims:
-        parts.append(
-            "when did this happen? "
-            "(e.g. 'last Friday evening around 10pm', 'yesterday morning', 'last 2 hours')"
-        )
-    if "service" in missing_dims and known_services:
-        svc_list = ", ".join(known_services)
-        parts.append(f"which service are you asking about? Known services: {svc_list}")
-
-    if len(parts) == 1:
-        return "Could you clarify: " + parts[0]
-    items = "\n".join(f"- {p}" for p in parts)
-    return f"A couple of quick questions before I start:\n{items}"
