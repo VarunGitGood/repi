@@ -306,18 +306,39 @@ class ReactInvestigationLoop:
         ]
 
         if resolved_intent and self.pool and (not existing_steps or post_clarification):
-            sweep_results = await auto_sweep(
-                pool=self.pool,
-                time_from=resolved_intent.time_from,
-                time_to=resolved_intent.time_to,
-                exclude_services=[]
-            )
+            if resolved_intent.time_from is None:
+                # No time window — auto_sweep would query the entire corpus and
+                # drown the LLM in unrelated noise. Inject an entity/service-keyed
+                # priming message instead and let the LLM pick its first tool.
+                priming_lines = ["RAG CONTEXT:"]
+                priming_lines.append(
+                    f"- entities mentioned: {resolved_intent.entities or 'none'}"
+                )
+                priming_lines.append(
+                    f"- services mentioned: {resolved_intent.services or 'none'}"
+                )
+                priming_lines.append(
+                    "- no time window — use find_logs_by_id (for entities) "
+                    "or search_logs with null time_from/time_to (for services)."
+                )
+                if resolved_intent.assumed:
+                    priming_lines.append("")
+                    priming_lines.append("ASSUMPTIONS:")
+                    priming_lines.extend(f"- {a}" for a in resolved_intent.assumed)
+                messages.append(Message(role="user", content="\n".join(priming_lines)))
+            else:
+                sweep_results = await auto_sweep(
+                    pool=self.pool,
+                    time_from=resolved_intent.time_from,
+                    time_to=resolved_intent.time_to,
+                    exclude_services=[]
+                )
 
-            sweep_msg = f"SWEEP CONTEXT:\n{json.dumps(sweep_results, indent=2)}\n\n"
-            if resolved_intent.assumed:
-                sweep_msg += "ASSUMPTIONS:\n" + "\n".join(f"- {a}" for a in resolved_intent.assumed) + "\n"
-            
-            messages.append(Message(role="user", content=sweep_msg))
+                sweep_msg = f"SWEEP CONTEXT:\n{json.dumps(sweep_results, indent=2)}\n\n"
+                if resolved_intent.assumed:
+                    sweep_msg += "ASSUMPTIONS:\n" + "\n".join(f"- {a}" for a in resolved_intent.assumed) + "\n"
+
+                messages.append(Message(role="user", content=sweep_msg))
             
         processed_steps = []
         start_at_iteration = 0
@@ -805,17 +826,24 @@ investigation will not change the answer), signal exit by calling
 {{ "thought": "...", "action": {{ "tool": "done_gathering", "args": {{ "reason": "..." }} }} }}
 
 GATHERING PRINCIPLES:
-1. ALWAYS correlate logs cross-service. `scan_window` is usually the right
-   first call for a new window — it returns ERRORS plus pre-context for
-   each service that emitted them.
-2. Don't repeat tool calls with identical arguments — the dispatcher
+1. ENTITY FIRST. If the query mentions an entity ID (block id, request id,
+   hash, UUID, hyphenated identifier), call `find_logs_by_id` on the FIRST
+   action turn. Semantic + FTS retrieval will often miss specific tokens
+   because the English tokenizer fragments them.
+2. ALWAYS correlate logs cross-service. `scan_window` is usually the right
+   first call when investigating a TIME WINDOW (no entity in play) — it
+   returns ERRORS plus pre-context for each service that emitted them.
+3. Don't repeat tool calls with identical arguments — the dispatcher
    dedupes them, but you still waste a turn.
-3. If a tool call returns nothing useful, vary the arguments (different
+4. If a tool call returns nothing useful, vary the arguments (different
    service, wider window, different level filter) before giving up on
    that line of inquiry.
-4. If two consecutive tool calls return no new evidence, call
+5. If two consecutive tool calls return no new evidence, call
    `done_gathering` — there is no value in spamming the dispatcher.
-5. Do NOT emit a "Final Answer:" prefix or fill in any
+6. When NO time window was provided, do NOT pass time_from/time_to to
+   `search_logs`/`scan_window`; rely on `find_logs_by_id` and unbounded
+   searches keyed off the entity/service signal you do have.
+7. Do NOT emit a "Final Answer:" prefix or fill in any
    InvestigationAnswer schema. The compile step will produce that.
 
 Current UTC: {_dh.to_iso(_dh.now())}

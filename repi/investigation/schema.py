@@ -54,7 +54,11 @@ def _cited_chunk_ids(answer_dict: dict) -> set[str]:
     return cited
 
 
-def enforce_floors(answer_dict: dict, evidence: list[dict]) -> tuple[dict, list[str]]:
+def enforce_floors(
+    answer_dict: dict,
+    evidence: list[dict],
+    resolved_entities: list[str] | None = None,
+) -> tuple[dict, list[str]]:
     """Apply confidence floors and consistency checks server-side.
 
     Returns (adjusted_answer, list_of_adjustment_notes). The adjusted answer
@@ -65,6 +69,10 @@ def enforce_floors(answer_dict: dict, evidence: list[dict]) -> tuple[dict, list[
       - confidence='high' with <2 distinct cited chunk_ids → downgrade to 'medium'
       - confidence != 'low' with empty gaps → downgrade to 'low'
       - affected_services contains a service never seen in evidence → downgrade one notch
+      - 0 evidence chunks → force 'low' (A4 soft-fail floor)
+      - any resolved entity present in the query but absent from every chunk's
+        text → force 'low' (A4 soft-fail floor; the entity was the user's anchor
+        and we never literally surfaced it)
     """
     notes: list[str] = []
 
@@ -73,6 +81,34 @@ def enforce_floors(answer_dict: dict, evidence: list[dict]) -> tuple[dict, list[
         answer_dict["confidence"] = "low"
         notes.append(f"confidence was {confidence!r}; coerced to 'low'")
         confidence = "low"
+
+    # A4 soft-fail floors — deterministic, run BEFORE the citation-count rules so
+    # the empty-evidence path doesn't get a free pass from the "high needs ≥2 citations"
+    # branch (which is silent when there are no citations to count).
+    if not evidence:
+        if confidence != "low":
+            answer_dict["confidence"] = "low"
+            gap_msg = "forced low: no evidence chunks were retrieved"
+            answer_dict.setdefault("gaps", []).append(gap_msg)
+            notes.append(gap_msg)
+            confidence = "low"
+
+    if resolved_entities and evidence:
+        joined = " ".join(
+            str(c.get("message") or c.get("text") or "") for c in evidence
+        ).lower()
+        missing = [e for e in resolved_entities if e.lower() not in joined]
+        if missing and len(missing) == len(resolved_entities):
+            # None of the user's anchor IDs literally appear in the gathered text.
+            if confidence != "low":
+                answer_dict["confidence"] = "low"
+                gap_msg = (
+                    f"forced low: resolved entities {missing!r} were the query anchor "
+                    "but no evidence chunk literally contains any of them"
+                )
+                answer_dict.setdefault("gaps", []).append(gap_msg)
+                notes.append(gap_msg)
+                confidence = "low"
 
     cited = _cited_chunk_ids(answer_dict)
     if confidence == "high" and len(cited) < 2:
