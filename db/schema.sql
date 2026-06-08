@@ -2,6 +2,7 @@
 -- All statements are idempotent; safe to run on every startup.
 
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Log chunks: core ingestion table
 CREATE TABLE IF NOT EXISTS log_chunks (
@@ -26,6 +27,10 @@ CREATE INDEX IF NOT EXISTS log_chunks_fts_idx            ON log_chunks USING gin
 CREATE INDEX IF NOT EXISTS log_chunks_source_service_idx ON log_chunks (source_service);
 CREATE INDEX IF NOT EXISTS log_chunks_log_level_idx      ON log_chunks (log_level);
 CREATE INDEX IF NOT EXISTS log_chunks_timestamp_idx      ON log_chunks (timestamp_start);
+-- pg_trgm GIN index on text — backs find_logs_by_id's ILIKE substring lookup.
+-- Without it, ILIKE is a sequential scan; with it, sub-linear lookup against
+-- a corpus that grows with every ingest.
+CREATE INDEX IF NOT EXISTS log_chunks_text_trgm_idx       ON log_chunks USING gin (text gin_trgm_ops);
 
 -- Investigations: ReAct loop sessions
 CREATE TABLE IF NOT EXISTS investigations (
