@@ -47,6 +47,36 @@ class LogChunk(SQLModel, table=True):
     embedding: Optional[List[float]] = Field(default=None, sa_column=Column(Vector(384)))
     log_metadata: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSONB))
 
+class Conversation(SQLModel, table=True):
+    __tablename__ = "conversations"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    title: Optional[str] = Field(default=None, sa_column=Column(TEXT))
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class ChatMessage(SQLModel, table=True):
+    __tablename__ = "chat_messages"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    conversation_id: UUID = Field(index=True)
+    role: str = Field(sa_column=Column(TEXT, nullable=False))  # "user" | "assistant"
+    content: str = Field(sa_column=Column(TEXT, nullable=False))
+    chunk_ids: List[str] = Field(default_factory=list, sa_column=Column(ARRAY(String)))
+    confidence: Optional[str] = Field(default=None)
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class Investigation(SQLModel, table=True):
     __tablename__ = "investigations"
 
@@ -62,6 +92,10 @@ class Investigation(SQLModel, table=True):
     answer: Optional[str] = Field(default=None, sa_column=Column(TEXT))
     # Valid statuses: "started", "running", "completed", "failed", "awaiting_clarification"
     pending_question: Optional[str] = Field(default=None, nullable=True)
+    # A1/A2: optional thread back to a chat conversation, so the UI can render
+    # an interleaved transcript. Not read by the ReAct loop — Deep Research is
+    # intentionally stateless w.r.t. prior chat turns.
+    conversation_id: Optional[UUID] = Field(default=None, index=True)
 
 class InvestigationStep(SQLModel, table=True):
     __tablename__ = "investigation_steps"
