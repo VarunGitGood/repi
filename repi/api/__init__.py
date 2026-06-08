@@ -9,6 +9,8 @@ from repi.api.ingest import router as ingest_router
 from repi.api.investigate import router as investigate_router
 from repi.api.watchers import router as watchers_router
 from repi.api.config import router as config_router
+from repi.api.chat import router as chat_router
+from repi.api.conversations import router as conversations_router
 
 logger = logging.getLogger("repi.api")
 
@@ -40,6 +42,8 @@ app.include_router(ingest_router, tags=["ingest"])
 app.include_router(investigate_router, tags=["investigate"])
 app.include_router(watchers_router, tags=["watchers"])
 app.include_router(config_router, tags=["config"])
+app.include_router(chat_router, tags=["chat"])
+app.include_router(conversations_router, tags=["conversations"])
 
 
 @app.get("/health", tags=["health"])
