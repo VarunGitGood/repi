@@ -38,6 +38,14 @@ def expand_query_static(query: str) -> List[str]:
             
     return variants[:4]
 
+MAX_VARIANTS = 3
+"""Total cap on the variant list (including the original). Each variant
+doubles RRF fan-out — one vector + one FTS query per leg, per variant — so
+the cap directly bounds /chat latency. Three is the smallest number that
+still gives the static dictionary room to inject one synonym AND the LLM
+room to inject one rephrasing on top of the original."""
+
+
 class QueryExpander:
     def __init__(self, llm: Optional[LLMProvider] = None) -> None:
         self.llm = llm
@@ -45,7 +53,7 @@ class QueryExpander:
     async def expand(self, query: str) -> List[str]:
         # Always run static expansion
         variants = expand_query_static(query)
-        
+
         # If LLM configured, add up to 2 more LLM-generated variants
         if self.llm is not None:
             try:
@@ -53,10 +61,25 @@ class QueryExpander:
                 variants.extend(llm_variants[:2])
             except Exception as e:
                 logger.warning(f"LLM query expansion failed: {e}")
-        
-        # Deduplicate, preserve order
-        seen = set()
-        return [v for v in variants if not (v in seen or seen.add(v))]
+
+        # Case-insensitive dedup that keeps original ordering. The original
+        # query is always whatever expand_query_static() returned first; we
+        # preserve that position.
+        seen_lower: set[str] = set()
+        deduped: List[str] = []
+        for v in variants:
+            key = v.strip().lower()
+            if not key or key in seen_lower:
+                continue
+            seen_lower.add(key)
+            deduped.append(v)
+
+        if len(variants) > len(deduped):
+            logger.debug(
+                "QueryExpander: dropped %d duplicate variant(s)",
+                len(variants) - len(deduped),
+            )
+        return deduped[:MAX_VARIANTS]
 
     async def _llm_expand(self, query: str) -> List[str]:
         prompt = f"""Generate 2 alternative phrasings of this log search query using different 

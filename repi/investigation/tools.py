@@ -284,35 +284,54 @@ async def find_logs_by_id(
     pool: asyncpg.Pool,
     entity: str,
     top_k: int = 50,
+    min_similarity: float = 0.6,
 ) -> list[dict]:
-    """Substring match a literal ID against `log_chunks.text`.
+    """Find log chunks containing (or fuzzy-matching) an entity token.
 
-    Use this when the user mentions a specific token (block id, request id,
-    hash, hyphenated identifier, UUID). Semantic search is unreliable for
-    literal IDs — pgvector won't surface a chunk just because it contains
-    one specific string. ILIKE goes against the pg_trgm GIN index for sub-
-    linear lookup.
+    Two-tier ranked search, both legs index-backed by gin_trgm_ops on
+    log_chunks.text:
+
+      Tier 1 — ILIKE substring. Exact token present in the chunk text.
+               Similarity = 1.0.
+      Tier 2 — pg_trgm word similarity (`text %> entity`). Tolerates typos
+               and abbreviations (`ch_3MX8K3` vs `ch_3MX8K2`, `auth-svc` vs
+               `auth-service`). Similarity = `word_similarity(entity, text)`.
+
+    Tier 2 candidates are filtered by `min_similarity` (default 0.6, matches
+    pg_trgm's `word_similarity_threshold` GUC default — values below that
+    aren't surfaced by the `%>` operator and would need a session-level GUC
+    change to access). Use this when the user mentions a specific token;
+    semantic search is unreliable for literal IDs (pgvector won't surface a
+    chunk just because it contains one specific string).
     """
     if not entity or not entity.strip():
         return []
     rows = await pool.fetch(
         """
-        SELECT chunk_id, source_service, log_level, timestamp_start, text
+        SELECT chunk_id, source_service, log_level, timestamp_start, text,
+               CASE WHEN text ILIKE '%' || $1 || '%' THEN 1.0::real
+                    ELSE word_similarity($1, text) END AS sim
         FROM log_chunks
         WHERE text ILIKE '%' || $1 || '%'
-        ORDER BY timestamp_start DESC
+           OR text %> $1
+        ORDER BY sim DESC, timestamp_start DESC
         LIMIT $2
         """,
         entity.strip(),
         top_k,
     )
-    return [{
-        "chunk_id": str(r["chunk_id"]),
-        "service": r["source_service"],
-        "level": r["log_level"],
-        "timestamp_start": DateHandler.to_iso(r["timestamp_start"]),
-        "text": r["text"],
-    } for r in rows]
+    return [
+        {
+            "chunk_id": str(r["chunk_id"]),
+            "service": r["source_service"],
+            "level": r["log_level"],
+            "timestamp_start": DateHandler.to_iso(r["timestamp_start"]),
+            "text": r["text"],
+            "similarity": float(r["sim"]),
+        }
+        for r in rows
+        if float(r["sim"]) >= min_similarity
+    ]
 
 
 async def get_service_summary(
