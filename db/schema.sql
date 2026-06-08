@@ -23,14 +23,33 @@ CREATE TABLE IF NOT EXISTS log_chunks (
 );
 
 CREATE INDEX IF NOT EXISTS log_chunks_embedding_idx      ON log_chunks USING hnsw (embedding vector_ip_ops);
-CREATE INDEX IF NOT EXISTS log_chunks_fts_idx            ON log_chunks USING gin  (to_tsvector('english', text));
 CREATE INDEX IF NOT EXISTS log_chunks_source_service_idx ON log_chunks (source_service);
 CREATE INDEX IF NOT EXISTS log_chunks_log_level_idx      ON log_chunks (log_level);
 CREATE INDEX IF NOT EXISTS log_chunks_timestamp_idx      ON log_chunks (timestamp_start);
--- pg_trgm GIN index on text — backs find_logs_by_id's ILIKE substring lookup.
--- Without it, ILIKE is a sequential scan; with it, sub-linear lookup against
--- a corpus that grows with every ingest.
+-- pg_trgm GIN indexes — back fuzzy entity lookups in find_logs_by_id (text)
+-- and forward-looking fuzzy service-name resolution (source_service). The
+-- text index also accelerates the `%>` / `<%` word-similarity operators, not
+-- just plain ILIKE, so typo-tolerant entity search hits the index too.
 CREATE INDEX IF NOT EXISTS log_chunks_text_trgm_idx       ON log_chunks USING gin (text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS log_chunks_service_trgm_idx    ON log_chunks USING gin (source_service gin_trgm_ops);
+
+-- Weighted FTS column. Replaces the old expression GIN on to_tsvector(text).
+-- Weights: A=message body, B=service, C=level. ts_rank treats A > B > C, so a
+-- service-name hit edges out a body-only loose match, and a level-only hit is
+-- last. Generated STORED keeps the GIN always in sync with no application code
+-- path; to_tsvector(regconfig, text) is IMMUTABLE so the expression is legal.
+-- coalesce() handles the nullable log_level column without making the
+-- expression non-total.
+ALTER TABLE log_chunks
+    ADD COLUMN IF NOT EXISTS text_tsv tsvector
+    GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', coalesce(text, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(source_service, '')), 'B') ||
+        setweight(to_tsvector('english', coalesce(log_level, '')), 'C')
+    ) STORED;
+
+DROP INDEX IF EXISTS log_chunks_fts_idx;
+CREATE INDEX IF NOT EXISTS log_chunks_text_tsv_idx ON log_chunks USING gin (text_tsv);
 
 -- Conversations: chat-first surface (A1/A2). One conversation interleaves
 -- /chat turns and /investigate runs, threaded by conversation_id. /investigate
