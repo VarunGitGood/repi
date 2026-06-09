@@ -26,11 +26,17 @@ def test_extract_signature_from_templated_text():
     assert _extract_signature(body) == "JWT verification failed for token <NUM>"
 
 
-def test_extract_signature_falls_back_on_external_text():
-    """Defensive: a chunk not written by our ingestor (no `Signature: ` prefix)
-    still produces a signature via the masking regex from log_chunker."""
-    sig = _extract_signature("INFO: user 1234 logged in from 10.0.0.1")
-    assert "<NUM>" in sig  # numeric masking applied
+def test_extract_signature_returns_empty_for_un_templated_text(caplog):
+    """A chunk without the 'Signature: ' prefix is dual-source state
+    (external import or pre-ingestor data). Re-running the masking regex
+    over the whole body would silently mis-cluster — wrong signatures
+    derived from 'Examples: ...' tokens. Contract: return empty + warn so
+    cluster_chunks skips the chunk and we can spot the drift in logs."""
+    import logging
+    with caplog.at_level(logging.WARNING, logger="repi.retrieval.cluster_view"):
+        sig = _extract_signature("INFO: user 1234 logged in from 10.0.0.1")
+    assert sig == ""
+    assert any("without 'Signature:' prefix" in r.message for r in caplog.records)
 
 
 def test_returns_empty_for_no_chunks():

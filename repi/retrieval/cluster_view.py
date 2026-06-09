@@ -19,19 +19,25 @@ that's intentionally deferred.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
-from repi.ingestion.log_chunker import get_signature
+logger = logging.getLogger(__name__)
 
 
 def _extract_signature(chunk_text: str) -> str:
     """Pull the signature back out of the templated chunk body.
 
     The ingestor writes `"Signature: <sig>\\nExamples: <e1> <e2> ..."`. We
-    take the slice between `"Signature: "` and the first newline. For chunks
-    not produced by our ingestor (defensive — external imports, older data),
-    fall back to re-running get_signature() on the raw text.
+    take the slice between `"Signature: "` and the first newline.
+
+    A chunk without that prefix is dual-source state — external imports or
+    pre-ingestor data. Re-running get_signature() over the whole body would
+    mask numerics inside the "Examples: ..." portion too, producing a
+    signature that doesn't match what the ingestor would have stored for
+    the same raw line. That silently mis-clusters. Log instead so we can
+    spot the drift, and return empty so the caller skips the chunk.
     """
     if not chunk_text:
         return ""
@@ -40,7 +46,11 @@ def _extract_signature(chunk_text: str) -> str:
         rest = chunk_text[len(prefix):]
         nl = rest.find("\n")
         return (rest[:nl] if nl != -1 else rest).strip()
-    return get_signature(chunk_text).strip()
+    logger.warning(
+        "cluster_view: chunk without 'Signature:' prefix — skipping. "
+        "Indicates dual-source state (external import or pre-ingestor data).",
+    )
+    return ""
 
 
 @dataclass(frozen=True)
