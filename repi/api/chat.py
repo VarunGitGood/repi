@@ -42,6 +42,7 @@ from repi.investigation.tools import find_logs_by_id
 from repi.llm.provider import Message
 from repi.models.filters import RetrievalFilters
 from repi.models.schema import ChatMessage, Conversation
+from repi.retrieval.cluster_view import cluster_chunks
 
 logger = logging.getLogger("repi.api.chat")
 
@@ -75,6 +76,23 @@ class ChatRequest(BaseModel):
 
 def _sse(event_type: str, data: dict) -> str:
     return f"data: {json.dumps({'type': event_type, 'data': data})}\n\n"
+
+
+def _normalize_ts(value):
+    """Canonicalise a `timestamp_start` field for the chat path's chunks list.
+
+    The chunks the LLM, the cluster_view, and the timeline_view all read share
+    one rule: `timestamp` is ISO 8601 string or None. Downstream comparisons
+    (`<`, `>`, `sorted(...)`) rely on this — mixing `datetime` and `str` in
+    one list would TypeError. Two source paths (RRF + entity-bias merge) feed
+    this list; both run their `timestamp_start` through here so a future
+    change to either source can't reintroduce mixed types.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return _dh.to_iso(value)
+    return value  # already string-ish
 
 
 # ── Confidence heuristic (chat path) ──────────────────────────────────────────
@@ -241,9 +259,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                     "chunk_id": cid,
                     "service": data.get("source_service"),
                     "level": data.get("log_level"),
-                    "timestamp": _dh.to_iso(data.get("timestamp_start"))
-                        if hasattr(data.get("timestamp_start"), "isoformat")
-                        else data.get("timestamp_start"),
+                    "timestamp": _normalize_ts(data.get("timestamp_start")),
                     "text": data.get("text") or "",
                     "score": float(score),
                 })
@@ -261,7 +277,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                             "chunk_id": c["chunk_id"],
                             "service": c.get("service"),
                             "level": c.get("level"),
-                            "timestamp": c.get("timestamp_start"),
+                            "timestamp": _normalize_ts(c.get("timestamp_start")),
                             "text": c.get("text") or "",
                             "score": 0.0,  # ILIKE has no score; use sentinel
                         })
@@ -318,11 +334,29 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 )
                 await session.commit()
 
+            # Event clusters across the retrieved top-K. Singletons are
+            # dropped (they're already in the per-turn timeline); the panel
+            # gives the user the "1842x JWT failures, 347x DB timeouts"
+            # compression rather than a raw chunk list. Caveat the UI must
+            # carry: this is *per-turn* over the retrieved chunks, not a
+            # corpus-wide aggregate.
+            clusters = [
+                {
+                    "signature": v.signature,
+                    "count": v.count,
+                    "services": v.services,
+                    "first_ts": v.first_ts,
+                    "last_ts": v.last_ts,
+                }
+                for v in cluster_chunks(chunks)
+            ]
+
             yield _sse("done", {
                 "chunk_ids": cited_ids,
                 "confidence": confidence,
                 "conversation_id": str(conversation_id),
                 "entities": entities,
+                "clusters": clusters,
             })
 
         except Exception as e:
