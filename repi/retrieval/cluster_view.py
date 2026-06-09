@@ -26,7 +26,7 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 
-def _extract_signature(chunk_text: str) -> str:
+def extract_signature(chunk_text: str) -> str:
     """Pull the signature back out of the templated chunk body.
 
     The ingestor writes `"Signature: <sig>\\nExamples: <e1> <e2> ..."`. We
@@ -82,7 +82,7 @@ def cluster_chunks(
 
     groups: dict[str, dict] = {}
     for c in chunks:
-        sig = _extract_signature(c.get("text") or "")
+        sig = extract_signature(c.get("text") or "")
         if not sig:
             continue
         svc = c.get("service")
