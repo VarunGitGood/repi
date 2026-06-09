@@ -40,10 +40,24 @@ function levelTone(level: string | null): string {
   }
 }
 
-export function Timeline({ entries }: { entries: TimelineEntry[] }) {
-  // Default-open when small enough to scan; closed beyond that so the
-  // chat surface doesn't drown in a 30-row timeline by default.
-  const [open, setOpen] = useState(entries.length > 0 && entries.length <= 15)
+// Optional controlled `open` so a parent (e.g. a quick-action button on the
+// assistant turn) can force the panel open. Falls back to uncontrolled
+// internal state when omitted.
+export function Timeline({
+  entries,
+  open: openProp,
+  onOpenChange,
+}: {
+  entries: TimelineEntry[]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}) {
+  const [openUncontrolled, setOpenUncontrolled] = useState(entries.length > 0 && entries.length <= 15)
+  const open = openProp ?? openUncontrolled
+  const setOpen = (v: boolean) => {
+    if (onOpenChange) onOpenChange(v)
+    else setOpenUncontrolled(v)
+  }
 
   if (!entries || entries.length === 0) return null
 
@@ -51,7 +65,7 @@ export function Timeline({ entries }: { entries: TimelineEntry[] }) {
     <div className="rounded-lg border border-border/60 bg-muted/30 text-xs">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 transition-colors"
       >
         {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}

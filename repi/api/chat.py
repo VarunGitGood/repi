@@ -70,6 +70,13 @@ class ChatRequest(BaseModel):
     history: List[ChatTurn] = []
     filters: Optional[ChatFilters] = None
     conversation_id: Optional[UUID] = None
+    # Followup-bias hint: chunk_ids the previous assistant turn cited. When
+    # the current query has no explicit service / time filter (neither in
+    # `filters` nor from the resolver), the chat path uses these chunks to
+    # default the retrieval window to the previous turn's service distribution
+    # and a ±5min envelope around their timestamps. Soft — never overrides
+    # an explicit filter, and silently ignored if the IDs no longer resolve.
+    previous_chunk_ids: List[str] = []
 
 
 # ── SSE envelope helpers ──────────────────────────────────────────────────────
@@ -234,6 +241,31 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             if caller_entity and caller_entity not in entities:
                 entities.append(caller_entity)
 
+            # Followup bias: if neither the caller nor the resolver pinned a
+            # service or time window, derive defaults from the previous turn's
+            # cited chunks. Indexed PK lookup, so cost is negligible vs the
+            # LLM call. Soft: explicit filters always win.
+            if req.previous_chunk_ids and (service is None or (time_from is None and time_to is None)):
+                async with container.async_session_maker() as session:
+                    prev_meta = await container.get_retrieval_service(session).vector_store.get_chunks_by_ids(
+                        list(req.previous_chunk_ids)
+                    )
+                if prev_meta:
+                    prev_services = [m.get("source_service") for m in prev_meta.values() if m.get("source_service")]
+                    if service is None and prev_services:
+                        # Pick the dominant service from the previous turn so a
+                        # followup like "what changed there?" keeps the focus.
+                        from collections import Counter
+                        service = Counter(prev_services).most_common(1)[0][0]
+                    if time_from is None and time_to is None:
+                        prev_ts = [m.get("timestamp_start") for m in prev_meta.values() if m.get("timestamp_start")]
+                        if prev_ts:
+                            from datetime import timedelta
+                            anchor_min = min(prev_ts)
+                            anchor_max = max(prev_ts)
+                            time_from = anchor_min - timedelta(minutes=5)
+                            time_to = anchor_max + timedelta(minutes=5)
+
             async with container.async_session_maker() as session:
                 retrieval = container.get_retrieval_service(session)
                 rrf_filters = RetrievalFilters(
@@ -360,6 +392,21 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             # become "x12 over 14:02–14:04".
             timeline = build_timeline(chunks)
 
+            # Minimal projection of cited chunks for the UI's raw-evidence tab.
+            # Saves a follow-up GET — the chat path already has the hydrated
+            # list. Keep the text at the same 600-char window used in the LLM
+            # prompt so the UI doesn't surface content the model didn't see.
+            cited_chunks = [
+                {
+                    "chunk_id": c["chunk_id"],
+                    "service": c.get("service"),
+                    "level": c.get("level"),
+                    "timestamp": str(c.get("timestamp") or "") or None,
+                    "text": (c.get("text") or "")[:600],
+                }
+                for c in chunks
+            ]
+
             yield _sse("done", {
                 "chunk_ids": cited_ids,
                 "confidence": confidence,
@@ -367,6 +414,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 "entities": entities,
                 "clusters": clusters,
                 "timeline": timeline,
+                "cited_chunks": cited_chunks,
             })
 
         except Exception as e:
