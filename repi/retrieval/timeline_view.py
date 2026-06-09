@@ -13,15 +13,18 @@ chronologically ordered, run-collapsed view: adjacent rows with the same
 a `first_ts` / `last_ts` range, so the UI shows "auth-service ERROR x12
 14:02–14:04" instead of twelve near-identical lines.
 
-Signature extraction reuses cluster_view._extract_signature to pull the
+Signature extraction reuses cluster_view.extract_signature to pull the
 templated `text` body apart — the ingestor stores rows as
 `"Signature: <sig>\\nExamples: ..."` (see log_ingestor.py).
 """
 from __future__ import annotations
 
+import logging
 from typing import List, Optional, TypedDict
 
-from repi.retrieval.cluster_view import _extract_signature
+from repi.retrieval.cluster_view import extract_signature
+
+logger = logging.getLogger(__name__)
 
 
 class TimelineEntry(TypedDict):
@@ -54,11 +57,14 @@ def build_timeline(chunks: List[dict]) -> List[TimelineEntry]:
     ordered = sorted(timestamped, key=lambda c: c["timestamp"])
 
     entries: list[TimelineEntry] = []
+    skipped = 0
     for c in ordered:
-        sig = _extract_signature(c.get("text") or "")
+        sig = extract_signature(c.get("text") or "")
         if not sig:
-            # Defensive: no signature means we can't form a run key. Skip
-            # rather than emit a row with no useful identity.
+            # No signature → can't form a run key, can't render meaningfully.
+            # Tally so a spike in untemplated chunks shows up in logs (signals
+            # ingest drift or external import contamination).
+            skipped += 1
             continue
         service = c.get("service")
         level = c.get("level")
@@ -87,4 +93,8 @@ def build_timeline(chunks: List[dict]) -> List[TimelineEntry]:
             )
         )
 
+    if skipped:
+        logger.debug(
+            "build_timeline: skipped %d chunk(s) without a signature", skipped
+        )
     return entries

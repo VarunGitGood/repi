@@ -11,7 +11,7 @@ from __future__ import annotations
 from repi.retrieval.cluster_view import (
     ClusterView,
     cluster_chunks,
-    _extract_signature,
+    extract_signature,
 )
 
 
@@ -19,14 +19,14 @@ def _chunk(text: str, service: str, timestamp: str):
     return {"text": text, "service": service, "timestamp": timestamp}
 
 
-def test_extract_signature_from_templated_text():
+def testextract_signature_from_templated_text():
     """Ingest path stores `"Signature: ...\\nExamples: ..."` — pull the
     signature back out for clustering."""
     body = "Signature: JWT verification failed for token <NUM>\nExamples: token=1 token=2"
-    assert _extract_signature(body) == "JWT verification failed for token <NUM>"
+    assert extract_signature(body) == "JWT verification failed for token <NUM>"
 
 
-def test_extract_signature_returns_empty_for_un_templated_text(caplog):
+def testextract_signature_returns_empty_for_un_templated_text(caplog):
     """A chunk without the 'Signature: ' prefix is dual-source state
     (external import or pre-ingestor data). Re-running the masking regex
     over the whole body would silently mis-cluster — wrong signatures
@@ -34,7 +34,7 @@ def test_extract_signature_returns_empty_for_un_templated_text(caplog):
     cluster_chunks skips the chunk and we can spot the drift in logs."""
     import logging
     with caplog.at_level(logging.WARNING, logger="repi.retrieval.cluster_view"):
-        sig = _extract_signature("INFO: user 1234 logged in from 10.0.0.1")
+        sig = extract_signature("INFO: user 1234 logged in from 10.0.0.1")
     assert sig == ""
     assert any("without 'Signature:' prefix" in r.message for r in caplog.records)
 
