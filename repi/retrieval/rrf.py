@@ -3,7 +3,7 @@ from typing import List, Tuple
 import asyncio
 import logging
 
-from repi.core.dates import default_date_handler as _dh
+from repi.core.dates import DateHandler, default_date_handler as _dh
 from repi.retrieval.pgvector_store import PgVectorStore
 from repi.retrieval.pg_fts_retriever import PgFTSRetriever
 from repi.retrieval.diversify import diversify_by_service
@@ -114,7 +114,11 @@ class RRFRetrievalService:
 
         if recency_boost:
             logger.debug("Applying recency boost")
-            now = _dh.now()
+            # `_dh.now()` is naive UTC by project convention, but asyncpg
+            # returns tz-aware datetimes from `timestamp_start` (TIMESTAMPTZ).
+            # Subtracting naive from aware raises TypeError — normalise both
+            # to aware UTC before the arithmetic.
+            now = DateHandler.to_aware_utc(_dh.now())
             chunk_ids = list(rrf_scores.keys())
             chunks_data = await self.vector_store.get_chunks_by_ids(chunk_ids)
 
@@ -124,6 +128,7 @@ class RRFRetrievalService:
                     ts = chunk["timestamp_start"]
                     if isinstance(ts, str):
                         ts = _dh.parse_iso(ts)
+                    ts = DateHandler.to_aware_utc(ts)
                     age_hours = (now - ts).total_seconds() / 3600
                     recency_factor = 1.0 / (1.0 + 0.1 * max(0.0, age_hours))
                     rrf_scores[chunk_id] = score * recency_factor
