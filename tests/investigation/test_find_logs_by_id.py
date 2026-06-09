@@ -29,10 +29,12 @@ async def test_find_logs_by_id_empty_entity_returns_empty():
 
 
 @pytest.mark.asyncio
-async def test_find_logs_by_id_builds_ilike_query_and_returns_chunk_shape():
+async def test_find_logs_by_id_builds_trigram_query_and_returns_chunk_shape():
     """Fixture uses a W3C TraceContext trace-id — an industry-standard ID
     every distributed-tracing system emits (OpenTelemetry, Datadog, Honeycomb,
-    Jaeger, AWS X-Ray)."""
+    Jaeger, AWS X-Ray). Post-trgm-upgrade the SQL is two-tier: exact ILIKE
+    substring OR `text %> $1` word-similarity, both index-backed by
+    log_chunks_text_trgm_idx, ranked by the computed `sim` score."""
     trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
     pool = MagicMock()
     pool.fetch = AsyncMock(return_value=[
@@ -42,25 +44,29 @@ async def test_find_logs_by_id_builds_ilike_query_and_returns_chunk_shape():
             "log_level": "ERROR",
             "timestamp_start": datetime(2026, 6, 5, 12, 0, 0),
             "text": f"trace={trace_id} span=00f067aa0ba902b7 downstream timeout",
+            "sim": 1.0,
         },
     ])
     out = await find_logs_by_id(pool, entity=trace_id, top_k=10)
 
-    # Query shape
+    # Query shape — both legs and the sim-first ordering.
     args, _ = pool.fetch.call_args
     sql = args[0]
     assert "text ILIKE '%' || $1 || '%'" in sql
-    assert "ORDER BY timestamp_start DESC" in sql
+    assert "text %> $1" in sql
+    assert "word_similarity($1, text)" in sql
+    assert "ORDER BY sim DESC" in sql
     assert args[1] == trace_id
     assert args[2] == 10
 
-    # Result shape
+    # Result shape — `similarity` is now exposed so callers can threshold.
     assert out == [{
         "chunk_id": "chunk-1",
         "service": "payments-api",
         "level": "ERROR",
         "timestamp_start": "2026-06-05T12:00:00",
         "text": f"trace={trace_id} span=00f067aa0ba902b7 downstream timeout",
+        "similarity": 1.0,
     }]
 
 

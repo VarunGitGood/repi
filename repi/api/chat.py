@@ -222,7 +222,11 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                     time_from=time_from,
                     time_to=time_to,
                 )
-                rrf_hits = await retrieval.search(query=req.query, top_k=10, filters=rrf_filters)
+                # search_diverse over-fetches then service-stratifies the top-k
+                # so a noisy single service can't crowd out the cross-service
+                # signal a "why are payments failing" style query is really asking
+                # about. See repi/retrieval/diversify.py for the rationale.
+                rrf_hits = await retrieval.search_diverse(query=req.query, top_k=10, filters=rrf_filters)
                 rrf_chunk_ids = [cid for cid, _score in rrf_hits]
                 chunks_by_id = await retrieval.vector_store.get_chunks_by_ids(rrf_chunk_ids)
 

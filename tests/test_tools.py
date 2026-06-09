@@ -7,7 +7,8 @@ from repi.investigation.tools import (
     search_logs,
     get_timeline,
     scan_window,
-    get_service_summary
+    get_service_summary,
+    find_logs_by_id,
 )
 from repi.models.filters import RetrievalFilters
 
@@ -93,3 +94,40 @@ async def test_get_service_summary():
     assert result["total_chunks"] == 100
     assert result["error_count"] == 5
     assert result["earliest"] == "2026-04-01T09:00:00"
+
+
+@pytest.mark.asyncio
+async def test_find_logs_by_id_returns_similarity_and_filters_threshold():
+    """find_logs_by_id surfaces a similarity score and drops rows below
+    min_similarity. The DB returns ranked rows (sim DESC); the Python layer
+    enforces the floor and reshapes."""
+    pool = MagicMock()
+    pool.fetch = AsyncMock(return_value=[
+        # ILIKE substring hit → sim 1.0 (exact match)
+        {"chunk_id": "c1", "source_service": "auth-service", "log_level": "ERROR",
+         "timestamp_start": datetime(2026, 4, 1, 10, 0), "text": "ch_3MX8K2 failed",
+         "sim": 1.0},
+        # Fuzzy word-similarity hit above threshold
+        {"chunk_id": "c2", "source_service": "auth-service", "log_level": "ERROR",
+         "timestamp_start": datetime(2026, 4, 1, 10, 1), "text": "ch_3MX8K3 charge denied",
+         "sim": 0.75},
+        # Fuzzy hit below threshold — must be dropped.
+        {"chunk_id": "c3", "source_service": "auth-service", "log_level": "INFO",
+         "timestamp_start": datetime(2026, 4, 1, 10, 2), "text": "loosely related token",
+         "sim": 0.42},
+    ])
+
+    out = await find_logs_by_id(pool, "ch_3MX8K2", top_k=10, min_similarity=0.6)
+    chunk_ids = [r["chunk_id"] for r in out]
+    assert chunk_ids == ["c1", "c2"]  # c3 below floor
+    assert out[0]["similarity"] == 1.0
+    assert out[1]["similarity"] == 0.75
+
+
+@pytest.mark.asyncio
+async def test_find_logs_by_id_empty_input_short_circuits():
+    pool = MagicMock()
+    pool.fetch = AsyncMock()
+    assert await find_logs_by_id(pool, "") == []
+    assert await find_logs_by_id(pool, "   ") == []
+    pool.fetch.assert_not_called()
