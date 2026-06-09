@@ -78,6 +78,23 @@ def _sse(event_type: str, data: dict) -> str:
     return f"data: {json.dumps({'type': event_type, 'data': data})}\n\n"
 
 
+def _normalize_ts(value):
+    """Canonicalise a `timestamp_start` field for the chat path's chunks list.
+
+    The chunks the LLM, the cluster_view, and the timeline_view all read share
+    one rule: `timestamp` is ISO 8601 string or None. Downstream comparisons
+    (`<`, `>`, `sorted(...)`) rely on this — mixing `datetime` and `str` in
+    one list would TypeError. Two source paths (RRF + entity-bias merge) feed
+    this list; both run their `timestamp_start` through here so a future
+    change to either source can't reintroduce mixed types.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return _dh.to_iso(value)
+    return value  # already string-ish
+
+
 # ── Confidence heuristic (chat path) ──────────────────────────────────────────
 # Compiler floors don't apply — /chat has no compile step. Deterministic rules:
 #   - 0 chunks gathered → low
@@ -242,9 +259,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                     "chunk_id": cid,
                     "service": data.get("source_service"),
                     "level": data.get("log_level"),
-                    "timestamp": _dh.to_iso(data.get("timestamp_start"))
-                        if hasattr(data.get("timestamp_start"), "isoformat")
-                        else data.get("timestamp_start"),
+                    "timestamp": _normalize_ts(data.get("timestamp_start")),
                     "text": data.get("text") or "",
                     "score": float(score),
                 })
@@ -262,7 +277,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                             "chunk_id": c["chunk_id"],
                             "service": c.get("service"),
                             "level": c.get("level"),
-                            "timestamp": c.get("timestamp_start"),
+                            "timestamp": _normalize_ts(c.get("timestamp_start")),
                             "text": c.get("text") or "",
                             "score": 0.0,  # ILIKE has no score; use sentinel
                         })

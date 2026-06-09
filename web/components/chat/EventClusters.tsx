@@ -56,7 +56,7 @@ export function EventClusters({ clusters }: { clusters: Cluster[] }) {
                   {c.count}×
                 </Badge>
                 <code
-                  className="text-foreground/90 break-all"
+                  className="text-foreground/90 break-words"
                   title={c.signature}
                 >
                   {c.signature}
