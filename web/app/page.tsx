@@ -300,6 +300,11 @@ export default function HomePage() {
                   key={i}
                   {...t}
                   onInvestigateDeeper={(q) => {
+                    // handleSend reads its second arg as the deep-research
+                    // decision (not React state) — so the setDeepResearch
+                    // call below is purely for UI sync (the toggle visually
+                    // moves), not a precondition for the routing. Order
+                    // doesn't matter; setState's asynchrony doesn't race.
                     setDeepResearch(true)
                     handleSend(q, true)
                   }}
