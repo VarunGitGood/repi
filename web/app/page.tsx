@@ -226,6 +226,7 @@ export default function HomePage() {
                   chunkIds: data.chunk_ids ?? [],
                   confidence: data.confidence ?? null,
                   clusters: data.clusters ?? [],
+                  timeline: data.timeline ?? [],
                   streaming: false,
                 }
                 return next

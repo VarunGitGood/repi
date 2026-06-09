@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { AlertTriangle, Sparkles, User } from "lucide-react"
 import { EventClusters, type Cluster } from "@/components/chat/EventClusters"
+import { Timeline, type TimelineEntry } from "@/components/chat/Timeline"
 
 export type ChatMessageProps = {
   role: "user" | "assistant"
@@ -13,6 +14,7 @@ export type ChatMessageProps = {
   isClarification?: boolean
   streaming?: boolean
   clusters?: Cluster[]
+  timeline?: TimelineEntry[]
 }
 
 // Strip raw chunk citations the LLM may still inline despite the system
@@ -34,6 +36,7 @@ export function ChatMessageView({
   isClarification,
   streaming,
   clusters,
+  timeline,
 }: ChatMessageProps) {
   const isUser = role === "user"
   const displayed = isUser ? content : cleanContent(content)
@@ -67,6 +70,9 @@ export function ChatMessageView({
               confidence: {confidence}
             </Badge>
           </div>
+        )}
+        {!isUser && timeline && timeline.length > 0 && (
+          <Timeline entries={timeline} />
         )}
         {!isUser && clusters && clusters.length > 0 && (
           <EventClusters clusters={clusters} />
