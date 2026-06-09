@@ -22,16 +22,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text as sa_text
 
 from repi.core.container import get_container
+from repi.core.config import get_settings
 from repi.core.dates import default_date_handler as _dh
 from repi.intent.resolver import (
     ClarificationNeeded,
@@ -71,12 +73,31 @@ class ChatRequest(BaseModel):
     filters: Optional[ChatFilters] = None
     conversation_id: Optional[UUID] = None
     # Followup-bias hint: chunk_ids the previous assistant turn cited. When
-    # the current query has no explicit service / time filter (neither in
-    # `filters` nor from the resolver), the chat path uses these chunks to
-    # default the retrieval window to the previous turn's service distribution
-    # and a ±5min envelope around their timestamps. Soft — never overrides
-    # an explicit filter, and silently ignored if the IDs no longer resolve.
-    previous_chunk_ids: List[str] = []
+    # the current query is missing EITHER an explicit service or an explicit
+    # time window, the chat path fills in just the missing dimension from
+    # the previous turn's chunks — service via dominant-source check, time
+    # via a `Settings.FOLLOWUP_BIAS_WINDOW_MINUTES` envelope around their
+    # timestamps. Soft — never overrides an explicit filter, silently
+    # ignored if the IDs no longer resolve.
+    #
+    # Capped at 50 to bound the indexed-PK fetch and reject malformed
+    # payloads early. The legitimate caller only ever sends the last
+    # assistant turn's citations (≤10 in practice).
+    previous_chunk_ids: List[str] = Field(default_factory=list, max_length=50)
+
+
+# ── Module-level constants ────────────────────────────────────────────────────
+
+# Caller-visible window on cited-chunk `text` in the SSE done payload. Locked
+# to the same length the LLM prompt's evidence block uses so the UI never
+# surfaces content the model didn't see.
+CHUNK_TEXT_WINDOW = 600
+
+# When the dominant service's count is at least this multiple of the
+# runner-up's, treat it as "this is the conversation's service" and bias
+# retrieval toward it. Below this ratio the previous turn straddled
+# services (cross-service incident) — we let the resolver fan out instead.
+SERVICE_DOMINANCE_RATIO = 2.0
 
 
 # ── SSE envelope helpers ──────────────────────────────────────────────────────
@@ -241,10 +262,11 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             if caller_entity and caller_entity not in entities:
                 entities.append(caller_entity)
 
-            # Followup bias: if neither the caller nor the resolver pinned a
-            # service or time window, derive defaults from the previous turn's
-            # cited chunks. Indexed PK lookup, so cost is negligible vs the
-            # LLM call. Soft: explicit filters always win.
+            # Followup bias: when the current query is missing EITHER an
+            # explicit service or an explicit time window, fill in just the
+            # missing dimension from the previous turn's cited chunks.
+            # Indexed PK lookup, so cost is negligible vs the LLM call. Soft:
+            # explicit filters always win.
             if req.previous_chunk_ids and (service is None or (time_from is None and time_to is None)):
                 async with container.async_session_maker() as session:
                     prev_meta = await container.get_retrieval_service(session).vector_store.get_chunks_by_ids(
@@ -253,18 +275,38 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 if prev_meta:
                     prev_services = [m.get("source_service") for m in prev_meta.values() if m.get("source_service")]
                     if service is None and prev_services:
-                        # Pick the dominant service from the previous turn so a
-                        # followup like "what changed there?" keeps the focus.
-                        from collections import Counter
-                        service = Counter(prev_services).most_common(1)[0][0]
+                        # Narrow to the dominant service only if it's clearly
+                        # dominant — top count >= SERVICE_DOMINANCE_RATIO ×
+                        # runner-up. Otherwise the previous turn straddled
+                        # services (a cross-service incident), and pinning
+                        # one would hide the other half on the followup.
+                        counts = Counter(prev_services).most_common()
+                        top_svc, top_n = counts[0]
+                        runner_up = counts[1][1] if len(counts) > 1 else 0
+                        if runner_up == 0 or top_n >= SERVICE_DOMINANCE_RATIO * runner_up:
+                            service = top_svc
+                            logger.debug(
+                                "chat followup-bias: pinned service=%s (top=%d, runner-up=%d)",
+                                top_svc, top_n, runner_up,
+                            )
+                        else:
+                            logger.debug(
+                                "chat followup-bias: skipped service pin — "
+                                "no dominant service (top=%d, runner-up=%d)",
+                                top_n, runner_up,
+                            )
                     if time_from is None and time_to is None:
                         prev_ts = [m.get("timestamp_start") for m in prev_meta.values() if m.get("timestamp_start")]
                         if prev_ts:
-                            from datetime import timedelta
+                            envelope = timedelta(minutes=get_settings().FOLLOWUP_BIAS_WINDOW_MINUTES)
                             anchor_min = min(prev_ts)
                             anchor_max = max(prev_ts)
-                            time_from = anchor_min - timedelta(minutes=5)
-                            time_to = anchor_max + timedelta(minutes=5)
+                            time_from = anchor_min - envelope
+                            time_to = anchor_max + envelope
+                            logger.debug(
+                                "chat followup-bias: time window %s → %s",
+                                time_from, time_to,
+                            )
 
             async with container.async_session_maker() as session:
                 retrieval = container.get_retrieval_service(session)
@@ -326,7 +368,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                     "service": c.get("service"),
                     "level": c.get("level"),
                     "timestamp": str(c.get("timestamp") or ""),
-                    "text": (c.get("text") or "")[:600],
+                    "text": (c.get("text") or "")[:CHUNK_TEXT_WINDOW],
                 }
                 for c in chunks
             ], indent=2, default=str)
@@ -402,7 +444,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                     "service": c.get("service"),
                     "level": c.get("level"),
                     "timestamp": str(c.get("timestamp") or "") or None,
-                    "text": (c.get("text") or "")[:600],
+                    "text": (c.get("text") or "")[:CHUNK_TEXT_WINDOW],
                 }
                 for c in chunks
             ]
