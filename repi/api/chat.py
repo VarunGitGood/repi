@@ -43,6 +43,7 @@ from repi.llm.provider import Message
 from repi.models.filters import RetrievalFilters
 from repi.models.schema import ChatMessage, Conversation
 from repi.retrieval.cluster_view import cluster_chunks
+from repi.retrieval.timeline_view import build_timeline
 
 logger = logging.getLogger("repi.api.chat")
 
@@ -351,12 +352,21 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 for v in cluster_chunks(chunks)
             ]
 
+            # Incident timeline — chronologically ordered, run-collapsed view
+            # of the same retrieved chunks. Reuses the in-memory list rather
+            # than re-fetching via investigation.tools.get_timeline (one less
+            # DB roundtrip per turn). Singletons stay so the user can see
+            # the gap between events; runs collapse so 12 identical lines
+            # become "x12 over 14:02–14:04".
+            timeline = build_timeline(chunks)
+
             yield _sse("done", {
                 "chunk_ids": cited_ids,
                 "confidence": confidence,
                 "conversation_id": str(conversation_id),
                 "entities": entities,
                 "clusters": clusters,
+                "timeline": timeline,
             })
 
         except Exception as e:
