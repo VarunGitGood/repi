@@ -4,9 +4,9 @@ from typing import Optional, List, Any
 from uuid import UUID, uuid4
 from sqlmodel import SQLModel, Field, JSON
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import TEXT, ARRAY, Index, String, Column, DateTime
+from sqlalchemy import TEXT, ARRAY, Index, String, Column, Computed, DateTime
 from pydantic import field_validator
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 
 class LogChunk(SQLModel, table=True):
     __tablename__ = "log_chunks"
@@ -46,6 +46,24 @@ class LogChunk(SQLModel, table=True):
     id_values: Optional[List[str]] = Field(default=None, sa_column=Column(ARRAY(String)))
     embedding: Optional[List[float]] = Field(default=None, sa_column=Column(Vector(384)))
     log_metadata: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSONB))
+    # Read-only mirror of the DB's STORED generated column (see db/schema.sql).
+    # `Computed(..., persisted=True)` is what tells SQLAlchemy "this is a
+    # GENERATED ALWAYS column" so INSERT/UPDATE statements skip it. DDL is
+    # owned by schema.sql; the expression here is duplicated only for
+    # SQLAlchemy's metadata — keep the two in sync.
+    text_tsv: Optional[Any] = Field(
+        default=None,
+        sa_column=Column(
+            TSVECTOR,
+            Computed(
+                "setweight(to_tsvector('english', coalesce(text, '')), 'A') || "
+                "setweight(to_tsvector('english', coalesce(source_service, '')), 'B') || "
+                "setweight(to_tsvector('english', coalesce(log_level, '')), 'C')",
+                persisted=True,
+            ),
+            nullable=True,
+        ),
+    )
 
 class Conversation(SQLModel, table=True):
     __tablename__ = "conversations"
