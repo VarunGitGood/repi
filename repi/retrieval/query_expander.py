@@ -41,9 +41,11 @@ def expand_query_static(query: str) -> List[str]:
 MAX_VARIANTS = 3
 """Total cap on the variant list (including the original). Each variant
 doubles RRF fan-out — one vector + one FTS query per leg, per variant — so
-the cap directly bounds /chat latency. Three is the smallest number that
-still gives the static dictionary room to inject one synonym AND the LLM
-room to inject one rephrasing on top of the original."""
+the cap directly bounds /chat latency. The expander fills the budget from
+cheap-to-expensive: original first, static-dictionary synonyms next, and
+the LLM is only called if there's still room. Static dictionaries are
+deterministic and free; an LLM roundtrip is hundreds of ms — calling it
+when the budget is already full would only do work that gets truncated."""
 
 
 class QueryExpander:
@@ -51,34 +53,47 @@ class QueryExpander:
         self.llm = llm
 
     async def expand(self, query: str) -> List[str]:
-        # Always run static expansion
+        # Static expansion first, then dedup case-insensitively. The static
+        # expander is bounded internally; the dedup pass tells us how much of
+        # the MAX_VARIANTS budget is still unfilled.
+        #
+        # Dedup key normalises case AND collapses internal whitespace —
+        # "kafka broker" and "kafka   broker" tokenize identically to both the
+        # FTS and embedding legs, so treating them as separate variants would
+        # just double the RRF fan-out for the same retrieval.
+        def _key(v: str) -> str:
+            return " ".join(v.lower().split())
+
         variants = expand_query_static(query)
-
-        # If LLM configured, add up to 2 more LLM-generated variants
-        if self.llm is not None:
-            try:
-                llm_variants = await self._llm_expand(query)
-                variants.extend(llm_variants[:2])
-            except Exception as e:
-                logger.warning(f"LLM query expansion failed: {e}")
-
-        # Case-insensitive dedup that keeps original ordering. The original
-        # query is always whatever expand_query_static() returned first; we
-        # preserve that position.
         seen_lower: set[str] = set()
         deduped: List[str] = []
         for v in variants:
-            key = v.strip().lower()
+            key = _key(v)
             if not key or key in seen_lower:
                 continue
             seen_lower.add(key)
             deduped.append(v)
 
-        if len(variants) > len(deduped):
-            logger.debug(
-                "QueryExpander: dropped %d duplicate variant(s)",
-                len(variants) - len(deduped),
-            )
+        # Only spend an LLM roundtrip if static didn't already fill the cap.
+        # Without this short-circuit, any LLM variants we generate would just
+        # get truncated by the final [:MAX_VARIANTS] slice — wasted work and
+        # latency. Cap how many LLM variants we ask for to exactly the room
+        # that's left.
+        room = MAX_VARIANTS - len(deduped)
+        if room > 0 and self.llm is not None:
+            try:
+                llm_variants = await self._llm_expand(query)
+                for v in llm_variants:
+                    key = _key(v)
+                    if not key or key in seen_lower:
+                        continue
+                    seen_lower.add(key)
+                    deduped.append(v)
+                    if len(deduped) >= MAX_VARIANTS:
+                        break
+            except Exception as e:
+                logger.warning(f"LLM query expansion failed: {e}")
+
         return deduped[:MAX_VARIANTS]
 
     async def _llm_expand(self, query: str) -> List[str]:

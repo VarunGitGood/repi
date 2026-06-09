@@ -28,12 +28,13 @@ async def test_expand_caps_total_variants():
 
 @pytest.mark.asyncio
 async def test_expand_case_insensitive_dedup(monkeypatch):
-    """A variant that only differs in case from another must be dropped."""
-    # Static expansion produces variants by lowercasing first → already
-    # mostly normalised. Inject case-divergent variants via the LLM hook to
-    # exercise the dedup pass.
+    """A variant that only differs in case from another must be dropped.
+
+    Uses a query whose tokens are not in the synonym dictionary so static
+    expansion returns only [original], leaving room in the cap for the LLM
+    branch — this is the path the dedup pass needs to cover."""
     async def fake_llm_expand(self, query):
-        return ["PAYMENT ERROR", "payment error", "Payment   Error"]
+        return ["KAFKA BROKER", "kafka broker", "Kafka   Broker"]
 
     monkeypatch.setattr(QueryExpander, "_llm_expand", fake_llm_expand)
 
@@ -41,11 +42,36 @@ async def test_expand_case_insensitive_dedup(monkeypatch):
         pass
 
     exp = QueryExpander(llm=_StubLLM())
-    out = await exp.expand("payment error")
+    out = await exp.expand("kafka broker")
 
-    # Case-insensitive equivalent variants collapse to one.
+    # All three LLM stubs collapse to the original. Result is just [original].
     lowered = [v.strip().lower() for v in out]
     assert len(set(lowered)) == len(lowered)
+    assert lowered == ["kafka broker"]
+
+
+@pytest.mark.asyncio
+async def test_expand_skips_llm_when_static_fills_budget(monkeypatch):
+    """No LLM roundtrip when static synonyms already fill MAX_VARIANTS.
+    Regression for the PR #70 review: generating LLM variants only to
+    truncate them is wasted latency."""
+    called = False
+
+    async def fake_llm_expand(self, query):
+        nonlocal called
+        called = True
+        return ["never reached"]
+
+    monkeypatch.setattr(QueryExpander, "_llm_expand", fake_llm_expand)
+
+    class _StubLLM:
+        pass
+
+    exp = QueryExpander(llm=_StubLLM())
+    # "error" is a synonym-dict key — static expansion fills the 3-variant cap.
+    out = await exp.expand("payment error")
+    assert len(out) == MAX_VARIANTS
+    assert called is False
 
 
 @pytest.mark.asyncio
