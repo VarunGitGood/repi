@@ -1,9 +1,13 @@
 "use client"
 
+import { useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { AlertTriangle, Sparkles, User } from "lucide-react"
+import { AlertTriangle, Clock, Layers, Microscope, Sparkles, User } from "lucide-react"
 import { EventClusters, type Cluster } from "@/components/chat/EventClusters"
+import { Timeline, type TimelineEntry } from "@/components/chat/Timeline"
+import { CitedChunks, type CitedChunk } from "@/components/chat/CitedChunks"
 
 export type ChatMessageProps = {
   role: "user" | "assistant"
@@ -13,6 +17,10 @@ export type ChatMessageProps = {
   isClarification?: boolean
   streaming?: boolean
   clusters?: Cluster[]
+  timeline?: TimelineEntry[]
+  citedChunks?: CitedChunk[]
+  query?: string
+  onInvestigateDeeper?: (query: string) => void
 }
 
 // Strip raw chunk citations the LLM may still inline despite the system
@@ -34,9 +42,42 @@ export function ChatMessageView({
   isClarification,
   streaming,
   clusters,
+  timeline,
+  citedChunks,
+  query,
+  onInvestigateDeeper,
 }: ChatMessageProps) {
   const isUser = role === "user"
   const displayed = isUser ? content : cleanContent(content)
+
+  // Lift open state out of the three panels so the quick-action buttons can
+  // open them on demand. Uncontrolled fallback inside each panel handles
+  // the no-button path.
+  const [timelineOpen, setTimelineOpen] = useState<boolean | undefined>(undefined)
+  const [clustersOpen, setClustersOpen] = useState<boolean | undefined>(undefined)
+  const [chunksOpen, setChunksOpen] = useState<boolean | undefined>(undefined)
+
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const clustersRef = useRef<HTMLDivElement>(null)
+  const chunksRef = useRef<HTMLDivElement>(null)
+
+  const showAndScroll = (
+    setter: (v: boolean) => void,
+    ref: React.RefObject<HTMLDivElement | null>,
+  ) => {
+    setter(true)
+    // Defer the scroll so the panel has rendered open before measuring.
+    requestAnimationFrame(() => {
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+    })
+  }
+
+  const hasTimeline = !!(timeline && timeline.length > 0)
+  const hasClusters = !!(clusters && clusters.length > 0)
+  const hasChunks = !!(citedChunks && citedChunks.length > 0)
+  const showQuickActions =
+    !isUser && !streaming && (hasTimeline || hasClusters || (onInvestigateDeeper && query))
+
   return (
     <div className={cn("flex gap-3 max-w-3xl mx-auto px-4", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
@@ -61,6 +102,7 @@ export function ChatMessageView({
           )}
           {displayed || (streaming ? <span className="opacity-60">…</span> : "")}
         </div>
+
         {!isUser && confidence && (
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <Badge variant="outline" className="text-muted-foreground">
@@ -68,8 +110,59 @@ export function ChatMessageView({
             </Badge>
           </div>
         )}
-        {!isUser && clusters && clusters.length > 0 && (
-          <EventClusters clusters={clusters} />
+
+        {showQuickActions && (
+          <div className="flex items-center gap-1.5 flex-wrap text-xs">
+            {hasTimeline && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => showAndScroll(setTimelineOpen, timelineRef)}
+              >
+                <Clock className="size-3" />
+                Show timeline
+              </Button>
+            )}
+            {hasClusters && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => showAndScroll(setClustersOpen, clustersRef)}
+              >
+                <Layers className="size-3" />
+                Show clusters
+              </Button>
+            )}
+            {onInvestigateDeeper && query && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => onInvestigateDeeper(query)}
+              >
+                <Microscope className="size-3" />
+                Investigate deeper
+              </Button>
+            )}
+          </div>
+        )}
+
+        {hasTimeline && (
+          <div ref={timelineRef}>
+            <Timeline entries={timeline!} open={timelineOpen} onOpenChange={setTimelineOpen} />
+          </div>
+        )}
+        {hasClusters && (
+          <div ref={clustersRef}>
+            <EventClusters clusters={clusters!} open={clustersOpen} onOpenChange={setClustersOpen} />
+          </div>
+        )}
+        {hasChunks && (
+          <div ref={chunksRef}>
+            <CitedChunks chunks={citedChunks!} open={chunksOpen} onOpenChange={setChunksOpen} />
+          </div>
         )}
       </div>
       {isUser && (

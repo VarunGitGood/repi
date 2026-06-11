@@ -35,6 +35,20 @@ type Turn =
 // `/investigate` path is intentionally stateless and ignores this.
 const CHAT_HISTORY_TURNS = 6
 
+// Pull the most recent assistant chat turn's cited chunks so the next /chat
+// turn can bias retrieval toward the same service + time envelope. Stream 4
+// followup awareness — the backend treats this as a soft hint and never
+// overrides explicit intent.
+function lastChatChunkIds(turns: Turn[]): string[] {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    if (t.mode === "chat" && t.role === "assistant" && t.chunkIds && t.chunkIds.length > 0) {
+      return t.chunkIds
+    }
+  }
+  return []
+}
+
 function buildChatHistory(turns: Turn[]): { role: "user" | "assistant"; content: string }[] {
   // Treat both chat turns and completed investigation answers as conversation
   // history. An investigation that hasn't produced a final answer yet is
@@ -148,6 +162,7 @@ export default function HomePage() {
     // Send last N turns as history so the server can keep the assistant
     // contextual across followups (lite — no DB lookup, no compaction).
     const history = buildChatHistory(turns)
+    const previousChunkIds = lastChatChunkIds(turns)
     try {
       const resp = await fetch(`${API_BASE}/chat`, {
         method: "POST",
@@ -156,6 +171,7 @@ export default function HomePage() {
           query,
           conversation_id: conversationId ?? undefined,
           history,
+          previous_chunk_ids: previousChunkIds,
         }),
       })
       if (!resp.ok || !resp.body) {
@@ -170,7 +186,7 @@ export default function HomePage() {
         arr.findIndex((t) => t.mode === "chat" && (t as any).pendingId === pendingId)
       setTurns((prev) => [
         ...prev,
-        { mode: "chat", role: "assistant", content: "", chunkIds: [], confidence: null, streaming: true, pendingId } as any,
+        { mode: "chat", role: "assistant", content: "", chunkIds: [], confidence: null, streaming: true, pendingId, query } as any,
       ])
 
       const reader = resp.body.getReader()
@@ -226,6 +242,8 @@ export default function HomePage() {
                   chunkIds: data.chunk_ids ?? [],
                   confidence: data.confidence ?? null,
                   clusters: data.clusters ?? [],
+                  timeline: data.timeline ?? [],
+                  citedChunks: data.cited_chunks ?? [],
                   streaming: false,
                 }
                 return next
@@ -267,15 +285,30 @@ export default function HomePage() {
               </div>
               <h1 className="text-2xl font-semibold tracking-tight mb-1">Chat with your logs</h1>
               <p className="text-muted-foreground text-sm max-w-md">
-                Ask a quick question for a single-shot RAG answer. Toggle{" "}
-                <span className="font-medium text-foreground">Deep Research</span> on to run a full
-                multi-step investigation.
+                Hybrid retrieval over your ingested logs surfaces a chronological{" "}
+                <span className="font-medium text-foreground">timeline</span> and the{" "}
+                <span className="font-medium text-foreground">event clusters</span> behind your
+                question. Toggle{" "}
+                <span className="font-medium text-foreground">Deep Research</span> for a
+                full autonomous root-cause investigation.
               </p>
             </div>
           ) : (
             turns.map((t, i) =>
               t.mode === "chat" ? (
-                <ChatMessageView key={i} {...t} />
+                <ChatMessageView
+                  key={i}
+                  {...t}
+                  onInvestigateDeeper={(q) => {
+                    // handleSend reads its second arg as the deep-research
+                    // decision (not React state) — so the setDeepResearch
+                    // call below is purely for UI sync (the toggle visually
+                    // moves), not a precondition for the routing. Order
+                    // doesn't matter; setState's asynchrony doesn't race.
+                    setDeepResearch(true)
+                    handleSend(q, true)
+                  }}
+                />
               ) : (
                 <InvestigateTurnView
                   key={t.id}

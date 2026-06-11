@@ -27,9 +27,21 @@ function formatTs(iso: string | null): string {
   return t
 }
 
-export function EventClusters({ clusters }: { clusters: Cluster[] }) {
-  // Default open when small enough to scan at a glance.
-  const [open, setOpen] = useState(clusters.length > 0 && clusters.length <= 5)
+export function EventClusters({
+  clusters,
+  open: openProp,
+  onOpenChange,
+}: {
+  clusters: Cluster[]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}) {
+  const [openUncontrolled, setOpenUncontrolled] = useState(clusters.length > 0 && clusters.length <= 5)
+  const open = openProp ?? openUncontrolled
+  const setOpen = (v: boolean) => {
+    if (onOpenChange) onOpenChange(v)
+    else setOpenUncontrolled(v)
+  }
 
   if (!clusters || clusters.length === 0) return null
 
@@ -37,7 +49,7 @@ export function EventClusters({ clusters }: { clusters: Cluster[] }) {
     <div className="rounded-lg border border-border/60 bg-muted/30 text-xs">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 transition-colors"
       >
         {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
