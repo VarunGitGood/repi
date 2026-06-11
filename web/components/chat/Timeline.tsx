@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { ChevronDown, ChevronRight, Clock } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { levelTone } from "@/lib/log-levels"
 
 export type TimelineEntry = {
   service: string | null
@@ -22,22 +23,6 @@ function formatTs(iso: string): string {
 function formatRange(first: string, last: string): string {
   if (first === last) return formatTs(first)
   return `${formatTs(first)}–${formatTs(last)}`
-}
-
-function levelTone(level: string | null): string {
-  switch ((level || "").toUpperCase()) {
-    case "ERROR":
-    case "CRITICAL":
-    case "FATAL":
-      return "text-red-500 border-red-500/30"
-    case "WARNING":
-    case "WARN":
-      return "text-amber-500 border-amber-500/30"
-    case "INFO":
-      return "text-blue-500 border-blue-500/30"
-    default:
-      return "text-muted-foreground border-border"
-  }
 }
 
 // Optional controlled `open` so a parent (e.g. a quick-action button on the
