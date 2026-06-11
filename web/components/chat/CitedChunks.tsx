@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { ChevronDown, ChevronRight, FileText } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { levelTone } from "@/lib/log-levels"
 
 export type CitedChunk = {
   chunk_id: string
@@ -62,7 +64,7 @@ export function CitedChunks({
                   </Badge>
                 )}
                 {c.level && (
-                  <Badge variant="outline" className="px-1.5 py-0">
+                  <Badge variant="outline" className={cn("px-1.5 py-0", levelTone(c.level))}>
                     {c.level}
                   </Badge>
                 )}
