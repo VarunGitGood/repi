@@ -18,6 +18,7 @@ class WatcherConfigCreate(BaseModel):
     watch_path: str
     env: str = "production"
     enabled: bool = True
+    project_id: UUID | None = None
 
 class WatcherConfigRead(BaseModel):
     id: UUID
@@ -25,6 +26,7 @@ class WatcherConfigRead(BaseModel):
     watch_path: str
     env: str
     enabled: bool
+    project_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -33,6 +35,7 @@ class WatcherConfigUpdate(BaseModel):
     watch_path: str = None
     env: str = None
     enabled: bool = None
+    project_id: UUID = None
 
 class WatcherStatus(BaseModel):
     file_path: str
@@ -44,11 +47,18 @@ class WatcherStatus(BaseModel):
 async def create_watcher(config: WatcherConfigCreate):
     container = get_container()
     async with container.get_session() as session:
+        # No project given → Default, so every watcher (and the chunks its
+        # worker ingests) always lands in a project.
+        project_id = config.project_id
+        if project_id is None:
+            from repi.api.projects import resolve_project
+            project_id = (await resolve_project(session, None)).id
         db_config = WatcherConfig(
             service_name=config.service_name,
             watch_path=config.watch_path,
             env=config.env,
-            enabled=config.enabled
+            enabled=config.enabled,
+            project_id=project_id,
         )
         session.add(db_config)
         await session.commit()

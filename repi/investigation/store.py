@@ -28,6 +28,7 @@ class InvestigationStore:
         self,
         query: str,
         conversation_id: Optional[UUID] = None,
+        project_id: Optional[UUID] = None,
     ) -> Investigation:
         """Find an existing active investigation for the same (query, conversation)
         or create a new one. Same query in a *different* conversation creates a
@@ -45,15 +46,16 @@ class InvestigationStore:
             logger.info(f"Resuming existing investigation: {investigation.id}")
             return investigation
 
-        return await self.create(query, conversation_id=conversation_id)
+        return await self.create(query, conversation_id=conversation_id, project_id=project_id)
 
     async def create(
         self,
         query: str,
         conversation_id: Optional[UUID] = None,
+        project_id: Optional[UUID] = None,
     ) -> Investigation:
         """Always create a fresh investigation."""
-        investigation = Investigation(query=query, conversation_id=conversation_id)
+        investigation = Investigation(query=query, conversation_id=conversation_id, project_id=project_id)
         self.session.add(investigation)
         await self.session.commit()
         await self.session.refresh(investigation)

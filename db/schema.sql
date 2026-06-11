@@ -186,3 +186,53 @@ CREATE INDEX IF NOT EXISTS leaderboard_dataset_idx ON leaderboard (dataset);
 CREATE INDEX IF NOT EXISTS leaderboard_score_idx   ON leaderboard (dataset, aggregate_score DESC);
 CREATE INDEX IF NOT EXISTS leaderboard_created_idx ON leaderboard (created_at DESC);
 CREATE INDEX IF NOT EXISTS leaderboard_backend_idx ON leaderboard (embedding_backend);
+
+-- ── Projects (UX redesign P1) ────────────────────────────────────────────────
+-- A project is a logical system/application (e.g. "Ecommerce Platform").
+-- Workers, services (via log_chunks), conversations and investigations are
+-- scoped to a project. `settings` keys: default_timeline_window ("5h"),
+-- auto_load_timeline (true), max_events (25) — read by /projects/{id}/overview.
+CREATE TABLE IF NOT EXISTS projects (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       TEXT UNIQUE NOT NULL,
+    settings   JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE log_chunks      ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE SET NULL;
+ALTER TABLE watcher_configs ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE SET NULL;
+ALTER TABLE conversations   ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE SET NULL;
+ALTER TABLE investigations  ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS log_chunks_project_ts_idx ON log_chunks (project_id, timestamp_start);
+
+-- Real signature column ("Path B" from cluster_view.py): enables corpus-wide
+-- GROUP BY signature for the project overview's clusters and event feed,
+-- instead of re-parsing it out of `text` per row in Python. The ingestor
+-- writes it for new rows; the UPDATE below backfills pre-existing rows from
+-- the templated text body ("Signature: <sig>\nExamples: ...").
+ALTER TABLE log_chunks ADD COLUMN IF NOT EXISTS signature TEXT;
+UPDATE log_chunks
+    SET signature = split_part(split_part(text, E'\n', 1), 'Signature: ', 2)
+    WHERE signature IS NULL;
+CREATE INDEX IF NOT EXISTS log_chunks_signature_idx ON log_chunks (project_id, signature);
+
+-- Seed a Default project on first run and absorb all pre-project rows into it.
+-- Idempotent: the seed only fires when `projects` is empty, and the backfills
+-- only touch NULL project_id rows.
+DO $$
+DECLARE
+    default_id UUID;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM projects) THEN
+        INSERT INTO projects (name) VALUES ('Default');
+    END IF;
+    SELECT id INTO default_id FROM projects WHERE name = 'Default';
+    IF default_id IS NOT NULL THEN
+        UPDATE log_chunks      SET project_id = default_id WHERE project_id IS NULL;
+        UPDATE watcher_configs SET project_id = default_id WHERE project_id IS NULL;
+        UPDATE conversations   SET project_id = default_id WHERE project_id IS NULL;
+        UPDATE investigations  SET project_id = default_id WHERE project_id IS NULL;
+    END IF;
+END $$;
