@@ -54,7 +54,7 @@ async def main() -> None:
                 print(f"  SKIP {service}: {path} not found")
                 continue
             content = path.read_text().replace(STORY_DATE, anchor_str)
-            count = await ingestor.ingest(content, source_service=service, source_env="eval")
+            count = (await ingestor.ingest(content, source_service=service, source_env="eval")).chunk_count
             print(f"  {service:20s}  {count:4d} chunks  ({filename})")
             total += count
 

@@ -6,8 +6,23 @@ from typing import List, Optional
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from pydantic import Field
 
-CONFIG_DIR = Path(".repi")
-CONFIG_PATH = CONFIG_DIR / "config.json"
+def _resolve_config_path() -> Path:
+    """Locate .repi/config.json: cwd first (docker runs from /app), then parent
+    directories (running from a subdir of a checkout), then alongside the
+    package (where `repi init` writes it). Falls back to the cwd-relative
+    default so a fresh PUT /config can still create the file."""
+    rel = Path(".repi") / "config.json"
+    for base in [Path.cwd(), *Path.cwd().parents]:
+        candidate = base / rel
+        if candidate.exists():
+            return candidate
+    pkg_anchored = Path(__file__).resolve().parent.parent.parent / rel
+    if pkg_anchored.exists():
+        return pkg_anchored
+    return rel
+
+CONFIG_PATH = _resolve_config_path()
+CONFIG_DIR = CONFIG_PATH.parent
 
 class Settings(BaseSettings):
     REPI_ENV: str = Field(default="production", description="Runtime environment")
@@ -55,6 +70,14 @@ class Settings(BaseSettings):
     # Forced re-plan turn every N action steps to break perseveration.
     ENABLE_REFLECTION: bool = True
     REFLECTION_INTERVAL: int = 3
+
+    # /chat followup-bias envelope. When a turn omits an explicit time
+    # window AND the previous assistant turn cited chunks, the chat path
+    # widens the previous turn's first/last timestamps by this much on
+    # each side. Same conceptual dial as TIME_WINDOW_INITIAL_MINUTES — kept
+    # separate because the followup window is much narrower than a fresh
+    # search and operators want to tune them independently.
+    FOLLOWUP_BIAS_WINDOW_MINUTES: int = 5
 
     # Extra entity-detection regex patterns. Industry-standard IDs (UUID, W3C
     # trace/span ids, ULID, Stripe/Twilio-style prefixed ids, AWS resource ids,

@@ -1,6 +1,6 @@
 # repi
 
-Log ingestion and LLM-based investigation engine. Ingests log files into PostgreSQL (pgvector), retrieves relevant log clusters via hybrid search (BM25 + dense vectors with RRF), and runs a ReAct loop where an LLM autonomously investigates root causes.
+Local-first log observability. repi continuously ingests logs, indexes them into a hybrid retrieval system (pgvector HNSW + Postgres FTS with weighted tsvector + pg_trgm fuzzy match), clusters related events, builds incident timelines, and can optionally launch an autonomous root-cause investigation through a ReAct loop. Designed to run on a single machine against a local Postgres — no SaaS, no shared state.
 
 ## Architecture
 
@@ -45,7 +45,7 @@ On first start, the entrypoint seeds `/app/.repi/config.json` from a baked-in de
 - Visit the **Config** page in the UI, pick a provider, paste your API key, save. The API hot-reloads.
 - Your config persists across `docker compose down` (lost only on `down -v`).
 
-Pin a release via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.1.0 docker compose up -d`.
+Pin a release via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.2.0 docker compose up -d`.
 
 ### Option 1b — Hack on it (contributor / dev path)
 
@@ -88,16 +88,17 @@ curl -X POST \
 
 ### Investigate
 
+Starting an investigation is a two-step flow: `POST /investigate` registers it and returns an `id`; attaching to the SSE stream is what actually executes the ReAct loop (the web UI does this for you). A `POST` with no stream consumer stays in `started` and never runs.
+
 ```bash
+# 1. Register the investigation — returns {"id": "...", ...}
 curl -X POST http://localhost:8000/investigate \
   -H "Content-Type: application/json" \
   -d '{"query": "why did checkout fail last friday night"}'
-```
 
-Stream the ReAct steps live:
-
-```bash
-curl -N http://localhost:8000/investigate/{id}/stream
+# 2. Attach to the stream to execute it and watch the ReAct steps live.
+#    Reconnecting replays persisted steps, then continues.
+curl -N http://localhost:8000/investigations/{id}/stream
 ```
 
 ### Continuous ingestion with the Worker

@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 from repi.worker import IngestionWorker
+from repi.ingestion.log_ingestor import IngestStats
 from repi.models.schema import WatcherConfig, WatcherOffset
 
 @pytest.mark.asyncio
@@ -32,7 +33,7 @@ async def test_offset_resume(tmp_path):
     mock_session.commit = AsyncMock()
     mock_session.refresh = AsyncMock()
     mock_ingestor = AsyncMock()
-    mock_ingestor.ingest = AsyncMock(return_value=2)
+    mock_ingestor.ingest = AsyncMock(return_value=IngestStats(chunk_count=2))
 
     # get_session() returns an async context manager that yields mock_session
     mock_ctx = MagicMock()
