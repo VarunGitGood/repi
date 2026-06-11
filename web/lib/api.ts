@@ -36,16 +36,33 @@ export const api = {
   investigations: {
     list: () => fetchApi("/investigations"),
     get: (id: string) => fetchApi(`/investigations/${id}`),
-    create: (query: string, conversation_id?: string) =>
+    create: (query: string, conversation_id?: string, project_id?: string) =>
       fetchApi("/investigate", {
         method: "POST",
-        body: JSON.stringify(conversation_id ? { query, conversation_id } : { query }),
+        body: JSON.stringify({
+          query,
+          ...(conversation_id ? { conversation_id } : {}),
+          ...(project_id ? { project_id } : {}),
+        }),
       }),
     clarify: (id: string, reply: string) => fetchApi(`/investigations/${id}/clarify`, { method: "POST", body: JSON.stringify({ reply }) }),
   },
   conversations: {
     list: () => fetchApi("/conversations"),
     get: (id: string) => fetchApi(`/conversations/${id}`),
+  },
+  projects: {
+    list: () => fetchApi("/projects"),
+    create: (name: string) => fetchApi("/projects", { method: "POST", body: JSON.stringify({ name }) }),
+    update: (id: string, data: any) => fetchApi(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    services: (id: string) => fetchApi(`/projects/${id}/services`),
+    overview: (id: string, window?: string, service?: string) => {
+      const params = new URLSearchParams();
+      if (window) params.set("window", window);
+      if (service) params.set("service", service);
+      const qs = params.toString();
+      return fetchApi(`/projects/${id}/overview${qs ? `?${qs}` : ""}`);
+    },
   },
 };
 

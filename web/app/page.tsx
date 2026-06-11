@@ -6,6 +6,8 @@ import { ChatInput } from "@/components/chat/ChatInput"
 import { ChatMessageView, ChatMessageProps } from "@/components/chat/ChatMessage"
 import { ConversationSidebar } from "@/components/conversations/ConversationSidebar"
 import { InvestigationStepCard } from "@/components/investigation-step"
+import { ProjectPicker } from "@/components/projects/ProjectPicker"
+import { ProjectOverview, type SuggestedAction } from "@/components/projects/ProjectOverview"
 import { Step, useSSE } from "@/lib/sse"
 import { Badge } from "@/components/ui/badge"
 import { Sparkles } from "lucide-react"
@@ -69,6 +71,9 @@ function buildChatHistory(turns: Turn[]): { role: "user" | "assistant"; content:
 
 export default function HomePage() {
   const [conversationId, setConversationId] = useState<string | null>(null)
+  // Context-before-investigation: every conversation is scoped to a project.
+  // null → show the picker (which auto-selects when only one project exists).
+  const [project, setProject] = useState<{ id: string; name: string } | null>(null)
   const [deepResearch, setDeepResearch] = useState(false)
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
@@ -97,11 +102,19 @@ export default function HomePage() {
   const loadConversation = useCallback(async (id: string | null) => {
     setConversationId(id)
     if (!id) {
+      // New conversation → back to project selection (the picker auto-skips
+      // itself when exactly one project exists).
+      setProject(null)
       setTurns([])
       return
     }
     try {
       const detail = await api.conversations.get(id)
+      setProject(
+        detail.project_id
+          ? { id: detail.project_id, name: detail.project_name ?? "Project" }
+          : null,
+      )
       const rendered: Turn[] = detail.turns.map((t: any, idx: number) => {
         if (t.mode === "chat") {
           return {
@@ -136,7 +149,7 @@ export default function HomePage() {
     if (dr) {
       // Toggle ON → kick off a real investigation, embed its SSE stream.
       try {
-        const res = await api.investigations.create(query, conversationId ?? undefined)
+        const res = await api.investigations.create(query, conversationId ?? undefined, project?.id)
         if (!conversationId && res.conversation_id) {
           setConversationId(res.conversation_id)
         }
@@ -170,6 +183,7 @@ export default function HomePage() {
         body: JSON.stringify({
           query,
           conversation_id: conversationId ?? undefined,
+          project_id: project?.id ?? undefined,
           history,
           previous_chunk_ids: previousChunkIds,
         }),
@@ -269,6 +283,34 @@ export default function HomePage() {
 
   const empty = turns.length === 0
 
+  // Suggested-action chips from the overview: investigate → Deep Research
+  // path; chat → normal /chat turn. Both flow through handleSend so the
+  // conversation/threading behaviour is identical to typing the query.
+  function handleSuggestedAction(action: SuggestedAction) {
+    if (action.kind === "investigate") {
+      setDeepResearch(true)
+      handleSend(action.query, true)
+    } else {
+      handleSend(action.query, false)
+    }
+  }
+
+  // New chat, no project yet → step 1 of the flow: pick (or create) a project.
+  if (!conversationId && !project) {
+    return (
+      <div className="flex h-[calc(100vh-3.5rem)]">
+        <ConversationSidebar
+          activeId={conversationId}
+          onSelect={loadConversation}
+          refreshKey={sidebarRefresh}
+        />
+        <main className="flex-1 flex flex-col">
+          <ProjectPicker onSelect={(p) => setProject({ id: p.id, name: p.name })} />
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
       <ConversationSidebar
@@ -279,20 +321,15 @@ export default function HomePage() {
       <main className="flex-1 flex flex-col">
         <div ref={scrollRef} className="flex-1 overflow-y-auto py-6 space-y-4">
           {empty ? (
-            <div className="h-full flex flex-col items-center justify-center text-center px-4">
-              <div className="size-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-                <Sparkles className="size-6 text-primary" />
-              </div>
-              <h1 className="text-2xl font-semibold tracking-tight mb-1">Chat with your logs</h1>
-              <p className="text-muted-foreground text-sm max-w-md">
-                Hybrid retrieval over your ingested logs surfaces a chronological{" "}
-                <span className="font-medium text-foreground">timeline</span> and the{" "}
-                <span className="font-medium text-foreground">event clusters</span> behind your
-                question. Toggle{" "}
-                <span className="font-medium text-foreground">Deep Research</span> for a
-                full autonomous root-cause investigation.
-              </p>
-            </div>
+            // Timeline-first landing: no empty chat screen. The overview
+            // answers "what happened recently?" before the user types.
+            project ? (
+              <ProjectOverview
+                projectId={project.id}
+                projectName={project.name}
+                onAction={handleSuggestedAction}
+              />
+            ) : null
           ) : (
             turns.map((t, i) =>
               t.mode === "chat" ? (
