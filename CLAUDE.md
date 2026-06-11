@@ -53,10 +53,12 @@ make reset-investigations   # TRUNCATE investigations CASCADE
 # Ingest a log file (via HTTP API)
 curl -X POST -F "service=my-svc" -F "file=@/path/to/app.log" http://localhost:8000/ingest
 
-# Run an investigation (via HTTP API)
+# Run an investigation (via HTTP API). POST only registers it and returns an
+# id — execution happens while a client is attached to the SSE stream.
 curl -X POST http://localhost:8000/investigate \
   -H "Content-Type: application/json" \
   -d '{"query": "why did checkout fail last friday night"}'
+curl -N http://localhost:8000/investigations/{id}/stream
 
 # Background worker for continuous ingestion
 uv run python -m repi.worker
