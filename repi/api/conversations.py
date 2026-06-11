@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from repi.core.container import get_container
-from repi.models.schema import ChatMessage, Conversation, Investigation
+from repi.models.schema import ChatMessage, Conversation, Investigation, Project
 
 logger = logging.getLogger("repi.api.conversations")
 
@@ -25,6 +25,8 @@ router = APIRouter()
 class ConversationSummary(BaseModel):
     id: str
     title: Optional[str]
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -43,6 +45,8 @@ class TranscriptTurn(BaseModel):
 class ConversationDetail(BaseModel):
     id: str
     title: Optional[str]
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
     created_at: str
     updated_at: str
     turns: List[TranscriptTurn]
@@ -59,10 +63,14 @@ async def list_conversations(limit: int = 50):
         )
         res = await session.exec(stmt)
         rows = list(res.all())
+        name_res = await session.exec(select(Project.id, Project.name))
+        project_names = {pid: name for pid, name in name_res.all()}
     return [
         ConversationSummary(
             id=str(c.id),
             title=c.title,
+            project_id=str(c.project_id) if c.project_id else None,
+            project_name=project_names.get(c.project_id),
             created_at=c.created_at.isoformat(),
             updated_at=c.updated_at.isoformat(),
         )
@@ -83,6 +91,11 @@ async def get_conversation(conversation_id: str):
         conv = conv_res.first()
         if conv is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
+
+        project_name = None
+        if conv.project_id is not None:
+            proj = await session.get(Project, conv.project_id)
+            project_name = proj.name if proj else None
 
         msg_res = await session.exec(
             select(ChatMessage)
@@ -125,6 +138,8 @@ async def get_conversation(conversation_id: str):
     return ConversationDetail(
         id=str(conv.id),
         title=conv.title,
+        project_id=str(conv.project_id) if conv.project_id else None,
+        project_name=project_name,
         created_at=conv.created_at.isoformat(),
         updated_at=conv.updated_at.isoformat(),
         turns=turns,

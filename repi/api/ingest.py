@@ -9,6 +9,7 @@ router = APIRouter()
 
 class IngestResponse(BaseModel):
     service: str
+    project: str
     chunk_count: int
     lines_total: int
     lines_with_timestamp: int
@@ -18,18 +19,25 @@ class IngestResponse(BaseModel):
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(
     service: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    project: str | None = Form(None),
 ):
     """
     Ingest logs from a file for a specific service.
+
+    `project` is a project name (get-or-create) or id (must exist); omitted
+    → the Default project.
     """
+    from repi.api.projects import resolve_project
+
     content = await file.read()
     content_str = content.decode("utf-8")
 
     container = get_container()
     async with container.get_session() as session:
+        project_row = await resolve_project(session, project)
         ingestor = container.get_ingestor(session)
-        stats = await ingestor.ingest(content_str, service)
+        stats = await ingestor.ingest(content_str, service, project_id=project_row.id)
 
     # Refresh the in-memory service list so a brand-new service is visible to
     # the intent resolver immediately, not only after a restart or GET /services.
@@ -44,6 +52,7 @@ async def ingest(
 
     return IngestResponse(
         service=service,
+        project=project_row.name,
         chunk_count=stats.chunk_count,
         lines_total=stats.lines_total,
         lines_with_timestamp=stats.lines_with_timestamp,
