@@ -45,7 +45,7 @@ On first start, the entrypoint seeds `/app/.repi/config.json` from a baked-in de
 - Visit the **Config** page in the UI, pick a provider, paste your API key, save. The API hot-reloads.
 - Your config persists across `docker compose down` (lost only on `down -v`).
 
-Pin a release via `REPI_IMAGE=ghcr.io/varungitgood/repi:v0.2.0 docker compose up -d`.
+Pin a release via `REPI_IMAGE=ghcr.io/varungitgood/repi:0.2.0 docker compose up -d`.
 
 ### Option 1b — Hack on it (contributor / dev path)
 
