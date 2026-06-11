@@ -88,16 +88,17 @@ curl -X POST \
 
 ### Investigate
 
+Starting an investigation is a two-step flow: `POST /investigate` registers it and returns an `id`; attaching to the SSE stream is what actually executes the ReAct loop (the web UI does this for you). A `POST` with no stream consumer stays in `started` and never runs.
+
 ```bash
+# 1. Register the investigation — returns {"id": "...", ...}
 curl -X POST http://localhost:8000/investigate \
   -H "Content-Type: application/json" \
   -d '{"query": "why did checkout fail last friday night"}'
-```
 
-Stream the ReAct steps live:
-
-```bash
-curl -N http://localhost:8000/investigate/{id}/stream
+# 2. Attach to the stream to execute it and watch the ReAct steps live.
+#    Reconnecting replays persisted steps, then continues.
+curl -N http://localhost:8000/investigations/{id}/stream
 ```
 
 ### Continuous ingestion with the Worker
