@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     ENABLE_REFLECTION: bool = True
     REFLECTION_INTERVAL: int = 3
 
+    # /chat followup-bias envelope. When a turn omits an explicit time
+    # window AND the previous assistant turn cited chunks, the chat path
+    # widens the previous turn's first/last timestamps by this much on
+    # each side. Same conceptual dial as TIME_WINDOW_INITIAL_MINUTES — kept
+    # separate because the followup window is much narrower than a fresh
+    # search and operators want to tune them independently.
+    FOLLOWUP_BIAS_WINDOW_MINUTES: int = 5
+
     # Extra entity-detection regex patterns. Industry-standard IDs (UUID, W3C
     # trace/span ids, ULID, Stripe/Twilio-style prefixed ids, AWS resource ids,
     # git SHAs, hyphenated IDs containing a digit) are matched out of the box
