@@ -40,3 +40,5 @@ eval/results/
 # Closure / launch tracker (private; not for public repo)
 todo/
 
+tmp-ui-tests/
+assets/
