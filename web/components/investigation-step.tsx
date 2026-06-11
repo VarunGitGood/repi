@@ -7,8 +7,18 @@ import { Spinner } from "@/components/ui/spinner"
 import { Terminal, Brain, Search, ChevronDown, ChevronRight, Sparkles, Lightbulb, Flag } from "lucide-react"
 import { useState } from "react"
 import ReactMarkdown from "react-markdown"
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
+
+// Neutral JSON rendering — matches CitedChunks' raw-text styling so every
+// monospace panel in the app reads the same. Syntax-highlighting themes
+// (vscDarkPlus etc.) brought a full colour scheme into an otherwise
+// two-tone UI and ignored light/dark mode.
+function JsonBlock({ value }: { value: unknown }) {
+  return (
+    <pre className="font-mono text-[11px] whitespace-pre-wrap break-all leading-snug text-foreground/85 m-0">
+      {JSON.stringify(value, null, 2)}
+    </pre>
+  )
+}
 
 export function InvestigationStepCard({ step }: { step: Step }) {
   const [showTool, setShowTool] = useState(false)
@@ -79,7 +89,7 @@ export function InvestigationStepCard({ step }: { step: Step }) {
 
         {/* Action/Tool Call */}
         {step.action && (
-          <div className="ml-8 border rounded-md overflow-hidden bg-card/50">
+          <div className="ml-8 border rounded-lg overflow-hidden bg-card/50">
             <button
               onClick={() => setShowTool(!showTool)}
               className="w-full flex items-center justify-between p-2 px-3 text-xs font-mono bg-muted/50 hover:bg-muted transition-colors"
@@ -93,13 +103,7 @@ export function InvestigationStepCard({ step }: { step: Step }) {
             </button>
             {showTool && (
               <div className="p-3 bg-muted/20">
-                <SyntaxHighlighter
-                  language="json"
-                  style={vscDarkPlus}
-                  customStyle={{ margin: 0, padding: 0, background: 'transparent', fontSize: '11px' }}
-                >
-                  {JSON.stringify(step.action.args, null, 2)}
-                </SyntaxHighlighter>
+                <JsonBlock value={step.action.args} />
               </div>
             )}
           </div>
@@ -107,7 +111,7 @@ export function InvestigationStepCard({ step }: { step: Step }) {
 
         {/* Observation */}
         {step.observation && (
-          <div className="ml-8 border rounded-md overflow-hidden bg-card/50">
+          <div className="ml-8 border rounded-lg overflow-hidden bg-card/50">
             <button
               onClick={() => setShowObservation(!showObservation)}
               className="w-full flex items-center justify-between p-2 px-3 text-xs font-mono bg-muted/50 hover:bg-muted transition-colors"
@@ -125,13 +129,7 @@ export function InvestigationStepCard({ step }: { step: Step }) {
             </button>
             {showObservation && (
               <div className="max-h-[300px] overflow-auto p-3 bg-muted/20">
-                <SyntaxHighlighter
-                  language="json"
-                  style={vscDarkPlus}
-                  customStyle={{ margin: 0, padding: 0, background: 'transparent', fontSize: '11px' }}
-                >
-                  {JSON.stringify(step.observation, null, 2)}
-                </SyntaxHighlighter>
+                <JsonBlock value={step.observation} />
               </div>
             )}
           </div>
