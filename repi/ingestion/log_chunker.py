@@ -45,6 +45,10 @@ def get_signature(message: str) -> str:
         if len(tok) <= 3 and start > 0 and s[start - 1].isalpha() \
                 and end < len(s) and (s[end].isalpha() or s[end] == '_'):
             return tok
+        # API version segments (/api/v1/, v2) — a standalone 'v' + short digits.
+        if len(tok) <= 2 and start > 0 and s[start - 1] in 'vV' \
+                and (start == 1 or not s[start - 2].isalpha()):
+            return tok
         prefix = s[max(0, start - 12):start]
         if _HTTP_VERSION_CTX.search(prefix):
             return tok

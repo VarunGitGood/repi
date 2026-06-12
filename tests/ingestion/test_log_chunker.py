@@ -71,3 +71,9 @@ def test_apache_template_clusters_across_values():
     a = get_signature("mod_jk child workerEnv in error state 6")
     b = get_signature("mod_jk child workerEnv in error state 7")
     assert a == b
+
+
+def test_api_version_segment_preserved():
+    sig = get_signature("GET /api/v1/users/profile took 8231ms for user 99812")
+    assert "/api/v1/" in sig
+    assert "8231" not in sig and "99812" not in sig
