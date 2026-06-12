@@ -35,6 +35,46 @@ class LLMBadRequestError(LLMError):
         self.body = body
 
 
+async def _post_with_429_retry(url: str, *, provider: str, model: str,
+                               headers: Optional[dict] = None, json_body: dict,
+                               max_rate_limit_waits: int = 5,
+                               base_delay: float = 15.0) -> httpx.Response:
+    """POST, waiting out 429s instead of failing: honor Retry-After when the
+    provider sends it, exponential backoff with jitter otherwise. Raises
+    LLMRateLimitError once max_rate_limit_waits is exhausted. Non-429
+    responses are returned as-is for the caller to classify."""
+    import random
+    waits = 0
+    while True:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, headers=headers, json=json_body)
+
+        if response.status_code != 429:
+            return response
+
+        waits += 1
+        if waits > max_rate_limit_waits:
+            raise LLMRateLimitError(provider, model)
+
+        delay = None
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                delay = float(retry_after) + random.uniform(0, 2)
+                source = "Retry-After header"
+            except ValueError:
+                delay = None
+        if delay is None:
+            delay = base_delay * (2 ** min(waits, 3)) + random.uniform(0, 5)
+            source = "exponential backoff"
+
+        logger.warning(
+            "%s 429 — waiting %.1fs (source: %s) — wait #%d/%d",
+            provider, delay, source, waits, max_rate_limit_waits,
+        )
+        await asyncio.sleep(delay)
+
+
 def _check_4xx(response: httpx.Response, provider: str, model: str) -> None:
     """Raise typed errors for 4xx responses. 429 surfaces as a retryable
     rate-limit error; other 4xx as bad-request (do not retry)."""
@@ -64,20 +104,19 @@ class OpenAIProvider(LLMProvider):
 
     async def complete(self, messages: List[Message], max_tokens: int = 2000, temperature: float = 0.0) -> str:
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self._url,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    json={
-                        "model": self._model,
-                        "messages": [{"role": m.role, "content": m.content} for m in messages],
-                        "max_tokens": max_tokens,
-                        "temperature": temperature
-                    }
-                )
-                _check_4xx(response, "openai", self._model)
-                response.raise_for_status()
-                return response.json()["choices"][0]["message"]["content"]
+            response = await _post_with_429_retry(
+                self._url, provider="openai", model=self._model,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json_body={
+                    "model": self._model,
+                    "messages": [{"role": m.role, "content": m.content} for m in messages],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                }
+            )
+            _check_4xx(response, "openai", self._model)
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
         except LLMError:
             raise
         except Exception as e:
@@ -97,26 +136,25 @@ class AnthropicProvider(LLMProvider):
         try:
             system_msg = next((m.content for m in messages if m.role == "system"), None)
             user_messages = [{"role": m.role, "content": m.content} for m in messages if m.role != "system"]
-            
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self._url,
-                    headers={
-                        "x-api-key": self._api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"
-                    },
-                    json={
-                        "model": self._model,
-                        "system": system_msg,
-                        "messages": user_messages,
-                        "max_tokens": max_tokens,
-                        "temperature": temperature
-                    }
-                )
-                _check_4xx(response, "anthropic", self._model)
-                response.raise_for_status()
-                return response.json()["content"][0]["text"]
+
+            response = await _post_with_429_retry(
+                self._url, provider="anthropic", model=self._model,
+                headers={
+                    "x-api-key": self._api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json_body={
+                    "model": self._model,
+                    "system": system_msg,
+                    "messages": user_messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                }
+            )
+            _check_4xx(response, "anthropic", self._model)
+            response.raise_for_status()
+            return response.json()["content"][0]["text"]
         except LLMError:
             raise
         except Exception as e:
@@ -172,20 +210,19 @@ class GeminiProvider(LLMProvider):
                 contents.append({"role": role, "parts": [{"text": m.content}]})
             
             url = self._url_tmpl.format(model=self._model, key=self._api_key)
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    url,
-                    json={
-                        "contents": contents,
-                        "generationConfig": {
-                            "maxOutputTokens": max_tokens,
-                            "temperature": temperature
-                        }
+            response = await _post_with_429_retry(
+                url, provider="gemini", model=self._model,
+                json_body={
+                    "contents": contents,
+                    "generationConfig": {
+                        "maxOutputTokens": max_tokens,
+                        "temperature": temperature
                     }
-                )
-                _check_4xx(response, "gemini", self._model)
-                response.raise_for_status()
-                return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                }
+            )
+            _check_4xx(response, "gemini", self._model)
+            response.raise_for_status()
+            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
         except LLMError:
             raise
         except Exception as e:
@@ -204,54 +241,26 @@ class MistralProvider(LLMProvider):
     async def complete(self, messages: List[Message], max_tokens: int = 2000, temperature: float = 0.0) -> str:
         MAX_TRANSIENT_RETRIES = 3   # network blips, timeouts, 5xx
         MAX_RATE_LIMIT_WAITS = 10   # 429s — these don't count as failures, they're "wait and try again"
-        BASE_DELAY = 15.0           # seconds — Mistral free tier resets per minute
 
-        import random
         transient_attempts = 0
-        rate_limit_waits = 0
 
         while True:
             try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        self._url,
-                        headers={"Authorization": f"Bearer {self._api_key}"},
-                        json={
-                            "model": self._model,
-                            "messages": [{"role": m.role, "content": m.content} for m in messages],
-                            "max_tokens": max_tokens,
-                            "temperature": temperature
-                        }
-                    )
-
-                    if response.status_code == 429:
-                        rate_limit_waits += 1
-                        if rate_limit_waits > MAX_RATE_LIMIT_WAITS:
-                            raise LLMRateLimitError("mistral", self._model)
-
-                        retry_after = response.headers.get("Retry-After")
-                        if retry_after:
-                            try:
-                                delay = float(retry_after) + random.uniform(0, 2)
-                                source = "Retry-After header"
-                            except ValueError:
-                                delay = BASE_DELAY * (2 ** min(rate_limit_waits, 3)) + random.uniform(0, 5)
-                                source = "exponential backoff (invalid header)"
-                        else:
-                            delay = BASE_DELAY * (2 ** min(rate_limit_waits, 3)) + random.uniform(0, 5)
-                            source = "exponential backoff"
-
-                        logger.warning(
-                            "Mistral 429 — waiting %.1fs (source: %s) — wait #%d/%d",
-                            delay, source, rate_limit_waits, MAX_RATE_LIMIT_WAITS,
-                        )
-                        await asyncio.sleep(delay)
-                        continue  # does NOT increment transient_attempts
-
-                    # 4xx (non-429): typed bad-request, no retry.
-                    _check_4xx(response, "mistral", self._model)
-                    response.raise_for_status()
-                    return response.json()["choices"][0]["message"]["content"]
+                response = await _post_with_429_retry(
+                    self._url, provider="mistral", model=self._model,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    json_body={
+                        "model": self._model,
+                        "messages": [{"role": m.role, "content": m.content} for m in messages],
+                        "max_tokens": max_tokens,
+                        "temperature": temperature
+                    },
+                    max_rate_limit_waits=MAX_RATE_LIMIT_WAITS,
+                )
+                # 4xx (non-429): typed bad-request, no retry.
+                _check_4xx(response, "mistral", self._model)
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"]
             except LLMRateLimitError:
                 raise
             except LLMBadRequestError:
