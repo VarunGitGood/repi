@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import asyncpg
 
 from repi.core.dates import DateHandler, default_date_handler as _dh
+from repi.llm.adapters import LLMRateLimitError, LLMBadRequestError
 from repi.llm.provider import LLMProvider, Message
 from repi.investigation.tools import ToolCall, ToolResult, TOOL_SCHEMAS
 from repi.retrieval.heuristics import cluster_logs
@@ -158,6 +159,47 @@ class ReactInvestigationLoop:
             now = time.time()
             self._llm_call_timestamps = [t for t in self._llm_call_timestamps if now - t < 60]
         self._llm_call_timestamps.append(now)
+
+    # Caps for what a single observation may contribute to the LLM
+    # conversation. Tool results are re-sent on EVERY subsequent turn, so an
+    # uncapped scan_window result multiplies across the whole loop — this is
+    # the main driver of token-per-minute 429s. The full, untruncated result
+    # is still persisted to the DB and the tool ledger.
+    MAX_OBS_ITEMS = 10
+    MAX_OBS_TEXT_CHARS = 300
+    MAX_OBS_TOTAL_CHARS = 6000
+
+    @classmethod
+    def _compact_observation(cls, result: Any) -> str:
+        """Serialize a tool result for the LLM conversation, clipping long
+        lists and long text fields with explicit markers so the model knows
+        evidence was elided (and can narrow its next query)."""
+
+        def _walk(node: Any, max_items: int, max_chars: int) -> Any:
+            if isinstance(node, dict):
+                return {k: _walk(v, max_items, max_chars) for k, v in node.items()}
+            if isinstance(node, list):
+                clipped = [_walk(x, max_items, max_chars) for x in node[:max_items]]
+                if len(node) > max_items:
+                    clipped.append(f"... {len(node) - max_items} more items truncated")
+                return clipped
+            if isinstance(node, str) and len(node) > max_chars:
+                return node[:max_chars] + "...[truncated]"
+            return node
+
+        s = json.dumps(_walk(result, cls.MAX_OBS_ITEMS, cls.MAX_OBS_TEXT_CHARS), default=str)
+        if len(s) > cls.MAX_OBS_TOTAL_CHARS:
+            # Re-walk with much tighter caps rather than slicing the JSON
+            # string (which would hand the model malformed JSON).
+            s = json.dumps(_walk(result, 3, 120), default=str)
+        if len(s) > cls.MAX_OBS_TOTAL_CHARS:
+            # Pathological shape (e.g. hundreds of keys) — wrap a hard slice
+            # inside a fresh JSON object so the payload stays parseable.
+            s = json.dumps({
+                "note": "observation too large; showing a truncated excerpt",
+                "excerpt": s[:cls.MAX_OBS_TOTAL_CHARS],
+            })
+        return s
 
     def _extract_chunks(self, tool_result: Any) -> list[dict]:
         """Collect every dict-with-chunk_id from a tool result. Walks nested
@@ -334,7 +376,7 @@ class ReactInvestigationLoop:
                     exclude_services=[]
                 )
 
-                sweep_msg = f"SWEEP CONTEXT:\n{json.dumps(sweep_results, indent=2)}\n\n"
+                sweep_msg = f"SWEEP CONTEXT:\n{self._compact_observation(sweep_results)}\n\n"
                 if resolved_intent.assumed:
                     sweep_msg += "ASSUMPTIONS:\n" + "\n".join(f"- {a}" for a in resolved_intent.assumed) + "\n"
 
@@ -375,7 +417,7 @@ class ReactInvestigationLoop:
             messages.append(Message(role="assistant", content=json.dumps(llm_payload)))
             if observation:
                 res = observation.tool_result.result if observation.tool_result.result is not None else {"error": observation.tool_result.error}
-                messages.append(Message(role="user", content=f"Observation:\n{json.dumps(res, default=str)}"))
+                messages.append(Message(role="user", content=f"Observation:\n{self._compact_observation(res)}"))
 
             # Seed the ledger from replayed steps so dedupe survives resume.
             if action and observation and observation.tool_result.result is not None:
@@ -425,10 +467,17 @@ class ReactInvestigationLoop:
                         await self._wait_for_rate_limit()
                         raw_reflection = await self.llm.complete(messages)
                         break
+                    except LLMBadRequestError as e:
+                        # Bad payload/auth — retrying the identical request can't succeed.
+                        logger.error(f"Reflection {next_step_number}: non-retryable LLM error: {e}")
+                        break
                     except Exception as e:
                         logger.warning(f"Reflection {next_step_number} attempt {_refl_retry+1}/3 failed: {e}")
                         if _refl_retry < 2:
-                            await asyncio.sleep(15 * (2 ** _refl_retry))
+                            delay = 15 * (2 ** _refl_retry)
+                            if isinstance(e, LLMRateLimitError) and e.retry_after:
+                                delay = e.retry_after + 1
+                            await asyncio.sleep(delay)
 
                 if raw_reflection is None:
                     logger.error(f"Reflection {next_step_number}: LLM call failed after 3 retries, skipping")
@@ -522,10 +571,17 @@ class ReactInvestigationLoop:
                     await self._wait_for_rate_limit()
                     raw_response = await self.llm.complete(messages)
                     break
+                except LLMBadRequestError as e:
+                    # Bad payload/auth — retrying the identical request can't succeed.
+                    logger.error(f"Step {next_step_number}: non-retryable LLM error: {e}")
+                    break
                 except Exception as e:
                     logger.warning(f"Step {next_step_number} LLM call attempt {_llm_retry+1}/3 failed: {e}")
                     if _llm_retry < 2:
-                        await asyncio.sleep(15 * (2 ** _llm_retry))
+                        delay = 15 * (2 ** _llm_retry)
+                        if isinstance(e, LLMRateLimitError) and e.retry_after:
+                            delay = e.retry_after + 1
+                        await asyncio.sleep(delay)
 
             if raw_response is None:
                 logger.error(f"Step {next_step_number}: LLM call failed after 3 retries, ending gathering")
@@ -677,7 +733,7 @@ class ReactInvestigationLoop:
                 if observation and observation.tool_result:
                     res = observation.tool_result.result if observation.tool_result.result is not None else {"error": observation.tool_result.error}
                     prefix = "(repeat call — returning cached result)\n" if is_repeat_call else ""
-                    messages.append(Message(role="user", content=f"{prefix}Observation:\n{json.dumps(res, default=str)}"))
+                    messages.append(Message(role="user", content=f"{prefix}Observation:\n{self._compact_observation(res)}"))
 
                 if tool_call_ledger:
                     messages[0] = Message(
