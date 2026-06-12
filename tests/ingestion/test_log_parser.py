@@ -89,3 +89,36 @@ def test_unknown_format_falls_back_to_plain_message():
     assert p.level == "INFO"
     assert p.parsed_timestamp is None
     assert p.message == "completely unstructured line with no timestamp"
+
+# ── Apache error log ─────────────────────────────────────────────────────────
+
+def test_apache_error_log_timestamp_and_level():
+    p = parse_log_line("[Sun Dec 04 04:51:18 2005] [error] mod_jk child workerEnv in error state 6")
+    assert p.level == "ERROR"
+    assert p.message == "mod_jk child workerEnv in error state 6"
+    assert p.parsed_timestamp == datetime(2005, 12, 4, 4, 51, 18)
+
+
+def test_apache_notice_maps_to_info():
+    p = parse_log_line("[Sun Dec 04 04:47:44 2005] [notice] workerEnv.init() ok /etc/httpd/conf/workers2.properties")
+    assert p.level == "INFO"
+    assert p.parsed_timestamp == datetime(2005, 12, 4, 4, 47, 44)
+
+
+def test_apache_warn_maps_to_warning():
+    p = parse_log_line("[Mon Dec 05 07:57:02 2005] [warn] jk2_init() Can't find child 2114 in scoreboard")
+    assert p.level == "WARNING"
+
+
+# ── Syslog auth-failure severity hint ────────────────────────────────────────
+
+def test_syslog_pam_auth_failure_tagged_warning():
+    p = parse_log_line(
+        "Jun 14 15:16:01 combo sshd(pam_unix)[19939]: authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=218.188.2.4"
+    )
+    assert p.level == "WARNING"
+
+
+def test_syslog_failed_password_tagged_warning():
+    p = parse_log_line("Dec 10 07:13:31 LabSZ sshd[24206]: Failed password for invalid user test9 from 52.80.34.196 port 36060 ssh2")
+    assert p.level == "WARNING"

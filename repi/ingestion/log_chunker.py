@@ -18,11 +18,41 @@ class ChunkedLog:
     time_range: str
     log_level: str = "INFO"
 
+_IPV4_RE = re.compile(r'\b\d{1,3}(?:\.\d{1,3}){3}\b')
+_NUM_RE = re.compile(r'\d+')
+# Context immediately before a 3-digit number that marks it as an HTTP status
+# code ('status 404', 'code=502', '"GET / HTTP/1.1" 200').
+_STATUS_CTX = re.compile(r'(?:status|code|http)[^a-zA-Z]{0,8}$', re.IGNORECASE)
+# Protocol/version digits ('HTTP/1.1') — low-cardinality, keep readable.
+_HTTP_VERSION_CTX = re.compile(r'http/[\d.]*$', re.IGNORECASE)
+
 def get_signature(message: str) -> str:
-    """Mask numbers, hex IDs, and UUIDs to find log signatures."""
+    """Mask high-cardinality tokens (hex IDs, UUIDs, IPs, numbers) to find log
+    signatures. Low-cardinality numbers that carry meaning are preserved:
+    HTTP status codes, protocol versions, and short digit runs inside
+    identifiers (jk2_init, utf8_decode) — masking those splits or mislabels
+    clusters without reducing cardinality."""
     message = re.sub(r'0x[0-9a-fA-F]+', '<HEX>', message)
     message = re.sub(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<UUID>', message)
-    message = re.sub(r'\d+', '<NUM>', message)
+    message = _IPV4_RE.sub('<IP>', message)
+
+    def _mask(m: re.Match) -> str:
+        tok = m.group()
+        s, start, end = m.string, m.start(), m.end()
+        # Mid-identifier digits followed by more identifier chars (jk2_init).
+        # Trailing digits (node1, worker23) still mask so per-instance names
+        # collapse into one cluster.
+        if len(tok) <= 3 and start > 0 and s[start - 1].isalpha() \
+                and end < len(s) and (s[end].isalpha() or s[end] == '_'):
+            return tok
+        prefix = s[max(0, start - 12):start]
+        if _HTTP_VERSION_CTX.search(prefix):
+            return tok
+        if len(tok) == 3 and tok[0] in '12345' and _STATUS_CTX.search(prefix):
+            return tok
+        return '<NUM>'
+
+    message = _NUM_RE.sub(_mask, message)
     return " ".join(message.split())
 
 def chunk_logs(logs: List[ParsedLog], window_seconds: int = 30) -> List[ChunkedLog]:
