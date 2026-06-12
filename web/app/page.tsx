@@ -9,6 +9,7 @@ import { InvestigationStepCard } from "@/components/investigation-step"
 import { ProjectPicker } from "@/components/projects/ProjectPicker"
 import { ProjectOverview, type SuggestedAction } from "@/components/projects/ProjectOverview"
 import { Step, useSSE } from "@/lib/sse"
+import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator"
 import { Badge } from "@/components/ui/badge"
 import { Sparkles } from "lucide-react"
 import { toast } from "sonner"
@@ -392,7 +393,7 @@ interface InvestigateTurnViewProps {
 
 function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete }: InvestigateTurnViewProps) {
   const streamUrl = `${API_BASE}/investigations/${investigationId}/stream`
-  const { steps, answer, error, done, clarificationQuestion, phase } = useSSE(streamUrl)
+  const { steps, answer, error, done, clarificationQuestion, awaitingClarification, phase } = useSSE(streamUrl)
 
   // Hoist the final answer into the parent's turns state once, so the next
   // /chat turn can include it as history context.
@@ -425,6 +426,9 @@ function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete }: In
             <InvestigationStepCard key={s.step_number} step={s} />
           ))}
         </div>
+        {!done && !error && !awaitingClarification && (
+          <ThinkingIndicator phase={phase} lastStep={steps[steps.length - 1]} />
+        )}
         {answer && (
           <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm whitespace-pre-wrap">
             {answer
