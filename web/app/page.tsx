@@ -10,6 +10,7 @@ import { ProjectPicker } from "@/components/projects/ProjectPicker"
 import { ProjectOverview, type SuggestedAction } from "@/components/projects/ProjectOverview"
 import { Step, useSSE } from "@/lib/sse"
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator"
+import { CompiledAnswer } from "@/components/chat/CompiledAnswer"
 import { Badge } from "@/components/ui/badge"
 import { Sparkles } from "lucide-react"
 import { toast } from "sonner"
@@ -429,13 +430,7 @@ function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete }: In
         {!done && !error && !awaitingClarification && (
           <ThinkingIndicator phase={phase} lastStep={steps[steps.length - 1]} />
         )}
-        {answer && (
-          <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm whitespace-pre-wrap">
-            {answer
-              .replace(/\s*\[chunk:[^\]]+\]/gi, "")
-              .replace(/\s*\[chunk_id:[^\]]+\]/gi, "")}
-          </div>
-        )}
+        {answer && <CompiledAnswer answer={answer} />}
         {error && (
           <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
             {error}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 
 export type StepKind = null | "reflection" | "signal" | "compile"
 
@@ -37,6 +37,9 @@ export function useSSE(url: string | null) {
   const [awaitingClarification, setAwaitingClarification] = useState(false)
   const [phase, setPhase] = useState<InvestigationPhase | null>(null)
   const [stats, setStats] = useState<InvestigationStats | null>(null)
+  // Mirror of `done` readable synchronously inside the EventSource callbacks,
+  // which capture state from the connect-time render.
+  const doneRef = useRef(false)
 
   const connect = useCallback(() => {
     if (!url) return
@@ -44,6 +47,7 @@ export function useSSE(url: string | null) {
     setSteps([])
     setAnswer(null)
     setError(null)
+    doneRef.current = false
     setDone(false)
     setClarificationQuestion(null)
     setAwaitingClarification(false)
@@ -53,7 +57,15 @@ export function useSSE(url: string | null) {
     const eventSource = new EventSource(url)
 
     eventSource.onmessage = (event) => {
-      const { type, data } = JSON.parse(event.data)
+      let type: string
+      let data: any
+      try {
+        ;({ type, data } = JSON.parse(event.data))
+      } catch {
+        // A single malformed frame must not tear down the whole stream.
+        console.warn("SSE: dropped unparseable frame", event.data)
+        return
+      }
 
       if (type === "step") {
         setSteps((prev) => {
@@ -69,6 +81,7 @@ export function useSSE(url: string | null) {
         setAnswer(data.answer)
         if (data.stats) setStats(data.stats)
         setPhase("done")
+        doneRef.current = true
         setDone(true)
         eventSource.close()
       } else if (type === "clarification_request") {
@@ -77,12 +90,26 @@ export function useSSE(url: string | null) {
         setDone(false) // Stay open for more steps later
       } else if (type === "error") {
         setError(data.message)
+        doneRef.current = true
         setDone(true)
         eventSource.close()
       }
     }
 
     eventSource.onerror = (err) => {
+      // The server closes the stream once it has sent `done`; the resulting
+      // error here is expected — swallow it.
+      if (doneRef.current) {
+        eventSource.close()
+        return
+      }
+      // readyState === CONNECTING means the browser is auto-reconnecting. The
+      // stream endpoint replays prior steps (deduped above) and resumes the
+      // loop, so let the retry happen instead of tearing the view down.
+      if (eventSource.readyState === EventSource.CONNECTING) {
+        console.warn("SSE: transient disconnect, reconnecting…")
+        return
+      }
       console.error("SSE Error:", err)
       setError("Connection to investigation stream lost.")
       setDone(true)

@@ -218,7 +218,7 @@ async def stream_investigation(investigation_id: str):
                     "observation": s.observation,
                     "kind": getattr(s, "kind", None),
                 }
-                yield f"data: {json.dumps({'type': 'step', 'data': step_data})}\n\n"
+                yield f"data: {json.dumps({'type': 'step', 'data': step_data}, default=str)}\n\n"
 
             if investigation.status in ("completed", "failed"):
                 yield f"data: {json.dumps({'type': 'phase_change', 'data': {'phase': 'done'}})}\n\n"
@@ -259,14 +259,26 @@ async def stream_investigation(investigation_id: str):
 
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=1.0)
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
                 except asyncio.TimeoutError:
                     continue
 
             try:
                 result = await task
-                done_payload = {"answer": result.answer, "stats": result.stats}
-                yield f"data: {json.dumps({'type': 'done', 'data': done_payload})}\n\n"
+                # The loop may have paused for clarification mid-flight rather
+                # than finishing. In that case it persisted status
+                # 'awaiting_clarification' (with a question) and returned a
+                # placeholder answer — surface the question so the UI can prompt
+                # for a reply, exactly as the replay path above does. Without
+                # this the live stream emits a meaningless 'done' and the user
+                # has no way to answer until they reload the page.
+                refreshed = await store.get_by_id(uuid_obj)
+                if refreshed and refreshed.status == "awaiting_clarification":
+                    question = refreshed.pending_question or ""
+                    yield f"data: {json.dumps({'type': 'clarification_request', 'data': {'question': question, 'investigation_id': investigation_id}})}\n\n"
+                else:
+                    done_payload = {"answer": result.answer, "stats": result.stats}
+                    yield f"data: {json.dumps({'type': 'done', 'data': done_payload}, default=str)}\n\n"
             except Exception as e:
                 logger.error(f"Investigation failed: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
