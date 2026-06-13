@@ -147,3 +147,79 @@ class TestMistralAdapter:
         assert call_count["n"] == 6
         # 5 rate-limit sleeps fired (one per 429).
         assert sleep_count["n"] == 5
+
+
+# ─── Shared 429 wait helper (all providers) ──────────────────────────────────
+
+
+class TestSharedRateLimitRetry:
+    """Before this helper, only Mistral waited out 429s — OpenAI/Anthropic/
+    Gemini raised immediately and the ReAct loop burned its retry budget."""
+
+    @pytest.mark.asyncio
+    async def test_openai_waits_through_429_then_succeeds(self, monkeypatch):
+        from repi.llm.adapters import OpenAIProvider
+
+        call_count = {"n": 0}
+        sleeps: list[float] = []
+
+        class _Mock429:
+            status_code = 429
+            headers = {"Retry-After": "7"}
+            text = ""
+            def json(self): return {}
+            def raise_for_status(self): pass
+
+        class _Mock200:
+            status_code = 200
+            headers: dict = {}
+            text = ""
+            def json(self): return {"choices": [{"message": {"content": "ok"}}]}
+            def raise_for_status(self): pass
+
+        class _MockClient:
+            def __init__(self, **_kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+            async def post(self, *_args, **_kwargs):
+                call_count["n"] += 1
+                return _Mock429() if call_count["n"] == 1 else _Mock200()
+
+        async def _record_sleep(d):
+            sleeps.append(d)
+
+        monkeypatch.setattr("repi.llm.adapters.httpx.AsyncClient", _MockClient)
+        monkeypatch.setattr("repi.llm.adapters.asyncio.sleep", _record_sleep)
+
+        provider = OpenAIProvider(api_key="test", model="gpt-4o")
+        result = await provider.complete([Message(role="user", content="hi")])
+
+        assert result == "ok"
+        assert call_count["n"] == 2
+        # Retry-After honored: 7s base + up to 2s jitter.
+        assert 7.0 <= sleeps[0] <= 9.0
+
+    @pytest.mark.asyncio
+    async def test_exhausted_waits_raise_rate_limit_error(self, monkeypatch):
+        from repi.llm.adapters import _post_with_429_retry
+
+        class _Mock429:
+            status_code = 429
+            headers = {"Retry-After": "0"}
+
+        class _MockClient:
+            def __init__(self, **_kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+            async def post(self, *_args, **_kwargs): return _Mock429()
+
+        async def _no_sleep(_): pass
+
+        monkeypatch.setattr("repi.llm.adapters.httpx.AsyncClient", _MockClient)
+        monkeypatch.setattr("repi.llm.adapters.asyncio.sleep", _no_sleep)
+
+        with pytest.raises(LLMRateLimitError):
+            await _post_with_429_retry(
+                "https://example.test", provider="test", model="m",
+                json_body={}, max_rate_limit_waits=2,
+            )

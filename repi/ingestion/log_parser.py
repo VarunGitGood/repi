@@ -32,10 +32,28 @@ SYSLOG_PATTERN = re.compile(
 # ("error: maximum authentication attempts exceeded").
 SYSLOG_LEVEL_HINT = re.compile(r"(?P<level>error|warning|fatal)\b[: ]", re.IGNORECASE)
 
+# pam_unix/sshd log auth failures at default severity with no level token
+# ("authentication failure; logname= ..."). Left as INFO, error-focused
+# tools (scan_window) never surface real brute-force incidents.
+SYSLOG_FAILURE_HINT = re.compile(r"authentication failure|failed password", re.IGNORECASE)
+
 # Apache/nginx access log: '1.2.3.4 - - [10/Oct/2000:13:55:36 -0700] "GET / HTTP/1.0" 200 ...'
 ACCESS_LOG_PATTERN = re.compile(
     r"(?P<host>\S+) \S+ \S+ \[(?P<timestamp>\d{2}/[A-Z][a-z]{2}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4})\] (?P<message>.+)"
 )
+
+# Apache error log: '[Sun Dec 04 04:47:44 2005] [error] mod_jk child workerEnv in error state 6'
+APACHE_ERROR_PATTERN = re.compile(
+    r"\[(?P<timestamp>[A-Z][a-z]{2} [A-Z][a-z]{2} {1,2}\d{1,2} \d{2}:\d{2}:\d{2} \d{4})\] \[(?P<level>[a-z]+)\] (?P<message>.+)"
+)
+
+# Apache error-log severities → the level vocabulary the rest of the
+# pipeline filters on (INFO/WARNING/ERROR/CRITICAL/DEBUG).
+APACHE_LEVEL_MAP = {
+    "emerg": "CRITICAL", "alert": "CRITICAL", "crit": "CRITICAL",
+    "error": "ERROR", "warn": "WARNING", "notice": "INFO",
+    "info": "INFO", "debug": "DEBUG",
+}
 
 def _parse_timestamp(ts_str: str | None) -> datetime | None:
     if not ts_str:
@@ -49,6 +67,7 @@ def _parse_timestamp(ts_str: str | None) -> datetime | None:
         "%Y-%m-%dT%H:%M:%SZ",
         "%Y-%m-%dT%H:%M:%S.%fZ",
         "%d/%b/%Y:%H:%M:%S %z",  # apache/nginx access log
+        "%a %b %d %H:%M:%S %Y",  # apache error log
         "%b %d %H:%M:%S"  # Syslog
     ]
 
@@ -107,6 +126,14 @@ def parse_log_line(line: str) -> ParsedLog:
         logger.debug(f"Parser: Matched text log (level={level})")
         return ParsedLog(timestamp=ts_str, level=level, message=message, parsed_timestamp=_parse_timestamp(ts_str))
 
+    # Try apache error log ("[Sun Dec 04 04:47:44 2005] [error] message")
+    match = APACHE_ERROR_PATTERN.match(line)
+    if match:
+        ts_str = match.group("timestamp")
+        level = APACHE_LEVEL_MAP.get(match.group("level"), "INFO")
+        logger.debug(f"Parser: Matched apache error log (level={level})")
+        return ParsedLog(timestamp=ts_str, level=level, message=match.group("message"), parsed_timestamp=_parse_timestamp(ts_str))
+
     # Try syslog ("Dec 10 06:55:46 host sshd[24200]: message")
     match = SYSLOG_PATTERN.match(line)
     if match:
@@ -118,6 +145,8 @@ def parse_log_line(line: str) -> ParsedLog:
         hint = SYSLOG_LEVEL_HINT.match(body) if sep else None
         if hint:
             level = hint.group("level").upper()
+        elif sep and SYSLOG_FAILURE_HINT.search(body):
+            level = "WARNING"
         logger.debug(f"Parser: Matched syslog (level={level})")
         return ParsedLog(timestamp=ts_str, level=level, message=message, parsed_timestamp=_parse_timestamp(ts_str))
 

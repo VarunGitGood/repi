@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 type ConversationSummary = {
   id: string
   title: string | null
+  project_name?: string | null
   created_at: string
   updated_at: string
 }
@@ -67,7 +68,14 @@ export function ConversationSidebar({ activeId, onSelect, refreshKey }: Conversa
             )}
           >
             <MessageSquare className="size-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
-            <span className="line-clamp-2 break-words">{c.title || "Untitled"}</span>
+            <span className="min-w-0">
+              <span className="line-clamp-2 break-words">{c.title || "Untitled"}</span>
+              {c.project_name && (
+                <span className="block text-[10px] text-muted-foreground mt-0.5">
+                  {c.project_name}
+                </span>
+              )}
+            </span>
           </button>
         ))}
       </div>

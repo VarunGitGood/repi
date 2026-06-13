@@ -18,7 +18,9 @@ from sqlalchemy import text as sa_text
 from sqlmodel import select
 
 from repi.core.container import get_container
+from repi.core.dates import DateHandler
 from repi.models.schema import Project
+from repi.retrieval.event_feed import derive_events, fetch_window_aggregates, parse_window
 
 logger = logging.getLogger("repi.api.projects")
 
@@ -181,6 +183,134 @@ async def update_project(project_id: UUID, body: ProjectUpdate):
             id=str(p.id), name=p.name, settings=effective_settings(p),
             created_at=p.created_at, updated_at=p.updated_at,
         )
+
+
+@router.get("/projects/{project_id}/overview")
+async def project_overview(
+    project_id: UUID,
+    window: Optional[str] = None,
+    service: Optional[str] = None,
+):
+    """Landing-page payload: heuristic timeline events, corpus-wide error
+    clusters, services, and suggested actions for one project + time window.
+
+    Window anchors to NOW; when the window contains no data (historical
+    imports, idle systems) it re-anchors to the project's latest chunk so the
+    landing page always tells the most recent story available
+    (`anchored_to_latest: true` flags this for the UI).
+    """
+    from datetime import datetime, timezone
+
+    container = get_container()
+    async with container.get_session() as session:
+        p = await session.get(Project, project_id)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+    settings = effective_settings(p)
+    window_str = window or settings["default_timeline_window"]
+    span = parse_window(window_str)
+    max_events = int(settings.get("max_events", 25))
+
+    pool = container.pool
+    time_to = datetime.now(timezone.utc)
+    time_from = time_to - span
+
+    anchored_to_latest = False
+    in_window = await pool.fetchval(
+        "SELECT 1 FROM log_chunks WHERE project_id = $1 "
+        "AND timestamp_start >= $2 AND timestamp_start < $3 LIMIT 1",
+        project_id, time_from, time_to,
+    )
+    if in_window is None:
+        latest = await pool.fetchval(
+            "SELECT max(timestamp_start) FROM log_chunks WHERE project_id = $1",
+            project_id,
+        )
+        if latest is not None:
+            time_to = latest + (span / 100)  # nudge so the latest row is < time_to
+            time_from = time_to - span
+            anchored_to_latest = True
+
+    buckets, first_seen = await fetch_window_aggregates(
+        pool, project_id, time_from, time_to, service=service,
+    )
+    events = derive_events(buckets, first_seen, time_from, time_to, max_events=max_events)
+
+    cluster_rows = await pool.fetch(
+        """
+        SELECT signature, count(*) AS n,
+               array_agg(DISTINCT source_service) AS services,
+               min(timestamp_start) AS first_ts, max(timestamp_start) AS last_ts
+        FROM log_chunks
+        WHERE project_id = $1
+          AND timestamp_start >= $2 AND timestamp_start < $3
+          AND signature IS NOT NULL AND signature <> ''
+          AND log_level IN ('ERROR', 'CRITICAL', 'FATAL', 'WARN', 'WARNING')
+          AND ($4::text IS NULL OR source_service = $4)
+        GROUP BY signature
+        ORDER BY n DESC
+        LIMIT 10
+        """,
+        project_id, time_from, time_to, service,
+    )
+    clusters = [
+        {
+            "signature": r["signature"],
+            "count": r["n"],
+            "services": list(r["services"]),
+            "first_ts": DateHandler.to_iso(r["first_ts"]),
+            "last_ts": DateHandler.to_iso(r["last_ts"]),
+        }
+        for r in cluster_rows
+    ]
+
+    svc_rows = await pool.fetch(
+        "SELECT source_service, count(*) AS n, max(timestamp_start) AS last_seen "
+        "FROM log_chunks WHERE project_id = $1 GROUP BY source_service ORDER BY n DESC",
+        project_id,
+    )
+    services = [
+        {"name": r["source_service"], "chunk_count": r["n"],
+         "last_seen": DateHandler.to_iso(r["last_seen"])}
+        for r in svc_rows
+    ]
+
+    # Suggested actions — derived, never LLM-generated. Top clusters become
+    # Deep-Research entry points with the service + time range pre-filled so
+    # the investigation starts grounded instead of from a bare phrase.
+    suggested: list[dict] = []
+    for c in clusters[:3]:
+        svc_part = f" on {c['services'][0]}" if c["services"] else ""
+        suggested.append({
+            "kind": "investigate",
+            "label": f"Investigate: {c['signature'][:60]}",
+            "query": (
+                f"Investigate '{c['signature']}'{svc_part} "
+                f"between {c['first_ts']} and {c['last_ts']}"
+            ),
+        })
+    suggested.append({
+        "kind": "chat",
+        "label": f"Summarize the last {window_str}",
+        "query": f"summarize what happened in the last {window_str}",
+    })
+    suggested.append({
+        "kind": "chat",
+        "label": "Show affected services",
+        "query": "which services are having problems?",
+    })
+
+    return {
+        "project_id": str(project_id),
+        "window": window_str,
+        "time_from": DateHandler.to_iso(time_from),
+        "time_to": DateHandler.to_iso(time_to),
+        "anchored_to_latest": anchored_to_latest,
+        "events": events,
+        "clusters": clusters,
+        "services": services,
+        "suggested_actions": suggested,
+    }
 
 
 @router.get("/projects/{project_id}/services", response_model=List[ProjectService])
