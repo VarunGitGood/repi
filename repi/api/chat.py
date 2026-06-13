@@ -84,6 +84,9 @@ class ChatRequest(BaseModel):
     # payloads early. The legitimate caller only ever sends the last
     # assistant turn's citations (≤10 in practice).
     previous_chunk_ids: List[str] = Field(default_factory=list, max_length=50)
+    # UX P1: scopes retrieval + known-services resolution to one project. If
+    # omitted but the conversation has a project, that project applies.
+    project_id: Optional[UUID] = None
 
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -171,9 +174,10 @@ async def chat(req: ChatRequest) -> StreamingResponse:
         # Resolve or create the conversation row up front so every event the
         # client sees can carry the (eventual) conversation_id.
         conversation_id = req.conversation_id
+        project_id = req.project_id
         async with container.async_session_maker() as session:
             if conversation_id is None:
-                conv = Conversation(title=req.query[:80])
+                conv = Conversation(title=req.query[:80], project_id=project_id)
                 session.add(conv)
                 await session.commit()
                 await session.refresh(conv)
@@ -185,9 +189,12 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 res = await session.exec(stmt)
                 existing = res.first()
                 if existing is None:
-                    conv = Conversation(id=conversation_id, title=req.query[:80])
+                    conv = Conversation(id=conversation_id, title=req.query[:80], project_id=project_id)
                     session.add(conv)
                     await session.commit()
+                elif project_id is None:
+                    # Inherit the conversation's project when not pinned.
+                    project_id = existing.project_id
 
             # Persist the user turn immediately — the client gets a citation-free
             # echo if the LLM call errors out mid-stream.
@@ -202,7 +209,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
         try:
             # ── Intent resolution ────────────────────────────────────────────
             now = _dh.now()
-            known_services = container.known_services or []
+            known_services = await container.get_known_services(project_id) or []
             resolution = resolve_intent(req.query, known_services, now)
 
             if isinstance(resolution, ClarificationNeeded):
@@ -314,6 +321,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                     source_service=service,
                     time_from=time_from,
                     time_to=time_to,
+                    project_id=project_id,
                 )
                 # search_diverse over-fetches then service-stratifies the top-k
                 # so a noisy single service can't crowd out the cross-service
@@ -342,7 +350,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             # Entity-bias merge: UNION RRF + find_logs_by_id, deduped by chunk_id.
             if entities and container.pool is not None:
                 for ent in entities:
-                    extra = await find_logs_by_id(container.pool, entity=ent, top_k=20)
+                    extra = await find_logs_by_id(container.pool, entity=ent, top_k=20, project_id=project_id)
                     for c in extra:
                         if c["chunk_id"] in seen:
                             continue

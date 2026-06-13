@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Tuple, Dict, Any, Optional
+from uuid import UUID
 from sqlmodel import select, Session, and_
 from sqlmodel.ext.asyncio.session import AsyncSession
 from repi.core.dates import DateHandler
@@ -15,10 +16,11 @@ class PgVectorStore:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def upsert(self, chunk_id: str, embedding: List[float], text: str, source_service: str, 
-                     source_env: str = "production", log_level: Optional[str] = None, 
+    async def upsert(self, chunk_id: str, embedding: List[float], text: str, source_service: str,
+                     source_env: str = "production", log_level: Optional[str] = None,
                      timestamp_start: Optional[datetime] = None, timestamp_end: Optional[datetime] = None,
-                     log_metadata: Optional[Dict[str, Any]] = None) -> None:
+                     log_metadata: Optional[Dict[str, Any]] = None,
+                     signature: Optional[str] = None, project_id: Optional[UUID] = None) -> None:
         """Upsert a log chunk with its embedding and metadata."""
         # Check if exists
         statement = select(LogChunk).where(LogChunk.chunk_id == chunk_id)
@@ -43,6 +45,8 @@ class PgVectorStore:
             chunk.timestamp_start = ts_start
             chunk.timestamp_end = ts_end
             chunk.log_metadata = log_metadata
+            chunk.signature = signature
+            chunk.project_id = project_id
         else:
             chunk = LogChunk(
                 chunk_id=chunk_id,
@@ -53,7 +57,9 @@ class PgVectorStore:
                 log_level=log_level,
                 timestamp_start=ts_start,
                 timestamp_end=ts_end,
-                log_metadata=log_metadata
+                log_metadata=log_metadata,
+                signature=signature,
+                project_id=project_id,
             )
             self.session.add(chunk)
         

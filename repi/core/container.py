@@ -136,6 +136,24 @@ class Container:
             logger.info(f"Loaded known services: {self.known_services}")
         return self.known_services
 
+    async def get_known_services(self, project_id=None) -> list[str]:
+        """Project-scoped service list (UX P1). Falls back to the global
+        cached list when no project is given. Queried per call — DISTINCT on
+        an indexed column; freshness matters more than the microseconds."""
+        if project_id is None:
+            return self.known_services
+        services = await get_all_services(self.pool, project_id=project_id)
+        async with self.async_session_maker() as session:
+            from repi.models.schema import WatcherConfig
+            stmt = select(WatcherConfig.service_name).where(
+                WatcherConfig.enabled == True, WatcherConfig.project_id == project_id
+            )
+            res = await session.exec(stmt)
+            for name in res.all():
+                if name not in services:
+                    services.append(name)
+        return services
+
     def get_ingestor(self, session: AsyncSession) -> LogIngestor:
         vector_store = PgVectorStore(session)
         return LogIngestor(vector_store, self.embedding_func)
@@ -145,13 +163,25 @@ class Container:
         fts_retriever = PgFTSRetriever(session)
         return RRFRetrievalService(vector_store, fts_retriever, self.embedding_func)
 
-    def get_investigation_loop(self, session: AsyncSession) -> ReactInvestigationLoop:
-        """Create a ReAct loop with tools and persistence store."""
+    def get_investigation_loop(self, session: AsyncSession, project_id=None,
+                               known_services: list[str] | None = None) -> ReactInvestigationLoop:
+        """Create a ReAct loop with tools and persistence store.
+
+        `project_id` scopes every tool to one project. It is injected here in
+        the tool closures — the LLM never sees (or controls) it, and the
+        cache key includes it so two projects can't share cached results.
+        """
         llm = self.require_llm()
         retrieval_service = self.get_retrieval_service(session)
         store = InvestigationStore(session)
 
+        def scoped(kwargs: dict) -> dict:
+            if project_id is not None:
+                kwargs.setdefault("project_id", project_id)
+            return kwargs
+
         async def cached_search_logs(**kwargs):
+            kwargs = scoped(kwargs)
             key = cache.make_key("search_logs", **kwargs)
             hit = await cache.get(key)
             if hit: return hit
@@ -160,6 +190,7 @@ class Container:
             return res
 
         async def cached_service_summary(**kwargs):
+            kwargs = scoped(kwargs)
             key = cache.make_key("get_service_summary", **kwargs)
             hit = await cache.get(key)
             if hit: return hit
@@ -168,6 +199,7 @@ class Container:
             return res
 
         async def cached_scan_window(**kwargs):
+            kwargs = scoped(kwargs)
             key = cache.make_key("scan_window", **kwargs)
             hit = await cache.get(key)
             if hit: return hit
@@ -176,6 +208,7 @@ class Container:
             return res
 
         async def cached_find_logs_by_id(**kwargs):
+            kwargs = scoped(kwargs)
             key = cache.make_key("find_logs_by_id", **kwargs)
             hit = await cache.get(key)
             if hit: return hit
@@ -185,16 +218,16 @@ class Container:
 
         tools = {
             "search_logs": cached_search_logs,
-            "get_timeline": lambda **kwargs: get_timeline(self.pool, **kwargs),
+            "get_timeline": lambda **kwargs: get_timeline(self.pool, **scoped(kwargs)),
             "scan_window": cached_scan_window,
             "get_service_summary": cached_service_summary,
             "find_logs_by_id": cached_find_logs_by_id,
         }
-        
+
         return ReactInvestigationLoop(
             llm=llm,
             tools=tools,
-            known_services=self.known_services,
+            known_services=known_services if known_services is not None else self.known_services,
             pool=self.pool,
             store=store,
             enable_reflection=settings.ENABLE_REFLECTION,

@@ -52,13 +52,15 @@ async def search_logs(
     time_to: str | None = None,
     level: str | None = None,
     top_k: int = 10,
+    project_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Search log chunks by query, service, time range, and level."""
     filters = RetrievalFilters(
         source_service=service,
         log_level=level,
         time_from=_parse_iso_timestamp(time_from),
-        time_to=_parse_iso_timestamp(time_to)
+        time_to=_parse_iso_timestamp(time_to),
+        project_id=project_id,
     )
 
     if query and query.strip():
@@ -89,14 +91,16 @@ async def search_logs(
 async def get_timeline(
     pool: asyncpg.Pool,
     chunk_ids: list[str],
+    project_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Sort chunks by timestamp to see the sequence of events."""
     if not chunk_ids:
         return []
-        
+
     rows = await pool.fetch(
-        "SELECT chunk_id, source_service, log_level, timestamp_start, text FROM log_chunks WHERE chunk_id = ANY($1) ORDER BY timestamp_start",
-        chunk_ids
+        "SELECT chunk_id, source_service, log_level, timestamp_start, text FROM log_chunks "
+        "WHERE chunk_id = ANY($1) AND ($2::uuid IS NULL OR project_id = $2) ORDER BY timestamp_start",
+        chunk_ids, project_id
     )
     
     return [{
@@ -116,6 +120,7 @@ async def scan_window(
     top_k: int = 50,
     pre_context_seconds: int = 60,
     pre_context_per_service_limit: int = 20,
+    project_id: uuid.UUID | None = None,
 ) -> dict:
     """
     Two-phase scan: ERROR/WARNING symptoms + a level-agnostic walk-back that
@@ -161,6 +166,7 @@ async def scan_window(
         WHERE timestamp_start BETWEEN $1 AND $2
           AND log_level IN ('ERROR', 'WARNING')
           AND ($3::text[] IS NULL OR source_service = ANY($3))
+          AND ($4::uuid IS NULL OR project_id = $4)
         GROUP BY source_service
         ORDER BY first_error NULLS LAST
     """
@@ -171,13 +177,14 @@ async def scan_window(
         WHERE timestamp_start BETWEEN $1 AND $2
           AND log_level = ANY($3)
           AND ($4::text[] IS NULL OR source_service = ANY($4))
+          AND ($6::uuid IS NULL OR project_id = $6)
         ORDER BY timestamp_start
         LIMIT $5
     """
 
     summary_rows, log_rows = await asyncio.gather(
-        pool.fetch(summary_sql, time_from_dt, time_to_dt, services),
-        pool.fetch(logs_sql, time_from_dt, time_to_dt, effective_level, services, top_k),
+        pool.fetch(summary_sql, time_from_dt, time_to_dt, services, project_id),
+        pool.fetch(logs_sql, time_from_dt, time_to_dt, effective_level, services, top_k, project_id),
     )
 
     summary = {
@@ -228,6 +235,7 @@ async def scan_window(
                 WHERE timestamp_start BETWEEN $1 AND $2
                   AND log_level = 'ERROR'
                   AND source_service = ANY($3)
+                  AND ($6::uuid IS NULL OR project_id = $6)
                 GROUP BY source_service
             ),
             candidates AS (
@@ -243,6 +251,7 @@ async def scan_window(
                   AND lc.timestamp_start <  fe.first_error
                   AND lc.log_level IS DISTINCT FROM 'ERROR'
                   AND lc.log_level IS DISTINCT FROM 'DEBUG'
+                  AND ($6::uuid IS NULL OR lc.project_id = $6)
             )
             SELECT chunk_id, source_service, log_level, timestamp_start, text
             FROM candidates
@@ -256,6 +265,7 @@ async def scan_window(
             services_with_errors,
             str(pre_context_seconds),
             pre_context_per_service_limit,
+            project_id,
         )
         pre_context_logs = [
             {
@@ -285,6 +295,7 @@ async def find_logs_by_id(
     entity: str,
     top_k: int = 50,
     min_similarity: float = 0.6,
+    project_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Find log chunks containing (or fuzzy-matching) an entity token.
 
@@ -312,13 +323,15 @@ async def find_logs_by_id(
                CASE WHEN text ILIKE '%' || $1 || '%' THEN 1.0::real
                     ELSE word_similarity($1, text) END AS sim
         FROM log_chunks
-        WHERE text ILIKE '%' || $1 || '%'
-           OR text %> $1
+        WHERE (text ILIKE '%' || $1 || '%'
+           OR text %> $1)
+          AND ($3::uuid IS NULL OR project_id = $3)
         ORDER BY sim DESC, timestamp_start DESC
         LIMIT $2
         """,
         entity.strip(),
         top_k,
+        project_id,
     )
     return [
         {
@@ -339,6 +352,7 @@ async def get_service_summary(
     service: str,
     time_from: str | None = None,
     time_to: str | None = None,
+    project_id: uuid.UUID | None = None,
 ) -> dict:
     """Get high-level statistics for a service using raw SQL (Bug 1 Fix)."""
     time_from_dt = _parse_iso_timestamp(time_from)
@@ -358,8 +372,9 @@ async def get_service_summary(
         WHERE source_service = $1
           AND ($2::timestamptz IS NULL OR timestamp_start >= $2)
           AND ($3::timestamptz IS NULL OR timestamp_end   <= $3)
+          AND ($4::uuid IS NULL OR project_id = $4)
         """,
-        service, time_from_dt, time_to_dt,
+        service, time_from_dt, time_to_dt, project_id,
     )
 
     return {
@@ -373,9 +388,12 @@ async def get_service_summary(
         "latest": DateHandler.to_iso(row["latest"]),
     }
 
-async def get_all_services(pool: asyncpg.Pool) -> list[str]:
+async def get_all_services(pool: asyncpg.Pool, project_id: uuid.UUID | None = None) -> list[str]:
     """Dynamically fetch all unique services currently in the database."""
-    rows = await pool.fetch("SELECT DISTINCT source_service FROM log_chunks")
+    rows = await pool.fetch(
+        "SELECT DISTINCT source_service FROM log_chunks WHERE ($1::uuid IS NULL OR project_id = $1)",
+        project_id,
+    )
     return [r["source_service"] for r in rows]
 
 TOOL_SCHEMAS = {

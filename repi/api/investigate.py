@@ -22,6 +22,9 @@ class InvestigateRequest(BaseModel):
     # conversation row is created and its id returned so the UI can attach
     # subsequent /chat turns to the same thread.
     conversation_id: Optional[UUID] = None
+    # UX P1: scopes retrieval + every ReAct tool to one project. If omitted
+    # but the conversation has a project, the conversation's project applies.
+    project_id: Optional[UUID] = None
 
 class InvestigationStepModel(BaseModel):
     step_number: int
@@ -93,8 +96,9 @@ async def investigate(request: InvestigateRequest):
         from sqlalchemy import text as sa_text
 
         conversation_id = request.conversation_id
+        project_id = request.project_id
         if conversation_id is None:
-            conv = Conversation(title=request.query[:80])
+            conv = Conversation(title=request.query[:80], project_id=project_id)
             session.add(conv)
             await session.commit()
             await session.refresh(conv)
@@ -103,12 +107,18 @@ async def investigate(request: InvestigateRequest):
             # Validate it exists; if not, materialise with the caller's id.
             stmt = sm_select(Conversation).where(Conversation.id == conversation_id)
             res = await session.exec(stmt)
-            if res.first() is None:
-                session.add(Conversation(id=conversation_id, title=request.query[:80]))
+            existing = res.first()
+            if existing is None:
+                session.add(Conversation(id=conversation_id, title=request.query[:80], project_id=project_id))
                 await session.commit()
+            elif project_id is None:
+                # Inherit the conversation's project when the caller didn't pin one.
+                project_id = existing.project_id
 
         store = container.get_investigation_store(session)
-        investigation = await store.get_or_create(request.query, conversation_id=conversation_id)
+        investigation = await store.get_or_create(
+            request.query, conversation_id=conversation_id, project_id=project_id
+        )
 
         # Bump the conversation's updated_at so the sidebar surfaces the
         # thread to the top even when activity is investigation-side rather
@@ -173,13 +183,23 @@ async def stream_investigation(investigation_id: str):
     async def event_generator():
         container = get_container()
         async with container.get_session() as session:
-            loop = container.get_investigation_loop(session)
-            store = loop.store
+            store = container.get_investigation_store(session)
             investigation = await store.get_by_id(uuid_obj)
-            
+
             if not investigation:
                 yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Investigation not found'}})}\n\n"
                 return
+
+            # Build the loop scoped to the investigation's project: every tool
+            # call carries project_id and the resolver sees only that
+            # project's services.
+            scoped_services = await container.get_known_services(investigation.project_id)
+            loop = container.get_investigation_loop(
+                session,
+                project_id=investigation.project_id,
+                known_services=scoped_services,
+            )
+            store = loop.store
 
             steps = await store.get_steps(uuid_obj)
             for s in steps:

@@ -112,7 +112,9 @@ class IngestionWorker:
                     return
 
                 ingestor = self.container.get_ingestor(session)
-                stats = await ingestor.ingest(new_content, config.service_name)
+                stats = await ingestor.ingest(
+                    new_content, config.service_name, project_id=config.project_id
+                )
                 logger.info(f"Ingested {stats.chunk_count} chunks from {file_path}")
 
                 await self.update_offset(session, config.id, file_path, file_size)
