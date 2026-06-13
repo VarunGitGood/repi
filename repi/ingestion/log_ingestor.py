@@ -7,6 +7,7 @@ from repi.ingestion.log_parser import parse_log_line
 from repi.ingestion.log_chunker import chunk_logs
 from repi.retrieval.pgvector_store import PgVectorStore
 import uuid
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +26,11 @@ class LogIngestor:
         self.vector_store = vector_store
         self.embedding_func = embedding_func
 
-    async def ingest(self, logs: str | List[str], source_service: str, source_env: str = "production") -> IngestStats:
+    async def ingest(self, logs: str | List[str], source_service: str, source_env: str = "production",
+                     project_id: Optional[UUID] = None) -> IngestStats:
         """
-        Ingest logs from a specific source.
+        Ingest logs from a specific source. `project_id` scopes the chunks to a
+        project (None = caller resolves to the Default project upstream).
         """
         if not source_service:
             raise ValueError("source_service is required")
@@ -65,7 +68,9 @@ class LogIngestor:
                 source_env=source_env,
                 log_level=chunk.log_level,
                 timestamp_start=chunk.timestamp_start,
-                timestamp_end=chunk.timestamp_end
+                timestamp_end=chunk.timestamp_end,
+                signature=chunk.signature,
+                project_id=project_id,
             )
             count += 1
 

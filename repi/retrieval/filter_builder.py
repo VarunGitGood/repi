@@ -12,6 +12,9 @@ def build_filter_expressions(filters: RetrievalFilters) -> list[Any]:
     if filters.source_service:
         exprs.append(LogChunk.source_service == filters.source_service)
 
+    if filters.project_id:
+        exprs.append(LogChunk.project_id == filters.project_id)
+
     if filters.source_env:
         exprs.append(LogChunk.source_env == filters.source_env)
 

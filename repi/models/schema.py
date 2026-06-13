@@ -8,6 +8,24 @@ from sqlalchemy import TEXT, ARRAY, Index, String, Column, Computed, DateTime
 from pydantic import field_validator
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 
+class Project(SQLModel, table=True):
+    __tablename__ = "projects"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(sa_column=Column(TEXT, unique=True, nullable=False))
+    # Keys: default_timeline_window ("5h"), auto_load_timeline (true),
+    # max_events (25). Read by /projects/{id}/overview.
+    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class LogChunk(SQLModel, table=True):
     __tablename__ = "log_chunks"
 
@@ -24,6 +42,10 @@ class LogChunk(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     chunk_id: str = Field(index=True, unique=True)
+    project_id: Optional[UUID] = Field(default=None, index=True)
+    # Extracted at ingest (chunk_logs signature); enables corpus-wide
+    # GROUP BY signature for the project overview without re-parsing `text`.
+    signature: Optional[str] = Field(default=None)
     source_service: str = Field(index=True)
     source_env: str = Field(default="production", index=True)
     log_level: Optional[str] = Field(default=None, index=True)
@@ -70,6 +92,7 @@ class Conversation(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     title: Optional[str] = Field(default=None, sa_column=Column(TEXT))
+    project_id: Optional[UUID] = Field(default=None, index=True)
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -114,6 +137,8 @@ class Investigation(SQLModel, table=True):
     # an interleaved transcript. Not read by the ReAct loop — Deep Research is
     # intentionally stateless w.r.t. prior chat turns.
     conversation_id: Optional[UUID] = Field(default=None, index=True)
+    # UX P1: scopes the investigation's retrieval + tools to one project.
+    project_id: Optional[UUID] = Field(default=None, index=True)
 
 class InvestigationStep(SQLModel, table=True):
     __tablename__ = "investigation_steps"
@@ -144,6 +169,7 @@ class WatcherConfig(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     service_name: str = Field(index=True)
     watch_path: str = Field(index=True)
+    project_id: Optional[UUID] = Field(default=None, index=True)
     env: str = Field(default="production")
     enabled: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
