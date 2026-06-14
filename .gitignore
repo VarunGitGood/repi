@@ -17,11 +17,6 @@ ENV/
 
 # Repi Data
 .repi/
-.impact/
-
-# Kuzu temporary files
-*.tmp
-kuzu_temp/
 
 # OS
 .DS_Store
@@ -32,13 +27,6 @@ Thumbs.db
 
 # Local smoke tests / dev scripts
 scripts/
-
-# Eval output artefacts (legacy bug.json + opt-in --out path)
-bug.json
-eval/results/
-
-# Closure / launch tracker (private; not for public repo)
-todo/
-
-tmp-ui-tests/
 assets/
+
+CLAUDE.md
