@@ -335,7 +335,7 @@ export default function HomePage() {
   // New chat, no project yet → step 1 of the flow: pick (or create) a project.
   if (!conversationId && !project) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         <ConversationSidebar
           activeId={conversationId}
           onSelect={loadConversation}
