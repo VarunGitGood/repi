@@ -1,4 +1,4 @@
-"""GET /conversations + GET /conversations/{id} (A2 slice — minimal).
+"""GET /conversations + GET /conversations/{id}.
 
 The sidebar lists conversations ordered by `updated_at`. Clicking one returns
 chat turns and investigations interleaved chronologically, each carrying a

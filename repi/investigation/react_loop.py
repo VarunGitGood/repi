@@ -25,31 +25,24 @@ from repi.investigation.compiler import compile_answer, synthesize_answer, Compi
 logger = logging.getLogger(__name__)
 
 
-# The ReAct loop is an evidence gatherer; it does NOT produce the final
-# InvestigationAnswer itself. That job belongs to `repi.investigation.compiler`,
-# which runs a separate, focused LLM call against the gathered evidence.
+# The ReAct loop only gathers evidence. The final InvestigationAnswer is
+# produced by `repi.investigation.compiler` via a separate LLM call.
 #
-# `DONE_GATHERING_TOOL` is the LLM's signal to exit the gathering phase
-# voluntarily. It is dispatcher-only — not a real tool, no schema in
-# `TOOL_SCHEMAS`. Args: optional {"reason": "..."}.
+# `DONE_GATHERING_TOOL` is the LLM's voluntary exit signal for the gathering
+# phase. Dispatcher-only — not in `TOOL_SCHEMAS`. Args: optional {"reason": "..."}.
 #
-# `LEGACY_SUBMIT_TOOL` is recognised for graceful migration: if a prompt
-# variant or older trace tells the model to call `submit_answer`, we treat
-# the call as a done-gathering signal (its args are discarded — the compiler
-# will produce the real answer from the actual evidence).
+# `LEGACY_SUBMIT_TOOL` is also accepted: if a model emits `submit_answer`, it
+# is treated as a done-gathering signal (its args are discarded; the compiler
+# produces the real answer).
 DONE_GATHERING_TOOL = "done_gathering"
 LEGACY_SUBMIT_TOOL = "submit_answer"
 
 
-# Reflection turn injected every N action steps. The LLM is asked to step back,
-# summarize hypotheses + evidence, and pick the highest-value next action.
-# Pure thought — no tool call expected on this turn.
-#
-# Deliberately does NOT invite early termination. An earlier draft included a
-# "give up and submit with low confidence if you want" bullet; in practice the
-# LLM read that as permission to bail after the first weak scan on noisy
-# datasets. Termination is now gated explicitly: only after multiple distinct
-# lines of inquiry have all returned no useful evidence.
+# Reflection turn injected every N action steps: the LLM steps back,
+# summarises hypotheses + evidence, and picks the highest-value next action.
+# Pure thought — no tool call on this turn. Termination is gated: only call
+# `done_gathering` after multiple distinct lines of inquiry have all returned
+# no useful evidence.
 REFLECTION_PROMPT = (
     "Stop. Before your next action, reflect:\n"
     "1. What hypotheses have you considered so far?\n"
@@ -330,7 +323,7 @@ class ReactInvestigationLoop:
             resolved_intent = resolution
 
         # --- 2. AUTO SWEEP ---
-        # `tool_call_ledger` (issue #11) dedupes identical tool invocations across
+        # `tool_call_ledger` dedupes identical tool invocations across
         # iterations: hash → {tool_name, args, result}. The summary is appended to
         # the system message each turn so the LLM knows what's already been tried.
         tool_call_ledger: dict[str, dict] = {}
@@ -860,8 +853,8 @@ class ReactInvestigationLoop:
         )
 
     def _build_system_prompt(self) -> str:
-        # Filter out the legacy `submit_answer` tool from the schema we
-        # advertise — this loop no longer produces the final answer.
+        # Don't advertise `submit_answer` in the schema — this loop only
+        # gathers; the compiler produces the final answer.
         gathering_tools = {k: v for k, v in TOOL_SCHEMAS.items() if k != LEGACY_SUBMIT_TOOL}
         return f"""You are a senior SRE gathering evidence about an incident.
 Postgres is the source of truth for this investigation.

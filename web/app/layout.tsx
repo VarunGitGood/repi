@@ -5,9 +5,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { Navbar } from "@/components/navbar";
 
-// Mellow, developer-native pairing: Geist for body/headings, Geist Mono for
-// code/logs. Geist Mono finally backs the `--font-mono` slot that globals.css
-// referenced but nothing previously loaded.
+// Geist for body/headings, Geist Mono for code/logs (backs the `--font-mono`
+// slot referenced in globals.css).
 const geist = Geist({
   subsets: ["latin"],
   variable: "--font-geist",

@@ -65,8 +65,8 @@ interface ProjectOverviewProps {
 /**
  * The landing panel of a new project conversation: heuristic event timeline
  * ("what happened recently?"), top error clusters ("what is breaking?"),
- * services, and suggested next actions. Fetched live on mount — it reflects
- * the data at view time, deliberately not persisted as a chat message.
+ * services, and suggested next actions. Fetched live on mount; not persisted
+ * as a chat message.
  */
 export function ProjectOverview({ projectId, projectName, onAction }: ProjectOverviewProps) {
   const [overview, setOverview] = useState<Overview | null>(null)

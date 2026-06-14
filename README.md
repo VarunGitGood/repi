@@ -1,6 +1,6 @@
 # repi
 
-Local-first log observability. repi continuously ingests logs, indexes them into a hybrid retrieval system (pgvector HNSW + Postgres FTS with weighted tsvector + pg_trgm fuzzy match), clusters related events, builds incident timelines, and can optionally launch an autonomous root-cause investigation through a ReAct loop. Designed to run on a single machine against a local Postgres — no SaaS, no shared state.
+Local-first log observability. repi continuously ingests logs, indexes them into a hybrid retrieval system (pgvector HNSW + Postgres FTS with weighted tsvector + pg_trgm fuzzy match), clusters related events by signature, builds incident timelines, and can optionally launch an autonomous root-cause investigation through a ReAct loop. Logs and investigations live in projects so different services / environments stay separated. Designed to run on a single machine against a local Postgres — no SaaS, no shared state.
 
 ## Architecture
 
@@ -8,15 +8,19 @@ Local-first log observability. repi continuously ingests logs, indexes them into
 repi/
 ├── cli.py          # Typer CLI — lifecycle commands: init, serve, ui, stop
 ├── worker.py       # Background file watcher — polls watcher_configs, ingests new log bytes
-├── api/            # FastAPI — ingest, investigate, watchers, config endpoints
+├── api/            # FastAPI — ingest, chat, investigate, conversations, projects, watchers, config endpoints
 ├── core/           # Settings (pydantic-settings), DI container, Redis cache
 ├── ingestion/      # Log parsing → signature clustering → embedding → upsert
-├── retrieval/      # pgvector HNSW + PostgreSQL FTS, RRF fusion, query expansion
-├── investigation/  # ReAct loop, tools (search_logs, get_timeline, scan_window, get_service_summary), evidence store
+├── retrieval/      # pgvector HNSW + PostgreSQL FTS, RRF fusion, query expansion, timeline + cluster views
+├── investigation/  # ReAct gather loop + separate compile-LLM step, tools, evidence store
 ├── llm/            # Provider protocol + adapters (OpenAI, Anthropic, Mistral, Gemini, Ollama)
 ├── intent/         # Natural-language query → service / time-window / log-level extraction
-└── models/         # SQLModel tables: log_chunks, investigations, investigation_steps, investigation_chunks, watcher_configs, watcher_offsets
+└── models/         # SQLModel tables: projects, log_chunks, conversations, chat_messages,
+                    #                  investigations, investigation_steps, investigation_chunks,
+                    #                  watcher_configs, watcher_offsets
 ```
+
+The Next.js web UI (`web/`) is the recommended surface. It drives the same FastAPI endpoints below.
 
 ## Getting started
 
@@ -73,22 +77,39 @@ Three ways to edit it, in order of convenience:
 
 `REPI_ENV` defaults to `production`. Flip to `development` in `.repi/config.json` (or via the UI) for verbose logs + `--reload`.
 
-> **Coming from an older checkout?** If you have a root-level `.env` or `config.json`, neither is read anymore. Move keys into `.repi/config.json` via the UI or `repi init --force`.
-
 ## Usage
 
-### Ingest a log file manually
+The web UI exposes everything below; the curl examples document the underlying API.
+
+### Ingest a log file
+
+Drag-and-drop in the UI (Config page → *Ingest file*), or:
 
 ```bash
 curl -X POST \
   -F "service=my-service" \
   -F "file=@/path/to/app.log" \
+  -F "project=default" \
   http://localhost:8000/ingest
 ```
 
-### Investigate
+`project` accepts a name (get-or-create) or an existing UUID; omit it for the Default project.
 
-Starting an investigation is a two-step flow: `POST /investigate` registers it and returns an `id`; attaching to the SSE stream is what actually executes the ReAct loop (the web UI does this for you). A `POST` with no stream consumer stays in `started` and never runs.
+### Chat (single-shot Q&A over logs)
+
+For quick questions where you want a direct answer, not a full investigation. Retrieves logs, builds a timeline, asks the LLM, returns a streaming response. Lives at `POST /chat`.
+
+```bash
+curl -N -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "errors in auth-svc in the last hour", "project_id": "<uuid>"}'
+```
+
+In the UI, this is the default mode. Type `/info` (optionally with a window, e.g. `/info 24h`) to drop the project overview into the conversation.
+
+### Investigate (autonomous root-cause loop)
+
+When you need a structured root-cause analysis instead of a one-shot answer. Two-step flow: `POST /investigate` registers, attaching to the SSE stream executes the ReAct loop (the web UI does this for you). A `POST` with no stream consumer stays in `started` and never runs.
 
 ```bash
 # 1. Register the investigation — returns {"id": "...", ...}
@@ -100,6 +121,8 @@ curl -X POST http://localhost:8000/investigate \
 #    Reconnecting replays persisted steps, then continues.
 curl -N http://localhost:8000/investigations/{id}/stream
 ```
+
+In the UI, toggle **Deep Research** to route a turn to `/investigate` instead of `/chat` — same conversation, heavier mode for that turn.
 
 ### Continuous ingestion with the Worker
 
@@ -147,13 +170,17 @@ All keys live in `.repi/config.json` (see `config.example.json` for the full sch
 # Run all tests
 uv run pytest tests/ -v
 
-# Run worker tests only
-uv run pytest tests/worker/ -v
+# Run a single file
+uv run pytest tests/investigation/test_react_loop.py -v
 
-# Run investigation tests
-uv run pytest tests/investigation/ -v
+# Eval harness — three scripted datasets graded against expected.json
+uv run python eval/run_evals.py
 ```
+
+## Contributing
+
+Bug reports and feature requests go in [GitHub Issues](https://github.com/VarunGitGood/repi/issues). PRs welcome — tests should pass (`uv run pytest tests/ -q`) and the docker image should still build.
 
 ## License
 
-MIT
+[MIT](./LICENSE).

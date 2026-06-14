@@ -127,24 +127,23 @@ class ConversationDetail(BaseModel):
 class InvestigateRequest(BaseModel):
     query: str
     resume: bool = True
-    # Optional thread back to a chat surface (A1/A2). If omitted, a new
+    # Optional thread back to a chat conversation. If omitted, a new
     # conversation row is created and its id returned so the UI can attach
     # subsequent /chat turns to the same thread.
     conversation_id: Optional[UUID] = None
-    # UX P1: scopes retrieval + every ReAct tool to one project. If omitted
-    # but the conversation has a project, the conversation's project applies.
+    # Scopes retrieval + every ReAct tool to one project. If omitted but the
+    # conversation has a project, the conversation's project applies.
     project_id: Optional[UUID] = None
 
 
 class InvestigationStepModel(BaseModel):
     step_number: int
     thought: str
-    # Legacy preview fields — kept for back-compat with anything that may still
-    # read them. The list endpoint returns empty steps anyway.
+    # Preview fields for backwards compatibility; the list endpoint leaves them empty.
     tool_name: Optional[str] = None
     tool_args: Optional[dict] = None
     observation_preview: Optional[str] = None
-    # Rich shape the UI uses to render a step identically to the SSE stream.
+    # Rich step shape used by the UI to render identically to the SSE stream.
     action: Optional[dict] = None
     observation: Optional[dict] = None
     kind: Optional[str] = None
@@ -190,18 +189,12 @@ class ChatRequest(BaseModel):
     history: List[ChatTurn] = []
     filters: Optional[ChatFilters] = None
     conversation_id: Optional[UUID] = None
-    # Followup-bias hint: chunk_ids the previous assistant turn cited. When
-    # the current query is missing EITHER an explicit service or an explicit
-    # time window, the chat path fills in just the missing dimension from
-    # the previous turn's chunks — service via dominant-source check, time
-    # via a `Settings.FOLLOWUP_BIAS_WINDOW_MINUTES` envelope around their
-    # timestamps. Soft — never overrides an explicit filter, silently
-    # ignored if the IDs no longer resolve.
-    #
-    # Capped at 50 to bound the indexed-PK fetch and reject malformed
-    # payloads early. The legitimate caller only ever sends the last
-    # assistant turn's citations (≤10 in practice).
+    # Follow-up bias hint: chunk_ids the previous assistant turn cited. Used
+    # by the chat path to fill in a missing service or time window from the
+    # previous turn's chunks. Never overrides an explicit filter; silently
+    # ignored if the IDs no longer resolve. Capped at 50 to bound the
+    # indexed-PK fetch.
     previous_chunk_ids: List[str] = Field(default_factory=list, max_length=50)
-    # UX P1: scopes retrieval + known-services resolution to one project. If
+    # Scopes retrieval + known-services resolution to one project. If
     # omitted but the conversation has a project, that project applies.
     project_id: Optional[UUID] = None

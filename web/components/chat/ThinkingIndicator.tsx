@@ -4,10 +4,9 @@ import { useEffect, useState } from "react"
 import { Spinner } from "@/components/ui/spinner"
 import type { InvestigationPhase, Step } from "@/lib/sse"
 
-// Steps only stream in AFTER a tool observation completes, so the gaps
-// between them (an LLM call + a tool call, 10–30s on throttled providers)
-// previously showed nothing. This fills those gaps with a contextual status
-// line derived from what the loop is actually doing.
+// Steps only stream in after a tool observation completes, so the gaps
+// between them (LLM call + tool call, 10–30s on throttled providers) need
+// a contextual status line derived from what the loop is doing.
 
 const TOOL_STATUS: Record<string, string> = {
   search_logs: "Searching logs",

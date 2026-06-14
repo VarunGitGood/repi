@@ -69,10 +69,10 @@ def enforce_floors(
       - confidence='high' with <2 distinct cited chunk_ids → downgrade to 'medium'
       - confidence != 'low' with empty gaps → downgrade to 'low'
       - affected_services contains a service never seen in evidence → downgrade one notch
-      - 0 evidence chunks → force 'low' (A4 soft-fail floor)
+      - 0 evidence chunks → force 'low'
       - any resolved entity present in the query but absent from every chunk's
-        text → force 'low' (A4 soft-fail floor; the entity was the user's anchor
-        and we never literally surfaced it)
+        text → force 'low' (the entity was the user's anchor and we never
+        literally surfaced it).
     """
     notes: list[str] = []
 
@@ -82,9 +82,9 @@ def enforce_floors(
         notes.append(f"confidence was {confidence!r}; coerced to 'low'")
         confidence = "low"
 
-    # A4 soft-fail floors — deterministic, run BEFORE the citation-count rules so
-    # the empty-evidence path doesn't get a free pass from the "high needs ≥2 citations"
-    # branch (which is silent when there are no citations to count).
+    # Soft-fail floors — run BEFORE the citation-count rules so the
+    # empty-evidence path doesn't slip past "high needs ≥2 citations"
+    # (which is silent when there are no citations to count).
     if not evidence:
         if confidence != "low":
             answer_dict["confidence"] = "low"

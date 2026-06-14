@@ -5,17 +5,16 @@ import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, ArrowDown, Target, Ban, HelpCircle } from "lucide-react"
 import type { InvestigationAnswer } from "@/lib/types"
 
-// Strip the model's inline chunk references from prose — same cleanup the old
-// plain-text card did.
+// Strip the model's inline chunk references from prose before rendering.
 function stripChunkRefs(s: string): string {
   return s
     .replace(/\s*\[chunk:[^\]]+\]/gi, "")
     .replace(/\s*\[chunk_id:[^\]]+\]/gi, "")
 }
 
-// The compiled answer is persisted as `json.dumps(InvestigationAnswer)`. Older
-// investigations and clarification messages are plain prose. Try to parse; if
-// it isn't the structured object, fall back to rendering text.
+// The compiled answer is persisted as `json.dumps(InvestigationAnswer)`.
+// Clarification messages and other non-investigation rows are plain prose;
+// fall back to rendering text when parsing fails.
 function tryParse(answer: string): InvestigationAnswer | null {
   const trimmed = answer.trim()
   if (!trimmed.startsWith("{")) return null
@@ -59,7 +58,7 @@ function Section({
 export function CompiledAnswer({ answer }: { answer: string }) {
   const parsed = tryParse(answer)
 
-  // Fallback: plain-text answer (clarification text or legacy prose). Rendered
+  // Fallback for plain-text answers (e.g. clarification questions). Rendered
   // as markdown for consistency with the rest of the chat surface.
   if (!parsed) {
     return (

@@ -137,9 +137,9 @@ class Container:
         return self.known_services
 
     async def get_known_services(self, project_id=None) -> list[str]:
-        """Project-scoped service list (UX P1). Falls back to the global
-        cached list when no project is given. Queried per call — DISTINCT on
-        an indexed column; freshness matters more than the microseconds."""
+        """Project-scoped service list. Falls back to the global cached list
+        when no project is given. Queried per call — DISTINCT on an indexed
+        column; freshness matters more than the microseconds."""
         if project_id is None:
             return self.known_services
         services = await get_all_services(self.pool, project_id=project_id)

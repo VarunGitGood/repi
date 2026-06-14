@@ -1,21 +1,15 @@
-"""POST /chat — single-shot RAG over logs (A1).
+"""POST /chat — single-shot RAG over logs.
 
 Contract:
 - Resolve intent (reuse `repi.intent.resolver`).
-- If clarification needed → stream a `clarify` event and stop.
-- RRF retrieve top-k. When entities are present (from resolver OR caller-supplied
-  `filters.entity`), UNION (RRF top-k, find_logs_by_id top-k) and dedupe by
-  chunk_id before sending to the LLM. This implements the A4 entity-bias spec.
+- If clarification needed → proceed with unbounded retrieval anyway.
+- RRF retrieve top-k. When entities are present, UNION
+  (RRF top-k, find_logs_by_id top-k) and dedupe by chunk_id.
 - Build a focused system prompt ("answer from these log lines only, cite chunk_ids").
-- Stream the answer as SSE: `delta` events for tokens / chunks, `done` event
-  carrying citations + heuristic confidence + conversation_id.
+- Stream the answer as SSE: `delta` events for tokens, `done` event
+  carrying citations, heuristic confidence, and conversation_id.
 - Persist both user and assistant turns to `chat_messages` keyed by
   `conversation_id` (creating the row if not supplied).
-
-NOT in scope:
-- ReAct loop / tools / multi-step (that's /investigate).
-- Reading prior conversation history (deferred to #64 / A11). Phase 1 uses
-  client-supplied `history` only, not a DB lookup.
 """
 from __future__ import annotations
 
@@ -51,52 +45,40 @@ logger = logging.getLogger("repi.api.chat")
 router = APIRouter()
 
 
-# ── Module-level constants ────────────────────────────────────────────────────
-
 # Caller-visible window on cited-chunk `text` in the SSE done payload. Locked
 # to the same length the LLM prompt's evidence block uses so the UI never
 # surfaces content the model didn't see.
 CHUNK_TEXT_WINDOW = 600
 
-# When the dominant service's count is at least this multiple of the
-# runner-up's, treat it as "this is the conversation's service" and bias
-# retrieval toward it. Below this ratio the previous turn straddled
-# services (cross-service incident) — we let the resolver fan out instead.
+# Minimum ratio of top-service count to runner-up count required to pin
+# retrieval to one service on a follow-up turn. Below this, the previous
+# turn straddled services and we let the resolver fan out.
 SERVICE_DOMINANCE_RATIO = 2.0
 
-
-# ── SSE envelope helpers ──────────────────────────────────────────────────────
-# Matches `/investigations/{id}/stream` envelope: data: {json with `type`}\n\n.
 
 def _sse(event_type: str, data: dict) -> str:
     return f"data: {json.dumps({'type': event_type, 'data': data})}\n\n"
 
 
 def _normalize_ts(value):
-    """Canonicalise a `timestamp_start` field for the chat path's chunks list.
+    """Canonicalise a `timestamp_start` field to ISO 8601 string or None.
 
-    The chunks the LLM, the cluster_view, and the timeline_view all read share
-    one rule: `timestamp` is ISO 8601 string or None. Downstream comparisons
-    (`<`, `>`, `sorted(...)`) rely on this — mixing `datetime` and `str` in
-    one list would TypeError. Two source paths (RRF + entity-bias merge) feed
-    this list; both run their `timestamp_start` through here so a future
-    change to either source can't reintroduce mixed types.
+    Downstream comparisons (`<`, `>`, `sorted(...)`) require a uniform type;
+    mixing `datetime` and `str` in one list would TypeError.
     """
     if value is None:
         return None
     if hasattr(value, "isoformat"):
         return _dh.to_iso(value)
-    return value  # already string-ish
+    return value
 
 
-# ── Confidence heuristic (chat path) ──────────────────────────────────────────
-# Compiler floors don't apply — /chat has no compile step. Deterministic rules:
-#   - 0 chunks gathered → low
-#   - entities resolved but none literally present in any chunk → low
-#   - < 3 chunks → medium
-#   - else medium (we never claim 'high' from a single-shot RAG turn; the
-#     ReAct loop earns 'high' via cross-service correlation)
 def _chat_confidence(chunks: list[dict], entities: list[str]) -> str:
+    """Deterministic confidence rules for single-shot RAG:
+      - 0 chunks → low
+      - entities resolved but none literally present in any chunk → low
+      - otherwise → medium (chat path never claims 'high').
+    """
     if not chunks:
         return "low"
     if entities:
@@ -105,8 +87,6 @@ def _chat_confidence(chunks: list[dict], entities: list[str]) -> str:
             return "low"
     return "medium"
 
-
-# ── System prompt ─────────────────────────────────────────────────────────────
 
 CHAT_SYSTEM_PROMPT = """\
 You answer the user's question using ONLY the log lines provided below.
@@ -124,17 +104,12 @@ answer.
 """
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────────────
-
-
 @router.post("/chat")
 async def chat(req: ChatRequest) -> StreamingResponse:
     container = get_container()
-    container.require_llm()  # 409 up front if no API key is configured.
+    container.require_llm()  # 409 if no API key is configured.
 
     async def event_generator():
-        # Resolve or create the conversation row up front so every event the
-        # client sees can carry the (eventual) conversation_id.
         conversation_id = req.conversation_id
         project_id = req.project_id
         async with container.async_session_maker() as session:
@@ -145,8 +120,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 await session.refresh(conv)
                 conversation_id = conv.id
             else:
-                # Validate it exists; if not, create one with this id so the
-                # caller's pinned id keeps working (idempotent).
+                # Idempotent: create the row with the caller's pinned id if missing.
                 stmt = select(Conversation).where(Conversation.id == conversation_id)
                 res = await session.exec(stmt)
                 existing = res.first()
@@ -158,8 +132,8 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                     # Inherit the conversation's project when not pinned.
                     project_id = existing.project_id
 
-            # Persist the user turn immediately — the client gets a citation-free
-            # echo if the LLM call errors out mid-stream.
+            # Persist the user turn before the LLM call so a mid-stream
+            # error still leaves an echo in the transcript.
             user_msg = ChatMessage(
                 conversation_id=conversation_id,
                 role="user",
@@ -169,16 +143,12 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             await session.commit()
 
         try:
-            # ── Intent resolution ────────────────────────────────────────────
             now = _dh.now()
             known_services = await container.get_known_services(project_id) or []
             resolution = resolve_intent(req.query, known_services, now)
 
             if isinstance(resolution, ClarificationNeeded):
-                # Chat path never blocks on missing dimensions — proceed
-                # with unbounded retrieval and let the LLM answer from
-                # whatever chunks match. The /investigate path still
-                # clarifies; this keeps one-shot RAG accessible for any query.
+                # Chat path never blocks on missing dimensions; retrieve unfiltered.
                 assumed = ["proceeding with prior conversation context"] if req.history else ["no specific filters — searching all logs"]
                 intent = ResolvedIntent(
                     time_from=None, time_to=None,
@@ -188,8 +158,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             else:
                 intent = resolution
 
-            # ── Retrieval ────────────────────────────────────────────────────
-            # Honour caller-supplied filters; fall back to resolver-derived.
+            # Caller-supplied filters override resolver-derived ones.
             f = req.filters or ChatFilters()
             service = f.service or (intent.services[0] if intent.services else None)
             time_from = f.time_from or intent.time_from
@@ -199,11 +168,8 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             if caller_entity and caller_entity not in entities:
                 entities.append(caller_entity)
 
-            # Followup bias: when the current query is missing EITHER an
-            # explicit service or an explicit time window, fill in just the
-            # missing dimension from the previous turn's cited chunks.
-            # Indexed PK lookup, so cost is negligible vs the LLM call. Soft:
-            # explicit filters always win.
+            # Follow-up bias: fill in service or time window from the previous
+            # turn's cited chunks when the current query left them implicit.
             if req.previous_chunk_ids and (service is None or (time_from is None and time_to is None)):
                 async with container.async_session_maker() as session:
                     prev_meta = await container.get_retrieval_service(session).vector_store.get_chunks_by_ids(
@@ -212,11 +178,6 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 if prev_meta:
                     prev_services = [m.get("source_service") for m in prev_meta.values() if m.get("source_service")]
                     if service is None and prev_services:
-                        # Narrow to the dominant service only if it's clearly
-                        # dominant — top count >= SERVICE_DOMINANCE_RATIO ×
-                        # runner-up. Otherwise the previous turn straddled
-                        # services (a cross-service incident), and pinning
-                        # one would hide the other half on the followup.
                         counts = Counter(prev_services).most_common()
                         top_svc, top_n = counts[0]
                         runner_up = counts[1][1] if len(counts) > 1 else 0
@@ -253,10 +214,8 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                     time_to=time_to,
                     project_id=project_id,
                 )
-                # search_diverse over-fetches then service-stratifies the top-k
-                # so a noisy single service can't crowd out the cross-service
-                # signal a "why are payments failing" style query is really asking
-                # about. See repi/retrieval/diversify.py for the rationale.
+                # search_diverse stratifies the top-k across services so a
+                # single noisy service can't crowd out cross-service signal.
                 rrf_hits = await retrieval.search_diverse(query=req.query, top_k=10, filters=rrf_filters)
                 rrf_chunk_ids = [cid for cid, _score in rrf_hits]
                 chunks_by_id = await retrieval.vector_store.get_chunks_by_ids(rrf_chunk_ids)
@@ -292,14 +251,9 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                             "level": c.get("level"),
                             "timestamp": _normalize_ts(c.get("timestamp_start")),
                             "text": c.get("text") or "",
-                            "score": 0.0,  # ILIKE has no score; use sentinel
+                            "score": 0.0,  # ILIKE has no score; sentinel value.
                         })
 
-            # ── LLM call ─────────────────────────────────────────────────────
-            # No streaming on the provider interface yet — collect the full
-            # answer, then emit it as one delta event followed by done. The SSE
-            # envelope is unchanged; we can upgrade to token streaming later
-            # without breaking the client.
             evidence_block = json.dumps([
                 {
                     "chunk_id": c["chunk_id"],
@@ -331,7 +285,6 @@ async def chat(req: ChatRequest) -> StreamingResponse:
 
             yield _sse("delta", {"text": answer})
 
-            # Persist the assistant turn.
             async with container.async_session_maker() as session:
                 session.add(ChatMessage(
                     conversation_id=conversation_id,
@@ -347,12 +300,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 )
                 await session.commit()
 
-            # Event clusters across the retrieved top-K. Singletons are
-            # dropped (they're already in the per-turn timeline); the panel
-            # gives the user the "1842x JWT failures, 347x DB timeouts"
-            # compression rather than a raw chunk list. Caveat the UI must
-            # carry: this is *per-turn* over the retrieved chunks, not a
-            # corpus-wide aggregate.
+            # Per-turn event clusters across the retrieved top-K (not corpus-wide).
             clusters = [
                 {
                     "signature": v.signature,
@@ -364,18 +312,11 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 for v in cluster_chunks(chunks)
             ]
 
-            # Incident timeline — chronologically ordered, run-collapsed view
-            # of the same retrieved chunks. Reuses the in-memory list rather
-            # than re-fetching via investigation.tools.get_timeline (one less
-            # DB roundtrip per turn). Singletons stay so the user can see
-            # the gap between events; runs collapse so 12 identical lines
-            # become "x12 over 14:02–14:04".
+            # Chronological, run-collapsed timeline over the retrieved chunks.
             timeline = build_timeline(chunks)
 
-            # Minimal projection of cited chunks for the UI's raw-evidence tab.
-            # Saves a follow-up GET — the chat path already has the hydrated
-            # list. Keep the text at the same 600-char window used in the LLM
-            # prompt so the UI doesn't surface content the model didn't see.
+            # Cited chunks projection for the UI's raw-evidence tab, capped at
+            # the same window the LLM prompt used.
             cited_chunks = [
                 {
                     "chunk_id": c["chunk_id"],

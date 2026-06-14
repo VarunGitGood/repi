@@ -10,5 +10,5 @@ class RetrievalFilters:
     log_level: str | list[str] | None = None
     time_from: datetime | None = None
     time_to: datetime | None = None
-    # Scopes retrieval to one project (UX P1). None = no project filter.
+    # Scopes retrieval to one project. None = no project filter.
     project_id: UUID | None = None

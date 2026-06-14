@@ -133,11 +133,11 @@ class Investigation(SQLModel, table=True):
     answer: Optional[str] = Field(default=None, sa_column=Column(TEXT))
     # Valid statuses: "started", "running", "completed", "failed", "awaiting_clarification"
     pending_question: Optional[str] = Field(default=None, nullable=True)
-    # A1/A2: optional thread back to a chat conversation, so the UI can render
-    # an interleaved transcript. Not read by the ReAct loop — Deep Research is
-    # intentionally stateless w.r.t. prior chat turns.
+    # Optional thread back to a chat conversation for interleaved-transcript
+    # rendering. Not read by the ReAct loop — Deep Research is stateless
+    # w.r.t. prior chat turns.
     conversation_id: Optional[UUID] = Field(default=None, index=True)
-    # UX P1: scopes the investigation's retrieval + tools to one project.
+    # Scopes the investigation's retrieval + tools to one project.
     project_id: Optional[UUID] = Field(default=None, index=True)
 
 class InvestigationStep(SQLModel, table=True):

@@ -1,9 +1,6 @@
 // Single source of truth for log-level badge styling, shared by every panel
-// that renders a level (Timeline, CitedChunks, …) so they can't drift apart.
-//
-// Deliberately minimal palette: theme `destructive` for error-class levels,
-// one amber accent for warnings, neutral for INFO and everything else —
-// INFO is the overwhelming majority of rows, so colouring it is pure noise.
+// that renders a level. Minimal palette: theme `destructive` for error-class
+// levels, amber for warnings, neutral for INFO (the majority of rows).
 export function levelTone(level: string | null | undefined): string {
   switch ((level || "").toUpperCase()) {
     case "ERROR":

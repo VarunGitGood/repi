@@ -1,8 +1,5 @@
-// Central type surface for the web app. These declarations were previously
-// inlined across component and lib modules; collecting them here gives a single
-// import target (`@/lib/types`) for components and tests. The original modules
-// re-export from here for backward compatibility, so existing import paths keep
-// working. Pure type declarations only — no runtime code.
+// Central type surface for the web app. Single import target
+// (`@/lib/types`) for components and tests. Pure type declarations only.
 
 // ── Retrieval / evidence views ────────────────────────────────────────────────
 

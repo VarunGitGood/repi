@@ -208,10 +208,10 @@ async def scan_window(
         for r in log_rows
     ]
 
-    # Phase 2 — pre-context walk-back. One CTE fetches INFO/WARNING lines in
-    # [first_error - pre_context_seconds, first_error) for every service that
-    # produced an ERROR. Only services with a real first_error participate, so
-    # services with only WARNINGs are excluded by design.
+    # Phase 2 — pre-context walk-back. One CTE fetches non-ERROR, non-DEBUG
+    # lines in [first_error - pre_context_seconds, first_error) for every
+    # service that produced an ERROR. Services with only WARNINGs (no ERROR)
+    # are excluded — there's nothing to walk back from.
     pre_context_logs: list[dict] = []
     services_with_errors = [
         r["source_service"]

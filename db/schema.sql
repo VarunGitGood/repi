@@ -26,20 +26,9 @@ CREATE INDEX IF NOT EXISTS log_chunks_embedding_idx      ON log_chunks USING hns
 CREATE INDEX IF NOT EXISTS log_chunks_source_service_idx ON log_chunks (source_service);
 CREATE INDEX IF NOT EXISTS log_chunks_log_level_idx      ON log_chunks (log_level);
 CREATE INDEX IF NOT EXISTS log_chunks_timestamp_idx      ON log_chunks (timestamp_start);
--- pg_trgm GIN indexes — back fuzzy entity lookups in find_logs_by_id (text)
--- and forward-looking fuzzy service-name resolution (source_service). The
--- text index also accelerates the `%>` / `<%` word-similarity operators, not
--- just plain ILIKE, so typo-tolerant entity search hits the index too.
 CREATE INDEX IF NOT EXISTS log_chunks_text_trgm_idx       ON log_chunks USING gin (text gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS log_chunks_service_trgm_idx    ON log_chunks USING gin (source_service gin_trgm_ops);
 
--- Weighted FTS column. Replaces the old expression GIN on to_tsvector(text).
--- Weights: A=message body, B=service, C=level. ts_rank treats A > B > C, so a
--- service-name hit edges out a body-only loose match, and a level-only hit is
--- last. Generated STORED keeps the GIN always in sync with no application code
--- path; to_tsvector(regconfig, text) is IMMUTABLE so the expression is legal.
--- coalesce() handles the nullable log_level column without making the
--- expression non-total.
 ALTER TABLE log_chunks
     ADD COLUMN IF NOT EXISTS text_tsv tsvector
     GENERATED ALWAYS AS (
@@ -51,10 +40,6 @@ ALTER TABLE log_chunks
 DROP INDEX IF EXISTS log_chunks_fts_idx;
 CREATE INDEX IF NOT EXISTS log_chunks_text_tsv_idx ON log_chunks USING gin (text_tsv);
 
--- Conversations: chat-first surface (A1/A2). One conversation interleaves
--- /chat turns and /investigate runs, threaded by conversation_id. /investigate
--- is intentionally stateless w.r.t. prior chat history (Deep Research model);
--- the FK is only there so the UI can render an interleaved transcript.
 CREATE TABLE IF NOT EXISTS conversations (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title      TEXT,
@@ -63,8 +48,6 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 CREATE INDEX IF NOT EXISTS conversations_updated_at_idx ON conversations (updated_at DESC);
 
--- Chat messages: one row per user/assistant turn in /chat. `chunk_ids` carries
--- the citations the assistant referenced for that turn (empty for user turns).
 CREATE TABLE IF NOT EXISTS chat_messages (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

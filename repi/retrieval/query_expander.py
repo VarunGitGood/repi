@@ -74,11 +74,9 @@ class QueryExpander:
             seen_lower.add(key)
             deduped.append(v)
 
-        # Only spend an LLM roundtrip if static didn't already fill the cap.
-        # Without this short-circuit, any LLM variants we generate would just
-        # get truncated by the final [:MAX_VARIANTS] slice — wasted work and
-        # latency. Cap how many LLM variants we ask for to exactly the room
-        # that's left.
+        # Only spend an LLM roundtrip if static variants didn't already fill
+        # the cap. Ask for exactly the room that's left so the slice below
+        # doesn't truncate work we paid latency for.
         room = MAX_VARIANTS - len(deduped)
         if room > 0 and self.llm is not None:
             try:
