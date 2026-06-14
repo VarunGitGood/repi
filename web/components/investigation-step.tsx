@@ -82,7 +82,7 @@ export function InvestigationStepCard({ step }: { step: Step }) {
         {/* Thought */}
         <div className="flex items-start gap-3">
           <Brain className="h-5 w-5 mt-0.5 text-primary" />
-          <div className="flex-1 text-sm leading-relaxed text-foreground/90 bg-muted/30 p-3 rounded-lg border border-border/50">
+          <div className="md-content flex-1 text-sm leading-relaxed text-foreground/90 bg-muted/30 p-3 rounded-lg border border-border/50">
             <ReactMarkdown>{step.thought}</ReactMarkdown>
           </div>
         </div>

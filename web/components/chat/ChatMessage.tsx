@@ -1,31 +1,18 @@
 "use client"
 
 import { useRef, useState } from "react"
+import ReactMarkdown from "react-markdown"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { AlertTriangle, Clock, Layers, Microscope, Sparkles, User } from "lucide-react"
-import { EventClusters, type Cluster } from "@/components/chat/EventClusters"
-import { Timeline, type TimelineEntry } from "@/components/chat/Timeline"
-import { CitedChunks, type CitedChunk } from "@/components/chat/CitedChunks"
+import { EventClusters } from "@/components/chat/EventClusters"
+import { Timeline } from "@/components/chat/Timeline"
+import { CitedChunks } from "@/components/chat/CitedChunks"
+import type { ChatMessageProps } from "@/lib/types"
 
-export type ChatMessageProps = {
-  role: "user" | "assistant"
-  content: string
-  chunkIds?: string[]
-  confidence?: "low" | "medium" | "high" | null
-  isClarification?: boolean
-  streaming?: boolean
-  clusters?: Cluster[]
-  timeline?: TimelineEntry[]
-  citedChunks?: CitedChunk[]
-  query?: string
-  onInvestigateDeeper?: (query: string) => void
-}
+export type { ChatMessageProps }
 
-// Strip raw chunk citations the LLM may still inline despite the system
-// prompt asking it not to. Catches [chunk:abc...] and bare hex/uuid runs in
-// brackets so the user sees clean prose.
 function cleanContent(raw: string): string {
   if (!raw) return raw
   return raw
@@ -88,9 +75,9 @@ export function ChatMessageView({
       <div className={cn("max-w-[85%] space-y-2", isUser && "items-end")}>
         <div
           className={cn(
-            "rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap border",
+            "rounded-2xl px-4 py-2.5 text-sm border",
             isUser
-              ? "bg-primary text-primary-foreground border-transparent"
+              ? "bg-primary text-primary-foreground border-transparent whitespace-pre-wrap"
               : "bg-muted text-foreground border-transparent",
           )}
         >
@@ -100,7 +87,19 @@ export function ChatMessageView({
               Need a bit more info
             </div>
           )}
-          {displayed || (streaming ? <span className="opacity-60">…</span> : "")}
+          {isUser ? (
+            displayed
+          ) : displayed ? (
+            // Assistant prose is markdown — render it. The `md-content` class
+            // carries the typographic spacing + Notion-style orange backticks.
+            <div className="md-content">
+              <ReactMarkdown>{displayed}</ReactMarkdown>
+            </div>
+          ) : streaming ? (
+            <span className="opacity-60">…</span>
+          ) : (
+            ""
+          )}
         </div>
 
         {!isUser && confidence && (

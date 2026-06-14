@@ -7,49 +7,19 @@ chat turns and investigations interleaved chronologically, each carrying a
 from __future__ import annotations
 
 import logging
-from typing import List, Literal, Optional
+from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 from sqlmodel import select
 
 from repi.core.container import get_container
 from repi.models.schema import ChatMessage, Conversation, Investigation, Project
+from repi.api.schemas import ConversationDetail, ConversationSummary, TranscriptTurn
 
 logger = logging.getLogger("repi.api.conversations")
 
 router = APIRouter()
-
-
-class ConversationSummary(BaseModel):
-    id: str
-    title: Optional[str]
-    project_id: Optional[str] = None
-    project_name: Optional[str] = None
-    created_at: str
-    updated_at: str
-
-
-class TranscriptTurn(BaseModel):
-    mode: Literal["chat", "investigate"]
-    id: str
-    role: Optional[str] = None  # "user" | "assistant" for chat turns
-    content: str
-    chunk_ids: List[str] = []
-    confidence: Optional[str] = None
-    status: Optional[str] = None  # investigation status (chat turns leave this null)
-    created_at: str
-
-
-class ConversationDetail(BaseModel):
-    id: str
-    title: Optional[str]
-    project_id: Optional[str] = None
-    project_name: Optional[str] = None
-    created_at: str
-    updated_at: str
-    turns: List[TranscriptTurn]
 
 
 @router.get("/conversations", response_model=List[ConversationSummary])

@@ -6,14 +6,8 @@ import { ChevronDown, ChevronRight, Clock } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { levelTone } from "@/lib/log-levels"
 
-export type TimelineEntry = {
-  service: string | null
-  level: string | null
-  signature: string
-  first_ts: string
-  last_ts: string
-  repeat_count: number
-}
+import type { TimelineEntry } from "@/lib/types"
+export type { TimelineEntry }
 
 function formatTs(iso: string): string {
   if (!iso) return ""

@@ -6,13 +6,8 @@ import { ChevronDown, ChevronRight, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { levelTone } from "@/lib/log-levels"
 
-export type CitedChunk = {
-  chunk_id: string
-  service: string | null
-  level: string | null
-  timestamp: string | null
-  text: string
-}
+import type { CitedChunk } from "@/lib/types"
+export type { CitedChunk }
 
 function shortTs(iso: string | null): string {
   if (!iso) return ""

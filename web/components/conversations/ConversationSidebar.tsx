@@ -5,22 +5,19 @@ import { Button } from "@/components/ui/button"
 import { MessageSquare, Plus } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
-
-type ConversationSummary = {
-  id: string
-  title: string | null
-  project_name?: string | null
-  created_at: string
-  updated_at: string
-}
+import { Spinner } from "@/components/ui/spinner"
+import type { ConversationSummary } from "@/lib/types"
 
 interface ConversationSidebarProps {
   activeId: string | null
   onSelect: (id: string | null) => void
   refreshKey?: number  // bump to force a re-fetch (e.g. after sending a turn)
+  // Conversation id with a live investigation this session → show a spinner on
+  // its row in place of the message icon.
+  activeInvestigatingId?: string | null
 }
 
-export function ConversationSidebar({ activeId, onSelect, refreshKey }: ConversationSidebarProps) {
+export function ConversationSidebar({ activeId, onSelect, refreshKey, activeInvestigatingId }: ConversationSidebarProps) {
   const [items, setItems] = useState<ConversationSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +64,11 @@ export function ConversationSidebar({ activeId, onSelect, refreshKey }: Conversa
               activeId === c.id && "bg-muted font-medium",
             )}
           >
-            <MessageSquare className="size-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+            {activeInvestigatingId === c.id ? (
+              <Spinner size="sm" className="mt-0.5 flex-shrink-0 text-primary" />
+            ) : (
+              <MessageSquare className="size-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+            )}
             <span className="min-w-0">
               <span className="line-clamp-2 break-words">{c.title || "Untitled"}</span>
               {c.project_name && (

@@ -3,45 +3,20 @@ from typing import List
 from uuid import UUID, uuid4
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
 from sqlmodel import select
 
 from repi.core.container import get_container
 from repi.models.schema import WatcherConfig, WatcherOffset
+from repi.api.schemas import (
+    WatcherConfigCreate,
+    WatcherConfigRead,
+    WatcherConfigUpdate,
+    WatcherStatus,
+)
 
 logger = logging.getLogger("repi.api.watchers")
 
 router = APIRouter()
-
-class WatcherConfigCreate(BaseModel):
-    service_name: str
-    watch_path: str
-    env: str = "production"
-    enabled: bool = True
-    project_id: UUID | None = None
-
-class WatcherConfigRead(BaseModel):
-    id: UUID
-    service_name: str
-    watch_path: str
-    env: str
-    enabled: bool
-    project_id: UUID | None = None
-    created_at: datetime
-    updated_at: datetime
-
-class WatcherConfigUpdate(BaseModel):
-    service_name: str = None
-    watch_path: str = None
-    env: str = None
-    enabled: bool = None
-    project_id: UUID = None
-
-class WatcherStatus(BaseModel):
-    file_path: str
-    offset: int
-    last_seen_at: datetime
-    updated_at: datetime
 
 @router.post("/watchers", response_model=WatcherConfigRead)
 async def create_watcher(config: WatcherConfigCreate):
