@@ -310,6 +310,16 @@ export default function HomePage() {
 
   const empty = turns.length === 0
 
+  function handleCommand(command: string) {
+    if (command === "info") {
+      setTurns((prev) => [
+        ...prev,
+        { mode: "chat", role: "user", content: "/info" },
+        { mode: "command", command: "info" },
+      ])
+    }
+  }
+
   // Suggested-action chips from the overview: investigate → Deep Research
   // path; chat → normal /chat turn. Both flow through handleSend so the
   // conversation/threading behaviour is identical to typing the query.
@@ -366,15 +376,19 @@ export default function HomePage() {
                   key={i}
                   {...t}
                   onInvestigateDeeper={(q) => {
-                    // handleSend reads its second arg as the deep-research
-                    // decision (not React state) — so the setDeepResearch
-                    // call below is purely for UI sync (the toggle visually
-                    // moves), not a precondition for the routing. Order
-                    // doesn't matter; setState's asynchrony doesn't race.
                     setDeepResearch(true)
                     handleSend(q, true)
                   }}
                 />
+              ) : t.mode === "command" ? (
+                t.command === "info" && project ? (
+                  <ProjectOverview
+                    key={`cmd-${i}`}
+                    projectId={project.id}
+                    projectName={project.name}
+                    onAction={handleSuggestedAction}
+                  />
+                ) : null
               ) : (
                 <InvestigateTurnView
                   key={t.id}
@@ -404,6 +418,7 @@ export default function HomePage() {
           deepResearch={deepResearch}
           onDeepResearchChange={setDeepResearch}
           onSend={handleSend}
+          onCommand={handleCommand}
           busy={busy}
         />
       </main>

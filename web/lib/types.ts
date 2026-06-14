@@ -122,6 +122,10 @@ export type Turn =
       query: string
       finalAnswer?: string
     }
+  | {
+      mode: "command"
+      command: string
+    }
 
 export type ConversationSummary = {
   id: string

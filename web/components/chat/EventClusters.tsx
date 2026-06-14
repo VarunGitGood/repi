@@ -31,7 +31,7 @@ export function EventClusters({
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
-  const [openUncontrolled, setOpenUncontrolled] = useState(clusters.length > 0 && clusters.length <= 5)
+  const [openUncontrolled, setOpenUncontrolled] = useState(false)
   const open = openProp ?? openUncontrolled
   const setOpen = (v: boolean) => {
     if (onOpenChange) onOpenChange(v)

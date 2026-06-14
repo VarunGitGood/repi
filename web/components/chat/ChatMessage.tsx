@@ -88,7 +88,7 @@ export function ChatMessageView({
             </div>
           )}
           {isUser ? (
-            displayed
+            <span className={content.startsWith("/") ? "font-semibold" : undefined}>{displayed}</span>
           ) : displayed ? (
             // Assistant prose is markdown — render it. The `md-content` class
             // carries the typographic spacing + Notion-style orange backticks.

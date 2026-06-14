@@ -175,48 +175,16 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             resolution = resolve_intent(req.query, known_services, now)
 
             if isinstance(resolution, ClarificationNeeded):
-                # Lite contextual chat: a followup like "what services are
-                # involved" has no id/service/time on its own, but the prior
-                # turns in `history` already anchored the conversation. Don't
-                # clarify in that case — proceed with an unbounded retrieval
-                # and let the LLM use the history to answer.
-                if req.history:
-                    intent = ResolvedIntent(
-                        time_from=None, time_to=None,
-                        services=[], symptoms=[], entities=[],
-                        assumed=["proceeding with prior conversation context"],
-                    )
-                else:
-                    yield _sse("clarify", {
-                        "question": resolution.question,
-                        "missing_dims": resolution.missing_dims,
-                        "conversation_id": str(conversation_id),
-                    })
-                    # Persist a clarification turn so the transcript view
-                    # has something to render on reload, AND bump
-                    # conversations.updated_at so the sidebar still floats
-                    # this thread to the top (otherwise a clarify-only turn
-                    # leaves the row stamped at user-message time only).
-                    async with container.async_session_maker() as session:
-                        session.add(ChatMessage(
-                            conversation_id=conversation_id,
-                            role="assistant",
-                            content=resolution.question,
-                            chunk_ids=[],
-                            confidence="low",
-                        ))
-                        await session.execute(
-                            sa_text("UPDATE conversations SET updated_at = NOW() WHERE id = :cid"),
-                            {"cid": conversation_id},
-                        )
-                        await session.commit()
-                    yield _sse("done", {
-                        "chunk_ids": [],
-                        "confidence": "low",
-                        "conversation_id": str(conversation_id),
-                        "clarification": True,
-                    })
-                    return
+                # Chat path never blocks on missing dimensions — proceed
+                # with unbounded retrieval and let the LLM answer from
+                # whatever chunks match. The /investigate path still
+                # clarifies; this keeps one-shot RAG accessible for any query.
+                assumed = ["proceeding with prior conversation context"] if req.history else ["no specific filters — searching all logs"]
+                intent = ResolvedIntent(
+                    time_from=None, time_to=None,
+                    services=[], symptoms=[], entities=[],
+                    assumed=assumed,
+                )
             else:
                 intent = resolution
 

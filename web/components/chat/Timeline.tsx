@@ -31,7 +31,7 @@ export function Timeline({
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
-  const [openUncontrolled, setOpenUncontrolled] = useState(entries.length > 0 && entries.length <= 15)
+  const [openUncontrolled, setOpenUncontrolled] = useState(false)
   const open = openProp ?? openUncontrolled
   const setOpen = (v: boolean) => {
     if (onOpenChange) onOpenChange(v)
