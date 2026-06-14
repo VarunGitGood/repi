@@ -24,6 +24,10 @@ const THINKING_WORDS = [
   "Weighing evidence",
   "Reading log clusters",
   "Forming hypotheses",
+  "Drinking water",
+  "Taking a deep breath",
+  "Crashing out",
+  "Praying to the AI gods"
 ]
 
 function contextLabel(phase: InvestigationPhase | null, lastStep?: Step): string | null {

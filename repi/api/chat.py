@@ -24,12 +24,10 @@ import json
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import List, Literal, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 from sqlalchemy import select, text as sa_text
 
 from repi.core.container import get_container
@@ -44,49 +42,13 @@ from repi.investigation.tools import find_logs_by_id
 from repi.llm.provider import Message
 from repi.models.filters import RetrievalFilters
 from repi.models.schema import ChatMessage, Conversation
+from repi.api.schemas import ChatFilters, ChatRequest, ChatTurn
 from repi.retrieval.cluster_view import cluster_chunks
 from repi.retrieval.timeline_view import build_timeline
 
 logger = logging.getLogger("repi.api.chat")
 
 router = APIRouter()
-
-
-# ── Request / response models ─────────────────────────────────────────────────
-
-
-class ChatTurn(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str
-
-
-class ChatFilters(BaseModel):
-    service: Optional[str] = None
-    time_from: Optional[datetime] = None
-    time_to: Optional[datetime] = None
-    entity: Optional[str] = None
-
-
-class ChatRequest(BaseModel):
-    query: str
-    history: List[ChatTurn] = []
-    filters: Optional[ChatFilters] = None
-    conversation_id: Optional[UUID] = None
-    # Followup-bias hint: chunk_ids the previous assistant turn cited. When
-    # the current query is missing EITHER an explicit service or an explicit
-    # time window, the chat path fills in just the missing dimension from
-    # the previous turn's chunks — service via dominant-source check, time
-    # via a `Settings.FOLLOWUP_BIAS_WINDOW_MINUTES` envelope around their
-    # timestamps. Soft — never overrides an explicit filter, silently
-    # ignored if the IDs no longer resolve.
-    #
-    # Capped at 50 to bound the indexed-PK fetch and reject malformed
-    # payloads early. The legitimate caller only ever sends the last
-    # assistant turn's citations (≤10 in practice).
-    previous_chunk_ids: List[str] = Field(default_factory=list, max_length=50)
-    # UX P1: scopes retrieval + known-services resolution to one project. If
-    # omitted but the conversation has a project, that project applies.
-    project_id: Optional[UUID] = None
 
 
 # ── Module-level constants ────────────────────────────────────────────────────

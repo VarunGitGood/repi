@@ -5,13 +5,8 @@ import { Badge } from "@/components/ui/badge"
 import { ChevronDown, ChevronRight, Layers } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-export type Cluster = {
-  signature: string
-  count: number
-  services: string[]
-  first_ts: string | null
-  last_ts: string | null
-}
+import type { Cluster } from "@/lib/types"
+export type { Cluster }
 
 function formatRange(first: string | null, last: string | null): string {
   if (!first && !last) return ""

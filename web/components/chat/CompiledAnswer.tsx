@@ -3,37 +3,7 @@
 import ReactMarkdown from "react-markdown"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, ArrowDown, Target, Ban, HelpCircle } from "lucide-react"
-
-// Shape of the compiled InvestigationAnswer (see repi/investigation/schema.py).
-// Everything is optional here because the JSON comes off the wire and we render
-// defensively — a missing section is simply skipped.
-interface TriggerEvent {
-  chunk_id?: string
-  service?: string
-  timestamp?: string
-  log_line?: string
-}
-interface PropagationHop {
-  service?: string
-  chunk_id?: string
-  ts?: string
-  what?: string
-}
-interface RuledOut {
-  hypothesis?: string
-  why_ruled_out?: string
-}
-interface InvestigationAnswer {
-  incident_window?: { start?: string; end?: string }
-  affected_services?: string[]
-  trigger_event?: TriggerEvent
-  propagation_chain?: PropagationHop[]
-  root_cause?: string
-  ruled_out_hypotheses?: RuledOut[]
-  assumptions?: string[]
-  confidence?: string
-  gaps?: string[]
-}
+import type { InvestigationAnswer } from "@/lib/types"
 
 // Strip the model's inline chunk references from prose — same cleanup the old
 // plain-text card did.
@@ -89,11 +59,12 @@ function Section({
 export function CompiledAnswer({ answer }: { answer: string }) {
   const parsed = tryParse(answer)
 
-  // Fallback: plain-text answer (clarification text or legacy prose).
+  // Fallback: plain-text answer (clarification text or legacy prose). Rendered
+  // as markdown for consistency with the rest of the chat surface.
   if (!parsed) {
     return (
-      <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm whitespace-pre-wrap">
-        {stripChunkRefs(answer)}
+      <div className="md-content rounded-md border bg-muted/40 px-3 py-2 text-sm">
+        <ReactMarkdown>{stripChunkRefs(answer)}</ReactMarkdown>
       </div>
     )
   }
@@ -132,7 +103,7 @@ export function CompiledAnswer({ answer }: { answer: string }) {
       {/* Root cause — the headline */}
       {root_cause && (
         <Section icon={<Target className="h-3 w-3" />} title="Root cause">
-          <div className="text-foreground/90 leading-relaxed prose-sm">
+          <div className="md-content text-foreground/90 leading-relaxed">
             <ReactMarkdown>{stripChunkRefs(root_cause)}</ReactMarkdown>
           </div>
         </Section>

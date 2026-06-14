@@ -1,20 +1,11 @@
 import logging
 from fastapi import APIRouter, UploadFile, File, Form, Depends
-from pydantic import BaseModel
 from repi.core.container import get_container
+from repi.api.schemas import IngestResponse
 
 logger = logging.getLogger("repi.api.ingest")
 
 router = APIRouter()
-
-class IngestResponse(BaseModel):
-    service: str
-    project: str
-    chunk_count: int
-    lines_total: int
-    lines_with_timestamp: int
-    level_counts: dict[str, int]
-    message: str
 
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(
