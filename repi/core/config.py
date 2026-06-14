@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     WATCHER_CONFIG_REFRESH_SECS: int = 30
+    LLM_MAX_CALLS_PER_MIN: int = Field(default=60, ge=1)
 
     # "fastembed" (ONNX Runtime, ~50 MB) or "torch" via sentence-transformers
     # (~790 MB). Vectors are byte-identical; the choice is image size / RSS.

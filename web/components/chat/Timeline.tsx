@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { ChevronDown, ChevronRight, Clock } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { levelTone } from "@/lib/log-levels"
+import { levelTone, normalizeLevel } from "@/lib/log-levels"
 
 import type { TimelineEntry } from "@/lib/types"
 export type { TimelineEntry }
@@ -78,7 +78,7 @@ export function Timeline({
                       variant="outline"
                       className={cn("text-[10px] px-1.5 py-0", levelTone(e.level))}
                     >
-                      {e.level}
+                      {normalizeLevel(e.level)}
                     </Badge>
                   )}
                   {e.repeat_count > 1 && (

@@ -4,7 +4,7 @@ import { Step } from "@/lib/sse"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
-import { Terminal, Brain, Search, ChevronDown, ChevronRight, Sparkles, Lightbulb, Flag } from "lucide-react"
+import { Terminal, Brain, Search, ChevronDown, ChevronRight, Sparkles, Lightbulb, Flag, Check } from "lucide-react"
 import { useState } from "react"
 import ReactMarkdown from "react-markdown"
 
@@ -20,21 +20,21 @@ function JsonBlock({ value }: { value: unknown }) {
   )
 }
 
-export function InvestigationStepCard({ step }: { step: Step }) {
+export function InvestigationStepCard({ step, isActive = true }: { step: Step; isActive?: boolean }) {
   const [showTool, setShowTool] = useState(false)
   const [showObservation, setShowObservation] = useState(false)
 
-  // Reflection turn — internal re-plan, not user-facing content. Render as a
-  // small spinner row so the user knows the loop is thinking, without dumping
-  // the full re-plan text into the transcript.
+  // Reflection turn — internal re-plan, not user-facing content. Spinner only
+  // while the loop is still working on this turn; collapses to a static row
+  // once a newer step has arrived or the run finished.
   if (step.kind === "reflection") {
     return (
       <div className="relative pl-8 pb-4 last:pb-0">
         <div className="absolute left-0 top-1 h-6 w-6 rounded-full border-2 border-border bg-background flex items-center justify-center z-10">
-          <Spinner size="sm" />
+          {isActive ? <Spinner size="sm" /> : <Check className="h-3 w-3 text-muted-foreground" />}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground italic mt-1">
-          reflecting…
+          {isActive ? "reflecting…" : "reflected"}
         </div>
       </div>
     )
@@ -45,10 +45,10 @@ export function InvestigationStepCard({ step }: { step: Step }) {
     return (
       <div className="relative pl-8 pb-4 last:pb-0">
         <div className="absolute left-0 top-1 h-6 w-6 rounded-full border-2 border-primary bg-background flex items-center justify-center z-10">
-          <Sparkles className="h-3 w-3 text-primary" />
+          {isActive ? <Sparkles className="h-3 w-3 text-primary" /> : <Check className="h-3 w-3 text-muted-foreground" />}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground italic mt-1">
-          compiling answer…
+          {isActive ? "compiling answer…" : "compiled"}
         </div>
       </div>
     )

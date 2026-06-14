@@ -1,16 +1,27 @@
-// Single source of truth for log-level badge styling, shared by every panel
-// that renders a level. Minimal palette: theme `destructive` for error-class
-// levels, amber for warnings, neutral for INFO (the majority of rows).
-export function levelTone(level: string | null | undefined): string {
+export type NormalisedLevel = "INFO" | "WARN" | "ERROR"
+
+export function normalizeLevel(level: string | null | undefined): NormalisedLevel {
   switch ((level || "").toUpperCase()) {
     case "ERROR":
     case "CRITICAL":
     case "FATAL":
-      return "text-destructive border-destructive/30"
+      return "ERROR"
+    case "WARN":
     case "WARNING":
+      return "WARN"
+    default:
+      return "INFO"
+  }
+}
+
+export function levelTone(level: string | null | undefined): string {
+  switch (normalizeLevel(level)) {
+    case "ERROR":
+      return "text-destructive border-destructive/30"
     case "WARN":
       return "text-amber-600 dark:text-amber-500 border-amber-500/30"
+    case "INFO":
     default:
-      return "text-muted-foreground border-border"
+      return "text-blue-600 dark:text-blue-400 border-blue-500/30"
   }
 }
