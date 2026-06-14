@@ -4,58 +4,22 @@ import logging
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
 
 from repi.core.container import get_container
 from repi.investigation.react_loop import InvestigationStep
+from repi.api.schemas import (
+    ClarifyRequest,
+    InvestigateRequest,
+    InvestigationResponse,
+    InvestigationStepModel,
+    SimpleInvestigationResponse,
+)
 
 logger = logging.getLogger("repi.api.investigate")
 
 router = APIRouter()
-
-class InvestigateRequest(BaseModel):
-    query: str
-    resume: bool = True
-    # Optional thread back to a chat surface (A1/A2). If omitted, a new
-    # conversation row is created and its id returned so the UI can attach
-    # subsequent /chat turns to the same thread.
-    conversation_id: Optional[UUID] = None
-    # UX P1: scopes retrieval + every ReAct tool to one project. If omitted
-    # but the conversation has a project, the conversation's project applies.
-    project_id: Optional[UUID] = None
-
-class InvestigationStepModel(BaseModel):
-    step_number: int
-    thought: str
-    # Legacy preview fields — kept for back-compat with anything that may still
-    # read them. The list endpoint returns empty steps anyway.
-    tool_name: Optional[str] = None
-    tool_args: Optional[dict] = None
-    observation_preview: Optional[str] = None
-    # Rich shape the UI uses to render a step identically to the SSE stream.
-    action: Optional[dict] = None
-    observation: Optional[dict] = None
-    kind: Optional[str] = None
-
-class InvestigationResponse(BaseModel):
-    id: str
-    query: str
-    status: str
-    answer: Optional[str] = None
-    created_at: datetime
-    steps: List[InvestigationStepModel]
-    pending_question: Optional[str] = None
-    stats: Optional[dict] = None
-
-class SimpleInvestigationResponse(BaseModel):
-    id: str
-    status: str
-    conversation_id: Optional[str] = None
-
-class ClarifyRequest(BaseModel):
-    reply: str
 
 @router.get("/investigations", response_model=List[InvestigationResponse])
 async def list_investigations(limit: int = 20):

@@ -1,32 +1,14 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import type {
+  InvestigationPhase,
+  InvestigationStats,
+  Step,
+  StepKind,
+} from "@/lib/types"
 
-export type StepKind = null | "reflection" | "signal" | "compile"
-
-export interface Step {
-  step_number: number
-  thought: string
-  action?: {
-    tool: string
-    args: any
-  }
-  observation?: any
-  kind?: StepKind
-}
-
-export type InvestigationPhase = "gathering" | "compiling" | "done"
-
-export interface InvestigationStats {
-  iterations_used?: number
-  reflections_used?: number
-  chunks_gathered?: number
-  tools_called?: string[]
-  compile_source?: string
-  compile_attempts?: number
-  floor_adjustments?: string[]
-  gathering_exit_reason?: string
-}
+export type { InvestigationPhase, InvestigationStats, Step, StepKind }
 
 export function useSSE(url: string | null) {
   const [steps, setSteps] = useState<Step[]>([])

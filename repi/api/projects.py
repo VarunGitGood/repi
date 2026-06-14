@@ -13,13 +13,13 @@ from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 from sqlalchemy import text as sa_text
 from sqlmodel import select
 
 from repi.core.container import get_container
 from repi.core.dates import DateHandler
 from repi.models.schema import Project
+from repi.api.schemas import ProjectCreate, ProjectRead, ProjectService, ProjectUpdate
 from repi.retrieval.event_feed import derive_events, fetch_window_aggregates, parse_window
 
 logger = logging.getLogger("repi.api.projects")
@@ -74,33 +74,6 @@ async def _get_or_create_by_name(session, name: str) -> Project:
     await session.commit()
     await session.refresh(row)
     return row
-
-
-# ── Models ───────────────────────────────────────────────────────────────────
-
-class ProjectCreate(BaseModel):
-    name: str
-    settings: dict[str, Any] = {}
-
-
-class ProjectUpdate(BaseModel):
-    name: Optional[str] = None
-    settings: Optional[dict[str, Any]] = None
-
-
-class ProjectRead(BaseModel):
-    id: str
-    name: str
-    settings: dict[str, Any]
-    service_count: int = 0
-    created_at: datetime
-    updated_at: datetime
-
-
-class ProjectService(BaseModel):
-    name: str
-    chunk_count: int
-    last_seen: Optional[datetime] = None
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -275,9 +248,6 @@ async def project_overview(
         for r in svc_rows
     ]
 
-    # Suggested actions — derived, never LLM-generated. Top clusters become
-    # Deep-Research entry points with the service + time range pre-filled so
-    # the investigation starts grounded instead of from a bare phrase.
     suggested: list[dict] = []
     for c in clusters[:3]:
         svc_part = f" on {c['services'][0]}" if c["services"] else ""
@@ -289,16 +259,6 @@ async def project_overview(
                 f"between {c['first_ts']} and {c['last_ts']}"
             ),
         })
-    suggested.append({
-        "kind": "chat",
-        "label": f"Summarize the last {window_str}",
-        "query": f"summarize what happened in the last {window_str}",
-    })
-    suggested.append({
-        "kind": "chat",
-        "label": "Show affected services",
-        "query": "which services are having problems?",
-    })
 
     return {
         "project_id": str(project_id),

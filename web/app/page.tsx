@@ -8,30 +8,15 @@ import { ConversationSidebar } from "@/components/conversations/ConversationSide
 import { InvestigationStepCard } from "@/components/investigation-step"
 import { ProjectPicker } from "@/components/projects/ProjectPicker"
 import { ProjectOverview, type SuggestedAction } from "@/components/projects/ProjectOverview"
-import { Step, useSSE } from "@/lib/sse"
+import { useSSE } from "@/lib/sse"
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator"
 import { CompiledAnswer } from "@/components/chat/CompiledAnswer"
 import { Badge } from "@/components/ui/badge"
 import { Sparkles } from "lucide-react"
 import { toast } from "sonner"
+import type { Step, Turn } from "@/lib/types"
 
 const DR_KEY = "repi.deepResearch"
-
-// Local transcript model. `mode` discriminates chat vs investigate so we can
-// render the right component inline. Investigation turns carry an
-// investigationId; the SSE stream is mounted via <InvestigateTurnView />.
-// `finalAnswer` is populated when the investigation's SSE `done` event fires —
-// kept on the parent's state so the next /chat turn can include it as history
-// context (lite contextual chat: see `buildChatHistory`).
-type Turn =
-  | ({ mode: "chat" } & ChatMessageProps)
-  | {
-      mode: "investigate"
-      id: string
-      investigationId: string
-      query: string
-      finalAnswer?: string
-    }
 
 // Token-budget proxy: number of recent turns to send to /chat as `history`.
 // 6 covers a typical Q&A → followup → followup flow without bloating the prompt.
@@ -80,7 +65,16 @@ export default function HomePage() {
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
   const [sidebarRefresh, setSidebarRefresh] = useState(0)
+  // Conversation id whose investigation is streaming this session — drives the
+  // sidebar's per-row loading spinner. Session-only: cleared when the stream
+  // settles or the user switches conversations (not persisted across reload).
+  const [activeInvestigatingConvId, setActiveInvestigatingConvId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  // Whether the view should keep itself pinned to the bottom as new content
+  // (streaming investigation steps / chat deltas) grows. Flips to false when
+  // the user scrolls up to read, so we don't yank them back down.
+  const stickToBottom = useRef(true)
 
   // Restore the sticky toggle from localStorage on mount.
   useEffect(() => {
@@ -93,16 +87,43 @@ export default function HomePage() {
     try { localStorage.setItem(DR_KEY, deepResearch ? "1" : "0") } catch {}
   }, [deepResearch])
 
-  // Auto-scroll to bottom on new content.
+  // New turn (the user just sent something, or a transcript loaded) → snap to
+  // the bottom and re-arm bottom-sticking.
   useEffect(() => {
+    stickToBottom.current = true
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [turns])
 
+  // Follow streaming content (investigation steps / chat deltas) that grows
+  // WITHOUT changing `turns`. A ResizeObserver on the content wrapper keeps the
+  // view pinned to the bottom, but only while the user is already there.
+  useEffect(() => {
+    const el = scrollRef.current
+    const content = contentRef.current
+    if (!el || !content) return
+    const ro = new ResizeObserver(() => {
+      if (stickToBottom.current) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [])
+
+  // Track whether the user is parked near the bottom; drives `stickToBottom`.
+  const onScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottom.current = distanceFromBottom < 80
+  }
+
   // Load an existing conversation's transcript from the API.
   const loadConversation = useCallback(async (id: string | null) => {
     setConversationId(id)
+    // Switching conversations drops the live stream we were following, so any
+    // session-only "investigating" spinner no longer applies.
+    setActiveInvestigatingConvId(null)
     if (!id) {
       // New conversation → back to project selection (the picker auto-skips
       // itself when exactly one project exists).
@@ -152,9 +173,13 @@ export default function HomePage() {
       // Toggle ON → kick off a real investigation, embed its SSE stream.
       try {
         const res = await api.investigations.create(query, conversationId ?? undefined, project?.id)
+        const convId = res.conversation_id ?? conversationId
         if (!conversationId && res.conversation_id) {
           setConversationId(res.conversation_id)
         }
+        // Mark this conversation as investigating so the sidebar shows a spinner
+        // on its row until the stream settles (see InvestigateTurnView.onSettled).
+        if (convId) setActiveInvestigatingConvId(convId)
         setTurns((prev) => [
           ...prev,
           {
@@ -300,13 +325,13 @@ export default function HomePage() {
   // New chat, no project yet → step 1 of the flow: pick (or create) a project.
   if (!conversationId && !project) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem)]">
+      <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
         <ConversationSidebar
           activeId={conversationId}
           onSelect={loadConversation}
           refreshKey={sidebarRefresh}
         />
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col min-h-0">
           <ProjectPicker onSelect={(p) => setProject({ id: p.id, name: p.name })} />
         </main>
       </div>
@@ -314,14 +339,16 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
       <ConversationSidebar
         activeId={conversationId}
         onSelect={loadConversation}
         refreshKey={sidebarRefresh}
+        activeInvestigatingId={activeInvestigatingConvId}
       />
-      <main className="flex-1 flex flex-col">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto py-6 space-y-4">
+      <main className="flex-1 flex flex-col min-h-0">
+        <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
+          <div ref={contentRef} className="py-6 space-y-4">
           {empty ? (
             // Timeline-first landing: no empty chat screen. The overview
             // answers "what happened recently?" before the user types.
@@ -353,6 +380,7 @@ export default function HomePage() {
                   key={t.id}
                   investigationId={t.investigationId}
                   alreadyHoisted={!!t.finalAnswer}
+                  onSettled={() => setActiveInvestigatingConvId(null)}
                   onComplete={(finalAnswer) => {
                     setTurns((prev) => {
                       const idx = prev.findIndex(
@@ -370,6 +398,7 @@ export default function HomePage() {
               ),
             )
           )}
+          </div>
         </div>
         <ChatInput
           deepResearch={deepResearch}
@@ -390,9 +419,10 @@ interface InvestigateTurnViewProps {
   investigationId: string
   alreadyHoisted: boolean
   onComplete: (finalAnswer: string) => void
+  onSettled?: () => void
 }
 
-function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete }: InvestigateTurnViewProps) {
+function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete, onSettled }: InvestigateTurnViewProps) {
   const streamUrl = `${API_BASE}/investigations/${investigationId}/stream`
   const { steps, answer, error, done, clarificationQuestion, awaitingClarification, phase } = useSSE(streamUrl)
 
@@ -401,6 +431,12 @@ function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete }: In
   useEffect(() => {
     if (done && answer && !alreadyHoisted) onComplete(answer)
   }, [done, answer, alreadyHoisted, onComplete])
+
+  // Stream reached a terminal state (answered, errored, or otherwise done) →
+  // let the parent clear the sidebar "investigating" spinner.
+  useEffect(() => {
+    if (done || error) onSettled?.()
+  }, [done, error, onSettled])
 
   // Renders as the assistant-side response of a chat turn. The user-side
   // bubble is owned by the parent (the optimistic push in handleSend) — this
