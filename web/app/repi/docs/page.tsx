@@ -1,7 +1,9 @@
+import Link from "next/link"
 import {
-  Search, Bot, Eye, Layers, Clock, Database, Globe,
+  Search, Bot, Eye, Layers, Clock, Database, Globe, ArrowRight,
 } from "lucide-react"
 import { Brand } from "@/components/brand"
+import { isPublicMode } from "@/lib/public-mode"
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -35,7 +37,7 @@ const FEATURES = [
     icon: Search,
     title: "Hybrid Search",
     description:
-      "BM25 full-text + pgvector HNSW dense retrieval fused with Reciprocal Rank Fusion for best-of-both recall.",
+      "PostgreSQL full-text search + pgvector HNSW dense retrieval fused with Reciprocal Rank Fusion for best-of-both recall.",
   },
   {
     icon: Bot,
@@ -196,6 +198,7 @@ const ENV_VARS = [
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DocsPage() {
+  const publicDeploy = isPublicMode()
   return (
     <div className="min-h-screen bg-background selection:bg-foreground selection:text-background">
       {/* ── Background Decoration ──────────────────────────────────────────────── */}
@@ -205,7 +208,7 @@ export default function DocsPage() {
       </div>
 
       {/* ── Docs Navbar ───────────────────────────────────────────────────────── */}
-      <nav className="sticky top-14 z-40 w-full border-b bg-background/80 backdrop-blur-md">
+      <nav className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2.5">
@@ -236,6 +239,15 @@ export default function DocsPage() {
                 <GithubIcon className="h-4 w-4" />
               </Button>
             </a>
+            {!publicDeploy && (
+              <Link
+                href="/"
+                className="ml-1 inline-flex items-center gap-1.5 rounded-full bg-foreground text-background text-xs font-medium px-3 h-8 hover:opacity-90 transition-opacity"
+              >
+                Open Chat
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            )}
           </div>
         </div>
       </nav>

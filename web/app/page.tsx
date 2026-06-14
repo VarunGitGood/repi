@@ -474,8 +474,12 @@ function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete, onSe
           </div>
         )}
         <div className="space-y-2">
-          {steps.map((s: Step) => (
-            <InvestigationStepCard key={s.step_number} step={s} />
+          {steps.map((s: Step, idx: number) => (
+            <InvestigationStepCard
+              key={s.step_number}
+              step={s}
+              isActive={idx === steps.length - 1 && !done && !error && !awaitingClarification}
+            />
           ))}
         </div>
         {!done && !error && !awaitingClarification && (

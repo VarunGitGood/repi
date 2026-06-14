@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { EventClusters, type Cluster } from "@/components/chat/EventClusters"
 import { cn } from "@/lib/utils"
-import { levelTone } from "@/lib/log-levels"
+import { levelTone, normalizeLevel } from "@/lib/log-levels"
 import { Activity, Microscope, MessageSquare, Server } from "lucide-react"
 import { toast } from "sonner"
 
@@ -45,15 +45,6 @@ function shortTs(iso: string): string {
 
 function shortDate(iso: string): string {
   return iso?.split("T")[0] ?? ""
-}
-
-const KIND_LABEL: Record<string, string> = {
-  begins: "begins",
-  spike: "spike",
-  subsides: "subsides",
-  new_pattern: "new pattern",
-  health_degraded: "degraded",
-  health_recovered: "recovered",
 }
 
 interface ProjectOverviewProps {
@@ -136,7 +127,7 @@ export function ProjectOverview({ projectId, projectName, onAction }: ProjectOve
                     </div>
                     <div className="min-w-0 flex-1 flex items-start gap-1.5 flex-wrap">
                       <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", levelTone(e.level))}>
-                        {KIND_LABEL[e.kind] ?? e.kind}
+                        {normalizeLevel(e.level)}
                       </Badge>
                       {e.service && (
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0">

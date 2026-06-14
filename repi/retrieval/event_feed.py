@@ -203,14 +203,14 @@ def derive_events(
             events.append(TimelineEvent(
                 kind="new_pattern", ts=bucket_start(first_b), service=svc,
                 signature=sig, level=level,
-                title=f"New error pattern: {sig}", count=counts[first_b],
+                title=sig, count=counts[first_b],
             ))
 
         if not is_new and first_b > 1 and counts[first_b] >= BEGINS_MIN:
             events.append(TimelineEvent(
                 kind="begins", ts=bucket_start(first_b), service=svc,
                 signature=sig, level=level,
-                title=f"{sig} begins", count=counts[first_b],
+                title=sig, count=counts[first_b],
             ))
 
         # Spike: biggest bucket vs trailing active average before it.
@@ -225,14 +225,14 @@ def derive_events(
             events.append(TimelineEvent(
                 kind="spike", ts=bucket_start(best), service=svc,
                 signature=sig, level=level,
-                title=f"{sig} spikes (×{counts[best]})", count=counts[best],
+                title=f"{sig} (×{counts[best]})", count=counts[best],
             ))
 
         if total >= SUBSIDE_MIN and last_b <= n_buckets - QUIET_BUCKETS:
             events.append(TimelineEvent(
                 kind="subsides", ts=bucket_end(last_b), service=svc,
                 signature=sig, level=level,
-                title=f"{sig} subsides", count=0,
+                title=sig, count=0,
             ))
 
     # ── health transitions per service ───────────────────────────────────────
@@ -249,14 +249,14 @@ def derive_events(
                 events.append(TimelineEvent(
                     kind="health_degraded", ts=bucket_start(b), service=svc,
                     signature=None, level="ERROR",
-                    title=f"{svc} enters degraded state", count=errs.get(b, 0),
+                    title=svc, count=errs.get(b, 0),
                 ))
             elif degraded and frac <= RECOVERED_FRAC:
                 degraded = False
                 events.append(TimelineEvent(
                     kind="health_recovered", ts=bucket_start(b), service=svc,
                     signature=None, level="INFO",
-                    title=f"{svc} recovers", count=0,
+                    title=svc, count=0,
                 ))
 
     if len(events) > max_events:
