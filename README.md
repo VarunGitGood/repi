@@ -163,7 +163,30 @@ All keys live in `.repi/config.json` (see `config.example.json` for the full sch
 | `UI_PORT` | `3000` | Port the web UI binds to (read by `repi ui`) |
 | `WATCHER_CONFIG_REFRESH_SECS` | `30` | How often the worker polls for config changes |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint |
+| `LLM_MAX_CALLS_PER_MIN` | `60` | Max LLM calls per rolling 60-second window in the ReAct loop. Lower for free-tier providers; raise for paid/high-tier accounts. |
 
+
+## Rate Limiting
+
+`LLM_MAX_CALLS_PER_MIN` (in `.repi/config.json`, default `60`) caps how many LLM calls the ReAct investigation loop makes per rolling 60-second window. If the cap is reached the loop sleeps until a slot frees up.
+
+| Provider tier | Recommended value |
+|---|---|
+| Mistral free tier | `3` |
+| Other free-tier providers | `3-15` |
+| Paid / standard tier | `60` |
+| High-tier / enterprise | `100-1000` |
+| Local / self-hosted (Ollama) | `1000` (effectively unlimited) |
+
+Update via the **Config** page in the UI, or:
+
+```bash
+curl -X PUT http://localhost:8000/config \
+  -H "Content-Type: application/json" \
+  -d '{"LLM_MAX_CALLS_PER_MIN": 120}'
+```
+
+Or edit `.repi/config.json` directly and restart the API.
 ## Development
 
 ```bash

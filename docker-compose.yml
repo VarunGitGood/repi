@@ -19,6 +19,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: repi-redis
+    ports:
+      - "6379:6379"
     # No host port published — only the app container talks to redis via
     # compose-internal DNS. Avoids clashing with a redis already running on
     # the host (common on dev boxes).

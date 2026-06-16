@@ -1,11 +1,16 @@
 from __future__ import annotations
 import os
 import json
+from typing import Any, List, Optional
 from pathlib import Path
 from typing import List, Optional
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
-from pydantic import Field
 
+from pydantic import Field
+from pydantic_settings import (
+    BaseSettings,
+    SettingsConfigDict,
+    PydanticBaseSettingsSource,
+)
 def _resolve_config_path() -> Path:
     """Locate .repi/config.json: cwd first (docker runs from /app), then parent
     directories (running from a subdir of a checkout), then alongside the
@@ -57,6 +62,16 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     WATCHER_CONFIG_REFRESH_SECS: int = 30
+
+    LLM_MAX_CALLS_PER_MIN: int = Field(
+        default=60,
+        ge=1,
+        description=(
+            "Maximum LLM calls per rolling 60-second window in the ReAct "
+            "investigation loop. Set low (e.g. 3) for free-tier providers to "
+            "avoid 429s; set high (60+) for paid/high-tier accounts."
+        ),
+    )
 
     # "fastembed" (ONNX Runtime, ~50 MB) or "torch" via sentence-transformers
     # (~790 MB). Vectors are byte-identical; the choice is image size / RSS.
