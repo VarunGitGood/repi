@@ -156,8 +156,6 @@ All keys live in `.repi/config.json` (see `config.example.json` for the full sch
 | `LLM_PROVIDER` | `openai` | `openai` \| `anthropic` \| `mistral` \| `gemini` \| `ollama` |
 | `LLM_MODEL` | provider default | Override model name |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` | — | Provider API key. Set the one that matches your `LLM_PROVIDER`. |
-| `FTS_BACKEND` | `paradedb` | `paradedb` (BM25 via pg_search) or `pg` (PostgreSQL tsvector) |
-| `EMBEDDING_BACKEND` | `fastembed` | `fastembed` (ONNX, fast) or `torch` (sentence-transformers) |
 | `REDIS_URL` | `redis://localhost:6379` | Redis for caching |
 | `ENABLE_REDIS_CACHE` | `true` | Set `false` to disable Redis |
 | `TIME_WINDOW_INITIAL_MINUTES` | `10` | First search window for investigation |

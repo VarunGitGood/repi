@@ -159,16 +159,6 @@ const ENV_VARS = [
     description: "Provider API key (also ANTHROPIC_API_KEY, MISTRAL_API_KEY, GEMINI_API_KEY)",
   },
   {
-    name: "FTS_BACKEND",
-    default: "paradedb",
-    description: "paradedb (BM25 via pg_search) or pg (PostgreSQL tsvector)",
-  },
-  {
-    name: "EMBEDDING_BACKEND",
-    default: "fastembed",
-    description: "fastembed (ONNX, fast) or torch (sentence-transformers)",
-  },
-  {
     name: "REDIS_URL",
     default: "redis://localhost:6379",
     description: "Redis connection URL for response caching",

@@ -1,15 +1,15 @@
 """
 RAGAS retrieval evaluation — measures retrieval quality in isolation.
 
-Runs the RRF retrieval pipeline (pgvector + FTS) against purpose-built
+Runs the RRF retrieval pipeline (pgvector + ParadeDB BM25) against purpose-built
 datasets and scores with RAGAS metrics (context precision, context recall)
 plus custom retrieval metrics (service recall, keyword recall).
 
 Usage:
     uv run python eval/ragas_eval.py
+    uv run python eval/ragas_eval.py --skip-ragas
     uv run python eval/ragas_eval.py --dataset ragas_cross_service
     uv run python eval/ragas_eval.py --out eval/ragas_results.json
-    uv run python eval/ragas_eval.py --expand --diverse
     uv run python eval/ragas_eval.py --evaluator-provider mistral
 """
 from __future__ import annotations
@@ -43,13 +43,7 @@ from repi.core.container import get_container
 from repi.models.filters import RetrievalFilters
 
 # ── Dataset registry ────────────────────────────────────────────────────────
-# Categories:
-#   "retrieval" — single-shot retrieval backbone tests (loghub, temporal, noise).
-#                 These measure raw ranking quality without agent reasoning.
-#   "agent"     — cross-service / multi-hop datasets. Expected scores are lower
-#                 because the ground truth requires iterative investigation.
-#                 Acceptable context_recall ~0.3-0.5; full quality is measured
-#                 by eval/run_evals.py (ReAct loop).
+# "retrieval" = single-shot backbone test. "agent" = multi-hop (lower expected scores).
 
 DATASETS = [
     {
@@ -478,16 +472,12 @@ async def main():
                 "error": str(e),
             })
 
-    # Summary — grouped by category with appropriate thresholds.
-    # "retrieval" datasets target ≥0.6 context_recall (direct single-shot).
-    # "agent" datasets target ≥0.3 (first-hop only; full quality via run_evals.py).
     THRESHOLDS = {"retrieval": 0.6, "agent": 0.3}
 
     print(f"\n{'=' * 60}")
     print("  RAGAS EVALUATION SUMMARY")
     print(f"{'=' * 60}")
 
-    # Build category map from DATASETS
     cat_map = {d["name"]: d.get("category", "retrieval") for d in DATASETS}
 
     for category in ("retrieval", "agent"):

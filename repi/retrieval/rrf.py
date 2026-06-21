@@ -105,7 +105,6 @@ class RRFRetrievalService:
 
         logger.debug(f"RRF Search started with {len(queries)} query variants")
 
-        # Compute embeddings upfront (CPU-bound, no DB).
         query_embeddings = []
         for q in queries:
             q_emb = self.embedding_func([q])[0]
@@ -113,8 +112,7 @@ class RRFRetrievalService:
                 q_emb = q_emb.tolist()
             query_embeddings.append(q_emb)
 
-        # Run DB queries sequentially — both retrievers share the same
-        # SQLAlchemy async session which doesn't support concurrent ops.
+        # Sequential — both retrievers share one async session (no concurrent ops).
         all_results: list = []
         for q, q_emb in zip(queries, query_embeddings):
             vec_results = await self.vector_store.search(embedding=q_emb, top_k=self.per_query_fanout, filters=filters)
