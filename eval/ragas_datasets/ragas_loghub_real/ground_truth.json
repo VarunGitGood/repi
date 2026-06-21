@@ -1,0 +1,66 @@
+{
+  "dataset_name": "ragas_loghub_real",
+  "description": "Real-world production logs from LogHub 2k. Tests retrieval against genuine system failures across 5 different infrastructure services: BGL supercomputer, HDFS cluster, Linux server, Apache httpd, and OpenStack nova.",
+  "questions": [
+    {
+      "question": "what fatal errors occurred on BGL node R30-M0-N9-C:J16-U01",
+      "ground_truth_answer": "Node R30-M0-N9-C:J16-U01 experienced repeated KERNEL FATAL 'data TLB error interrupt' events starting on 2005-06-11. This node had by far the most fatal errors in the cluster, indicating a likely hardware fault in the TLB (Translation Lookaside Buffer) unit.",
+      "ground_truth_services": ["bgl-supercomputer"],
+      "ground_truth_keywords": ["R30-M0-N9-C:J16-U01", "KERNEL FATAL", "data TLB error interrupt"]
+    },
+    {
+      "question": "ciod application failures on the supercomputer",
+      "ground_truth_answer": "Multiple ciod (compute I/O daemon) FATAL errors occurred across BGL nodes. Failure modes included: 'failed to read message prefix on control stream' (CioStream socket disconnections), 'Error loading' various .rts program images due to 'Permission denied', 'No such file or directory', or 'Exec format error', and 'Error creating node map from file' failures. The LOGIN chdir failures indicate job working directories that didn't exist.",
+      "ground_truth_services": ["bgl-supercomputer"],
+      "ground_truth_keywords": ["ciod", "APP FATAL", "failed to read message prefix", "control stream", "Error loading", "invalid or missing program image"]
+    },
+    {
+      "question": "instruction cache parity errors",
+      "ground_truth_answer": "Node R02-M1-N0-C:J12-U11 experienced repeated KERNEL INFO 'instruction cache parity error corrected' events across multiple days (2005-06-03 through 2005-06-06). These were correctable errors, but their frequency on a single node suggests degrading hardware that could eventually lead to uncorrectable failures.",
+      "ground_truth_services": ["bgl-supercomputer"],
+      "ground_truth_keywords": ["R02-M1-N0-C:J12-U11", "instruction cache parity error corrected", "KERNEL INFO"]
+    },
+    {
+      "question": "HDFS DataNode exceptions serving blocks",
+      "ground_truth_answer": "Multiple HDFS DataNode DataXceiver threads reported WARN-level exceptions while serving blocks to client nodes. The pattern shows DataNodes at various IPs (10.251.x.x, 10.250.x.x) failing to serve specific block IDs to requesting nodes, indicating potential network issues or disk I/O problems on the DataNodes.",
+      "ground_truth_services": ["hdfs-cluster"],
+      "ground_truth_keywords": ["DataNode$DataXceiver", "Got exception while serving", "blk_"]
+    },
+    {
+      "question": "HDFS block allocation and storage",
+      "ground_truth_answer": "The HDFS FSNamesystem performed BLOCK operations including NameSystem.addStoredBlock (updating blockMap with new block-to-DataNode mappings) and NameSystem.allocateBlock (allocating new blocks under /user/root/rand/). PacketResponder threads terminated normally after completing block transfers.",
+      "ground_truth_services": ["hdfs-cluster"],
+      "ground_truth_keywords": ["FSNamesystem", "BLOCK*", "NameSystem.addStoredBlock", "blockMap updated", "NameSystem.allocateBlock", "PacketResponder"]
+    },
+    {
+      "question": "SSH brute force attacks on the linux server",
+      "ground_truth_answer": "The Linux server experienced sustained SSH brute-force authentication attacks from multiple source IPs. The most aggressive attacker was 150.183.249.110 with 80 failed attempts, followed by n219076184117.netvigator.com and 207.243.167.114 with 23 attempts each. Attacks targeted both root and guest accounts via NODEVssh.",
+      "ground_truth_services": ["linux-server"],
+      "ground_truth_keywords": ["authentication failure", "rhost=150.183.249.110", "rhost=207.243.167.114", "sshd(pam_unix)", "NODEVssh", "user=root"]
+    },
+    {
+      "question": "Apache mod_jk worker errors",
+      "ground_truth_answer": "Apache httpd experienced repeated mod_jk child workerEnv errors cycling through error states 6, 7, 8, 9, and 10. The jk2_init() function also reported 'Can't find child' errors for multiple PIDs in the scoreboard. These indicate the JK connector to a backend application server (Tomcat) was failing to maintain stable worker connections.",
+      "ground_truth_services": ["apache-httpd"],
+      "ground_truth_keywords": ["mod_jk child workerEnv in error state", "jk2_init()", "Can't find child", "scoreboard"]
+    },
+    {
+      "question": "OpenStack nova API activity and errors",
+      "ground_truth_answer": "OpenStack nova-api handled GET requests to /v2/{tenant}/servers/detail returning status 200. However, the API also threw repeated 'HTTP exception thrown: No instances found for any event' errors, indicating a client polling for instance events that don't exist — possibly a monitoring system querying an empty project.",
+      "ground_truth_services": ["openstack-nova"],
+      "ground_truth_keywords": ["nova.osapi_compute.wsgi.server", "servers/detail", "HTTP exception thrown", "No instances found for any event"]
+    },
+    {
+      "question": "what hardware failures appeared across the BGL cluster",
+      "ground_truth_answer": "BGL experienced multiple hardware-related failures: instruction cache parity errors (corrected) on R02-M1-N0-C:J12-U11, data TLB error interrupts (FATAL) concentrated on R30-M0-N9-C:J16-U01, data storage interrupts, instruction address errors, program interrupts, machine check events, and Lustre mount failures. The concentration of TLB errors on a single node suggests a failing processor card.",
+      "ground_truth_services": ["bgl-supercomputer"],
+      "ground_truth_keywords": ["instruction cache parity error", "data TLB error interrupt", "data storage interrupt", "machine check", "Lustre mount FAILED", "KERNEL FATAL"]
+    },
+    {
+      "question": "which systems had the most errors",
+      "ground_truth_answer": "BGL supercomputer had the most errors by far, with KERNEL-level events (240 including parity errors, TLB faults, storage interrupts) and APP-level ciod failures (107 events). HDFS had 80 DataXceiver WARN events for block-serving exceptions. Linux server had authentication failure events from SSH brute-force attacks. Apache had mod_jk worker errors. OpenStack had HTTP exceptions for missing instances.",
+      "ground_truth_services": ["bgl-supercomputer", "hdfs-cluster", "linux-server", "apache-httpd", "openstack-nova"],
+      "ground_truth_keywords": ["KERNEL", "ciod", "DataXceiver", "authentication failure", "mod_jk", "HTTP exception"]
+    }
+  ]
+}

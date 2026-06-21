@@ -1,0 +1,42 @@
+{
+  "dataset_name": "ragas_cross_service",
+  "description": "Tests whether retrieval surfaces evidence from services not mentioned in the query. Query mentions 'checkout' (cart-svc) but root cause is in inventory-svc. Also tests multi-service correlation and causal chain discovery.",
+  "questions": [
+    {
+      "question": "why did checkout start failing",
+      "ground_truth_answer": "Migration 0042_add_warehouse_id.sql on inventory-svc added a NOT NULL warehouse_id column, causing all SKU inserts to fail with 'null value in column warehouse_id violates not-null constraint'. Cart-svc retried those 500 responses until its HTTP client pool to inventory-svc was EXHAUSTED (50/50 in use), leading to checkout timeouts.",
+      "ground_truth_services": ["inventory-svc", "cart-svc"],
+      "ground_truth_keywords": ["migration 0042", "warehouse_id", "not-null constraint", "500", "EXHAUSTED", "retry", "timeout"]
+    },
+    {
+      "question": "what caused the cart timeouts",
+      "ground_truth_answer": "Cart-svc timeouts occurred because the HTTP client pool to inventory-svc was EXHAUSTED (50/50 in use). Inventory-svc was returning 500 errors due to migration 0042 that added a NOT NULL warehouse_id column, triggering a retry storm with 22 in-flight retries that consumed all connection pool slots.",
+      "ground_truth_services": ["cart-svc", "inventory-svc"],
+      "ground_truth_keywords": ["EXHAUSTED", "50/50", "inventory-svc", "500", "retry storm", "warehouse_id"]
+    },
+    {
+      "question": "inventory-svc 500 errors",
+      "ground_truth_answer": "Inventory-svc returned 500 errors because migration 0042_add_warehouse_id.sql added a NOT NULL warehouse_id column to the skus table without a default value. All subsequent SKU insert operations failed with 'null value in column warehouse_id violates not-null constraint'.",
+      "ground_truth_services": ["inventory-svc"],
+      "ground_truth_keywords": ["migration 0042", "warehouse_id", "not-null constraint", "null value", "Failed to insert SKU"]
+    },
+    {
+      "question": "what was the impact of the inventory-svc database migration",
+      "ground_truth_answer": "Migration 0042_add_warehouse_id.sql caused a cascading failure. Inventory-svc SKU inserts failed with not-null constraint violations returning 500 errors. Cart-svc retried aggressively (retry storm: 22 in-flight retries), exhausting its HTTP client pool (50/50 in use). This caused cart operation timeouts and checkout failures for multiple cart IDs.",
+      "ground_truth_services": ["inventory-svc", "cart-svc"],
+      "ground_truth_keywords": ["migration 0042", "not-null constraint", "500", "retry storm", "EXHAUSTED", "cart operation timeout", "Checkout failed"]
+    },
+    {
+      "question": "how did the retry storm start",
+      "ground_truth_answer": "Cart-svc's upstream calls to inventory-svc started getting 500 responses after migration 0042 broke SKU inserts. Cart-svc retried each failed request up to 5 times, and with multiple concurrent requests all retrying, it created a retry storm of 22 in-flight retries that exhausted the HTTP client pool (50/50 in use).",
+      "ground_truth_services": ["cart-svc", "inventory-svc"],
+      "ground_truth_keywords": ["retry 1/5", "500", "retry storm", "22 in-flight", "EXHAUSTED", "50/50"]
+    },
+    {
+      "question": "connection pool exhaustion in the cart service",
+      "ground_truth_answer": "Cart-svc's HTTP client pool to inventory-svc became EXHAUSTED with 50/50 connections in use. This was caused by inventory-svc returning 500 errors after migration 0042, which triggered aggressive retries. New requests queued waiting for inventory client slots, leading to cart operation timeouts and checkout failures.",
+      "ground_truth_services": ["cart-svc"],
+      "ground_truth_keywords": ["EXHAUSTED", "50/50 in use", "inventory-svc", "cart operation timeout", "waiting for inventory client slot"]
+    }
+  ]
+}

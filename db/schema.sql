@@ -3,6 +3,7 @@
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Log chunks: core ingestion table
 CREATE TABLE IF NOT EXISTS log_chunks (
@@ -39,6 +40,20 @@ ALTER TABLE log_chunks
 
 DROP INDEX IF EXISTS log_chunks_fts_idx;
 CREATE INDEX IF NOT EXISTS log_chunks_text_tsv_idx ON log_chunks USING gin (text_tsv);
+
+-- ParadeDB BM25 index for full-text search (replaces tsvector for scoring).
+-- Only one BM25 index per table is allowed.  The index covers text,
+-- source_service and log_level so cross-field queries work naturally.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes WHERE indexname = 'log_chunks_bm25_idx'
+    ) THEN
+        CREATE INDEX log_chunks_bm25_idx ON log_chunks
+        USING bm25 (id, text, source_service, log_level)
+        WITH (key_field='id');
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS conversations (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),

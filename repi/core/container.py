@@ -7,7 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from repi.core.config import settings
 from repi.core.cache import cache
 from repi.retrieval.pgvector_store import PgVectorStore
-from repi.retrieval.pg_fts_retriever import PgFTSRetriever
+from repi.retrieval.fts_factory import create_fts_retriever
 from repi.retrieval.rrf import RRFRetrievalService
 from repi.ingestion.log_ingestor import LogIngestor
 from repi.llm.factory import create_provider_from_env
@@ -56,7 +56,10 @@ class Container:
     def _init_llm(self) -> None:
         try:
             self.llm_provider = create_provider_from_env()
-            self.query_expander = QueryExpander(llm=self.llm_provider)
+            self.query_expander = QueryExpander(
+                llm=self.llm_provider,
+                known_services=self.known_services,
+            )
             self.llm_init_error = None
             logger.info(f"LLM provider initialized: {settings.LLM_PROVIDER}")
         except Exception as e:
@@ -133,6 +136,8 @@ class Container:
                 services = await get_all_services(self.pool)
             
             self.known_services = services
+            if self.query_expander is not None:
+                self.query_expander.known_services = services
             logger.info(f"Loaded known services: {self.known_services}")
         return self.known_services
 
@@ -160,7 +165,7 @@ class Container:
 
     def get_retrieval_service(self, session: AsyncSession) -> RRFRetrievalService:
         vector_store = PgVectorStore(session)
-        fts_retriever = PgFTSRetriever(session)
+        fts_retriever = create_fts_retriever(settings.FTS_BACKEND, session)
         return RRFRetrievalService(vector_store, fts_retriever, self.embedding_func)
 
     def get_investigation_loop(self, session: AsyncSession, project_id=None,

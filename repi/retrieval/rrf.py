@@ -4,12 +4,21 @@ import asyncio
 import logging
 
 from repi.core.dates import DateHandler, default_date_handler as _dh
+from repi.core.config import settings
 from repi.retrieval.pgvector_store import PgVectorStore
-from repi.retrieval.pg_fts_retriever import PgFTSRetriever
 from repi.retrieval.diversify import diversify_by_service
 from repi.models.filters import RetrievalFilters
 
 logger = logging.getLogger(__name__)
+
+LEVEL_BOOST = {
+    "FATAL": 2.0,
+    "ERROR": 1.5,
+    "WARN": 1.2,
+    "WARNING": 1.2,
+    "INFO": 1.0,
+    "DEBUG": 0.8,
+}
 
 
 class RRFRetrievalService:
@@ -112,16 +121,16 @@ class RRFRetrievalService:
             for rank, (chunk_id, _score) in enumerate(ranking_results):
                 rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (self.DEFAULT_RRF_K + rank)
 
-        if recency_boost:
-            logger.debug("Applying recency boost")
-            # `_dh.now()` is naive UTC by project convention, but asyncpg
-            # returns tz-aware datetimes from `timestamp_start` (TIMESTAMPTZ).
-            # Subtracting naive from aware raises TypeError — normalise both
-            # to aware UTC before the arithmetic.
-            now = DateHandler.to_aware_utc(_dh.now())
+        level_boost = settings.ENABLE_LEVEL_BOOST
+        need_meta = recency_boost or level_boost
+        chunks_data = {}
+        if need_meta and rrf_scores:
             chunk_ids = list(rrf_scores.keys())
             chunks_data = await self.vector_store.get_chunks_by_ids(chunk_ids)
 
+        if recency_boost:
+            logger.debug("Applying recency boost")
+            now = DateHandler.to_aware_utc(_dh.now())
             for chunk_id, score in list(rrf_scores.items()):
                 chunk = chunks_data.get(chunk_id)
                 if chunk and chunk.get("timestamp_start"):
@@ -132,6 +141,15 @@ class RRFRetrievalService:
                     age_hours = (now - ts).total_seconds() / 3600
                     recency_factor = 1.0 / (1.0 + 0.1 * max(0.0, age_hours))
                     rrf_scores[chunk_id] = score * recency_factor
+
+        if level_boost:
+            logger.debug("Applying log-level boost")
+            for chunk_id, score in list(rrf_scores.items()):
+                chunk = chunks_data.get(chunk_id)
+                if chunk:
+                    level = (chunk.get("log_level") or "").upper()
+                    factor = LEVEL_BOOST.get(level, 1.0)
+                    rrf_scores[chunk_id] = score * factor
 
         final_ranking = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
         logger.debug(f"RRF Search completed: returned {len(final_ranking)} chunks")

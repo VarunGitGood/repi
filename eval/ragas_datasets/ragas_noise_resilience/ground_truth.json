@@ -1,0 +1,18 @@
+{
+  "dataset_name": "ragas_noise_resilience",
+  "description": "Tests whether retrieval surfaces sparse ERROR/WARNING signal from a high volume of INFO noise. 200+ INFO lines surround 8 critical error lines across 2 services.",
+  "questions": [
+    {
+      "question": "what errors occurred in the payment pipeline",
+      "ground_truth_answer": "The payment gateway connection pool was exhausted because the upstream fraud-check-svc started timing out. Fraud-check-svc was overloaded after a batch job flooded it with 10,000 retroactive checks, causing payment authorizations to queue and eventually fail with gateway timeouts.",
+      "ground_truth_services": ["payment-gw", "fraud-check-svc"],
+      "ground_truth_keywords": ["pool exhausted", "fraud-check", "timeout", "batch job", "retroactive", "authorization failed"]
+    },
+    {
+      "question": "fraud check service problems",
+      "ground_truth_answer": "Fraud-check-svc became overloaded when a batch job submitted 10,000 retroactive fraud checks at once. The service's worker pool was saturated, causing individual check latency to spike from 50ms to 12 seconds, which cascaded into payment-gw timeouts.",
+      "ground_truth_services": ["fraud-check-svc"],
+      "ground_truth_keywords": ["batch job", "retroactive", "10000", "worker pool", "saturated", "latency spike"]
+    }
+  ]
+}

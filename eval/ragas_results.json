@@ -1,0 +1,539 @@
+[
+  {
+    "dataset": "ragas_cross_service",
+    "status": "completed",
+    "ragas_scores": {
+      "context_precision": 0.1667,
+      "context_recall": 0.2083,
+      "answer_relevancy": 0.6564
+    },
+    "retrieval_details": [
+      {
+        "question": "why did checkout start failing",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "cart-svc"
+        ],
+        "service_recall": 0.5,
+        "keyword_recall": 0.143,
+        "keywords_found": [
+          "500"
+        ],
+        "keywords_missed": [
+          "migration 0042",
+          "warehouse_id",
+          "not-null constraint",
+          "EXHAUSTED",
+          "retry",
+          "timeout"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "what caused the cart timeouts",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "cart-svc"
+        ],
+        "service_recall": 0.5,
+        "keyword_recall": 0.0,
+        "keywords_found": [],
+        "keywords_missed": [
+          "EXHAUSTED",
+          "50/50",
+          "inventory-svc",
+          "500",
+          "retry storm",
+          "warehouse_id"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "inventory-svc 500 errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "cart-svc",
+          "inventory-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.0,
+        "keywords_found": [],
+        "keywords_missed": [
+          "migration 0042",
+          "warehouse_id",
+          "not-null constraint",
+          "null value",
+          "Failed to insert SKU"
+        ],
+        "top_3_scores": [
+          0.0294,
+          0.0167,
+          0.0167
+        ]
+      },
+      {
+        "question": "what was the impact of the inventory-svc database migration",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "cart-svc",
+          "inventory-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.571,
+        "keywords_found": [
+          "migration 0042",
+          "500",
+          "retry storm",
+          "EXHAUSTED"
+        ],
+        "keywords_missed": [
+          "not-null constraint",
+          "cart operation timeout",
+          "Checkout failed"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "how did the retry storm start",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "cart-svc",
+          "inventory-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.667,
+        "keywords_found": [
+          "retry 1/5",
+          "500",
+          "retry storm",
+          "22 in-flight"
+        ],
+        "keywords_missed": [
+          "EXHAUSTED",
+          "50/50"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "connection pool exhaustion in the cart service",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "cart-svc",
+          "inventory-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.6,
+        "keywords_found": [
+          "EXHAUSTED",
+          "50/50 in use",
+          "inventory-svc"
+        ],
+        "keywords_missed": [
+          "cart operation timeout",
+          "waiting for inventory client slot"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      }
+    ]
+  },
+  {
+    "dataset": "ragas_temporal_precision",
+    "status": "completed",
+    "ragas_scores": {
+      "context_precision": 0.4143,
+      "context_recall": 0.5,
+      "answer_relevancy": 0.9242
+    },
+    "retrieval_details": [
+      {
+        "question": "why did auth-svc fail around 14:00",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "auth-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.8,
+        "keywords_found": [
+          "Redis",
+          "evict",
+          "session",
+          "401"
+        ],
+        "keywords_missed": [
+          "max memory"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "auth-svc errors at 18:00",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "auth-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 1.0,
+        "keywords_found": [
+          "TLS",
+          "certificate",
+          "expired",
+          "LDAP",
+          "bind",
+          "500"
+        ],
+        "keywords_missed": [],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "what happened to auth-svc at 22:00",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "auth-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.833,
+        "keywords_found": [
+          "JWT",
+          "signing key",
+          "malformed",
+          "403",
+          "token validation"
+        ],
+        "keywords_missed": [
+          "config reload"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      }
+    ]
+  },
+  {
+    "dataset": "ragas_noise_resilience",
+    "status": "completed",
+    "ragas_scores": {
+      "context_precision": 0.1,
+      "context_recall": 0.25,
+      "answer_relevancy": 0.6454
+    },
+    "retrieval_details": [
+      {
+        "question": "what errors occurred in the payment pipeline",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "payment-gw",
+          "fraud-check-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.5,
+        "keywords_found": [
+          "fraud-check",
+          "timeout",
+          "authorization failed"
+        ],
+        "keywords_missed": [
+          "pool exhausted",
+          "batch job",
+          "retroactive"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "fraud check service problems",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "payment-gw",
+          "fraud-check-svc"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.167,
+        "keywords_found": [
+          "10000"
+        ],
+        "keywords_missed": [
+          "batch job",
+          "retroactive",
+          "worker pool",
+          "saturated",
+          "latency spike"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      }
+    ]
+  },
+  {
+    "dataset": "ragas_loghub_real",
+    "status": "completed",
+    "ragas_scores": {
+      "context_precision": 0.23,
+      "context_recall": 0.2967,
+      "answer_relevancy": 0.7854
+    },
+    "retrieval_details": [
+      {
+        "question": "what fatal errors occurred on BGL node R30-M0-N9-C:J16-U01",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "bgl-supercomputer"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.333,
+        "keywords_found": [
+          "KERNEL FATAL"
+        ],
+        "keywords_missed": [
+          "R30-M0-N9-C:J16-U01",
+          "data TLB error interrupt"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "ciod application failures on the supercomputer",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "bgl-supercomputer"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.667,
+        "keywords_found": [
+          "ciod",
+          "APP FATAL",
+          "Error loading",
+          "invalid or missing program image"
+        ],
+        "keywords_missed": [
+          "failed to read message prefix",
+          "control stream"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "instruction cache parity errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "bgl-supercomputer"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 1.0,
+        "keywords_found": [
+          "R02-M1-N0-C:J12-U11",
+          "instruction cache parity error corrected",
+          "KERNEL INFO"
+        ],
+        "keywords_missed": [],
+        "top_3_scores": [
+          0.0328,
+          0.0328,
+          0.0328
+        ]
+      },
+      {
+        "question": "HDFS DataNode exceptions serving blocks",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "apache-httpd"
+        ],
+        "service_recall": 0.0,
+        "keyword_recall": 0.0,
+        "keywords_found": [],
+        "keywords_missed": [
+          "DataNode$DataXceiver",
+          "Got exception while serving",
+          "blk_"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "HDFS block allocation and storage",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "linux-server",
+          "hdfs-cluster"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.833,
+        "keywords_found": [
+          "FSNamesystem",
+          "BLOCK*",
+          "NameSystem.addStoredBlock",
+          "blockMap updated",
+          "NameSystem.allocateBlock"
+        ],
+        "keywords_missed": [
+          "PacketResponder"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "SSH brute force attacks on the linux server",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "linux-server"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.667,
+        "keywords_found": [
+          "authentication failure",
+          "sshd(pam_unix)",
+          "NODEVssh",
+          "user=root"
+        ],
+        "keywords_missed": [
+          "rhost=150.183.249.110",
+          "rhost=207.243.167.114"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "Apache mod_jk worker errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "apache-httpd"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.25,
+        "keywords_found": [
+          "mod_jk child workerEnv in error state"
+        ],
+        "keywords_missed": [
+          "jk2_init()",
+          "Can't find child",
+          "scoreboard"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "OpenStack nova API activity and errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "openstack-nova"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.5,
+        "keywords_found": [
+          "HTTP exception thrown",
+          "No instances found for any event"
+        ],
+        "keywords_missed": [
+          "nova.osapi_compute.wsgi.server",
+          "servers/detail"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "what hardware failures appeared across the BGL cluster",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "bgl-supercomputer",
+          "linux-server"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.333,
+        "keywords_found": [
+          "data storage interrupt",
+          "KERNEL FATAL"
+        ],
+        "keywords_missed": [
+          "instruction cache parity error",
+          "data TLB error interrupt",
+          "machine check",
+          "Lustre mount FAILED"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      },
+      {
+        "question": "which systems had the most errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "apache-httpd"
+        ],
+        "service_recall": 0.2,
+        "keyword_recall": 0.167,
+        "keywords_found": [
+          "mod_jk"
+        ],
+        "keywords_missed": [
+          "KERNEL",
+          "ciod",
+          "DataXceiver",
+          "authentication failure",
+          "HTTP exception"
+        ],
+        "top_3_scores": [
+          0.0167,
+          0.0164,
+          0.0161
+        ]
+      }
+    ]
+  }
+]

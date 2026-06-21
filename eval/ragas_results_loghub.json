@@ -1,0 +1,245 @@
+[
+  {
+    "dataset": "ragas_loghub_real",
+    "status": "completed",
+    "ragas_scores": {
+      "context_precision": 0.3389,
+      "context_recall": 0.3567,
+      "answer_relevancy": 0.7886
+    },
+    "retrieval_details": [
+      {
+        "question": "what fatal errors occurred on BGL node R30-M0-N9-C:J16-U01",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "bgl-supercomputer"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 1.0,
+        "keywords_found": [
+          "R30-M0-N9-C:J16-U01",
+          "KERNEL FATAL",
+          "data TLB error interrupt"
+        ],
+        "keywords_missed": [],
+        "top_3_scores": [
+          0.0306,
+          0.0304,
+          0.0302
+        ]
+      },
+      {
+        "question": "ciod application failures on the supercomputer",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "openstack-nova",
+          "bgl-supercomputer"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.667,
+        "keywords_found": [
+          "ciod",
+          "APP FATAL",
+          "Error loading",
+          "invalid or missing program image"
+        ],
+        "keywords_missed": [
+          "failed to read message prefix",
+          "control stream"
+        ],
+        "top_3_scores": [
+          0.0308,
+          0.0307,
+          0.0306
+        ]
+      },
+      {
+        "question": "instruction cache parity errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "linux-server",
+          "bgl-supercomputer"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 1.0,
+        "keywords_found": [
+          "R02-M1-N0-C:J12-U11",
+          "instruction cache parity error corrected",
+          "KERNEL INFO"
+        ],
+        "keywords_missed": [],
+        "top_3_scores": [
+          0.0331,
+          0.0328,
+          0.0325
+        ]
+      },
+      {
+        "question": "HDFS DataNode exceptions serving blocks",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "hdfs-cluster",
+          "bgl-supercomputer"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 1.0,
+        "keywords_found": [
+          "DataNode$DataXceiver",
+          "Got exception while serving",
+          "blk_"
+        ],
+        "keywords_missed": [],
+        "top_3_scores": [
+          0.0333,
+          0.0328,
+          0.0318
+        ]
+      },
+      {
+        "question": "HDFS block allocation and storage",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "hdfs-cluster",
+          "bgl-supercomputer"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.833,
+        "keywords_found": [
+          "FSNamesystem",
+          "BLOCK*",
+          "NameSystem.addStoredBlock",
+          "blockMap updated",
+          "NameSystem.allocateBlock"
+        ],
+        "keywords_missed": [
+          "PacketResponder"
+        ],
+        "top_3_scores": [
+          0.0256,
+          0.0167,
+          0.0167
+        ]
+      },
+      {
+        "question": "SSH brute force attacks on the linux server",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "linux-server"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.667,
+        "keywords_found": [
+          "authentication failure",
+          "sshd(pam_unix)",
+          "NODEVssh",
+          "user=root"
+        ],
+        "keywords_missed": [
+          "rhost=150.183.249.110",
+          "rhost=207.243.167.114"
+        ],
+        "top_3_scores": [
+          0.02,
+          0.0197,
+          0.0194
+        ]
+      },
+      {
+        "question": "Apache mod_jk worker errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "apache-httpd"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.25,
+        "keywords_found": [
+          "mod_jk child workerEnv in error state"
+        ],
+        "keywords_missed": [
+          "jk2_init()",
+          "Can't find child",
+          "scoreboard"
+        ],
+        "top_3_scores": [
+          0.025,
+          0.0246,
+          0.0242
+        ]
+      },
+      {
+        "question": "OpenStack nova API activity and errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "bgl-supercomputer",
+          "openstack-nova"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.0,
+        "keywords_found": [],
+        "keywords_missed": [
+          "nova.osapi_compute.wsgi.server",
+          "servers/detail",
+          "HTTP exception thrown",
+          "No instances found for any event"
+        ],
+        "top_3_scores": [
+          0.0313,
+          0.0308,
+          0.0305
+        ]
+      },
+      {
+        "question": "what hardware failures appeared across the BGL cluster",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "bgl-supercomputer",
+          "openstack-nova",
+          "linux-server"
+        ],
+        "service_recall": 1.0,
+        "keyword_recall": 0.333,
+        "keywords_found": [
+          "data storage interrupt",
+          "KERNEL FATAL"
+        ],
+        "keywords_missed": [
+          "instruction cache parity error",
+          "data TLB error interrupt",
+          "machine check",
+          "Lustre mount FAILED"
+        ],
+        "top_3_scores": [
+          0.0333,
+          0.0323,
+          0.032
+        ]
+      },
+      {
+        "question": "which systems had the most errors",
+        "chunks_retrieved": 10,
+        "services_retrieved": [
+          "bgl-supercomputer",
+          "openstack-nova",
+          "linux-server"
+        ],
+        "service_recall": 0.6,
+        "keyword_recall": 0.167,
+        "keywords_found": [
+          "KERNEL"
+        ],
+        "keywords_missed": [
+          "ciod",
+          "DataXceiver",
+          "authentication failure",
+          "mod_jk",
+          "HTTP exception"
+        ],
+        "top_3_scores": [
+          0.0306,
+          0.0167,
+          0.0167
+        ]
+      }
+    ]
+  }
+]

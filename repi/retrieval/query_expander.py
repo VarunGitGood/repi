@@ -15,42 +15,45 @@ LOG_SYNONYMS: Dict[str, List[str]] = {
     "memory": ["oom", "out of memory", "heap", "gc", "garbage collection"],
     "slow": ["latency", "performance", "degraded", "bottleneck", "high response time"],
     "deploy": ["deployment", "rollout", "release", "restart", "pod", "container"],
+    "checkout": ["cart", "payment", "order", "inventory"],
+    "payment": ["billing", "charge", "transaction", "stripe", "refund"],
+    "login": ["auth", "session", "sso", "oauth", "token"],
+    "cart": ["checkout", "order", "basket", "inventory"],
+    "retry": ["retry storm", "backoff", "retry 1/5", "exhausted", "circuit breaker"],
+    "pool": ["connection pool", "exhausted", "pool size", "in-flight", "pool timeout"],
 }
 
+MAX_VARIANTS = 5
+"""Total cap on the variant list (including the original). Each variant
+doubles RRF fan-out — one vector + one FTS query per leg, per variant — so
+the cap directly bounds /chat latency. Bumped from 3 to 5 to accommodate
+service-aware cross-service expansions alongside terminology variants."""
+
+
 def expand_query_static(query: str) -> List[str]:
-    """
-    Generate query variants based on a static synonym dictionary.
-    """
+    """Generate query variants based on a static synonym dictionary."""
     variants = [query]
     tokens = query.lower().split()
-    
+
     for token in tokens:
         if token in LOG_SYNONYMS:
             for synonym in LOG_SYNONYMS[token]:
-                # Simple replacement for now
                 new_variant = query.lower().replace(token, synonym)
                 if new_variant not in variants:
                     variants.append(new_variant)
-                if len(variants) >= 4:
+                if len(variants) >= MAX_VARIANTS:
                     break
-        if len(variants) >= 4:
+        if len(variants) >= MAX_VARIANTS:
             break
-            
-    return variants[:4]
 
-MAX_VARIANTS = 3
-"""Total cap on the variant list (including the original). Each variant
-doubles RRF fan-out — one vector + one FTS query per leg, per variant — so
-the cap directly bounds /chat latency. The expander fills the budget from
-cheap-to-expensive: original first, static-dictionary synonyms next, and
-the LLM is only called if there's still room. Static dictionaries are
-deterministic and free; an LLM roundtrip is hundreds of ms — calling it
-when the budget is already full would only do work that gets truncated."""
+    return variants[:MAX_VARIANTS]
 
 
 class QueryExpander:
-    def __init__(self, llm: Optional[LLMProvider] = None) -> None:
+    def __init__(self, llm: Optional[LLMProvider] = None,
+                 known_services: Optional[List[str]] = None) -> None:
         self.llm = llm
+        self.known_services: List[str] = known_services or []
 
     async def expand(self, query: str) -> List[str]:
         # Static expansion first, then dedup case-insensitively. The static
@@ -95,9 +98,17 @@ class QueryExpander:
         return deduped[:MAX_VARIANTS]
 
     async def _llm_expand(self, query: str) -> List[str]:
-        prompt = f"""Generate 2 alternative phrasings of this log search query using different 
+        services_hint = ""
+        if self.known_services:
+            svc_list = ", ".join(self.known_services[:15])
+            services_hint = (
+                f"\nKnown services in the system: [{svc_list}]\n"
+                "If the query mentions one service, also generate a variant "
+                "targeting a related service that could be the upstream root cause.\n"
+            )
+        prompt = f"""Generate 3 alternative phrasings of this log search query using different
 technical terminology that might appear in actual log files.
-Return ONLY a JSON array. Example: ["conn refused", "socket timeout"]
+{services_hint}Return ONLY a JSON array. Example: ["conn refused", "socket timeout", "inventory-svc 500"]
 Query: {query}"""
         
         response = await self.llm.complete(
