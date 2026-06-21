@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import List, Tuple
-import asyncio
 import logging
 
 from repi.core.dates import DateHandler, default_date_handler as _dh
@@ -106,15 +105,22 @@ class RRFRetrievalService:
 
         logger.debug(f"RRF Search started with {len(queries)} query variants")
 
-        tasks = []
+        # Compute embeddings upfront (CPU-bound, no DB).
+        query_embeddings = []
         for q in queries:
             q_emb = self.embedding_func([q])[0]
             if hasattr(q_emb, 'tolist'):
                 q_emb = q_emb.tolist()
-            tasks.append(self.vector_store.search(embedding=q_emb, top_k=self.per_query_fanout, filters=filters))
-            tasks.append(self.fts_retriever.search(query=q, top_k=self.per_query_fanout, filters=filters))
+            query_embeddings.append(q_emb)
 
-        all_results = await asyncio.gather(*tasks)
+        # Run DB queries sequentially — both retrievers share the same
+        # SQLAlchemy async session which doesn't support concurrent ops.
+        all_results: list = []
+        for q, q_emb in zip(queries, query_embeddings):
+            vec_results = await self.vector_store.search(embedding=q_emb, top_k=self.per_query_fanout, filters=filters)
+            fts_results = await self.fts_retriever.search(query=q, top_k=self.per_query_fanout, filters=filters)
+            all_results.append(vec_results)
+            all_results.append(fts_results)
 
         rrf_scores: dict[str, float] = {}
         for ranking_results in all_results:

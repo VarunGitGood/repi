@@ -9,6 +9,8 @@ Usage:
     uv run python eval/ragas_eval.py
     uv run python eval/ragas_eval.py --dataset ragas_cross_service
     uv run python eval/ragas_eval.py --out eval/ragas_results.json
+    uv run python eval/ragas_eval.py --expand --diverse
+    uv run python eval/ragas_eval.py --evaluator-provider mistral
 """
 from __future__ import annotations
 
@@ -41,27 +43,38 @@ from repi.core.container import get_container
 from repi.models.filters import RetrievalFilters
 
 # ── Dataset registry ────────────────────────────────────────────────────────
+# Categories:
+#   "retrieval" — single-shot retrieval backbone tests (loghub, temporal, noise).
+#                 These measure raw ranking quality without agent reasoning.
+#   "agent"     — cross-service / multi-hop datasets. Expected scores are lower
+#                 because the ground truth requires iterative investigation.
+#                 Acceptable context_recall ~0.3-0.5; full quality is measured
+#                 by eval/run_evals.py (ReAct loop).
 
 DATASETS = [
     {
-        "name": "ragas_cross_service",
-        "seed_module": "eval.ragas_datasets.ragas_cross_service.seed",
-        "ground_truth_path": ROOT / "eval/ragas_datasets/ragas_cross_service/ground_truth.json",
+        "name": "ragas_loghub_real",
+        "category": "retrieval",
+        "seed_module": "eval.ragas_datasets.ragas_loghub_real.seed",
+        "ground_truth_path": ROOT / "eval/ragas_datasets/ragas_loghub_real/ground_truth.json",
     },
     {
         "name": "ragas_temporal_precision",
+        "category": "retrieval",
         "seed_module": "eval.ragas_datasets.ragas_temporal_precision.seed",
         "ground_truth_path": ROOT / "eval/ragas_datasets/ragas_temporal_precision/ground_truth.json",
     },
     {
         "name": "ragas_noise_resilience",
+        "category": "retrieval",
         "seed_module": "eval.ragas_datasets.ragas_noise_resilience.seed",
         "ground_truth_path": ROOT / "eval/ragas_datasets/ragas_noise_resilience/ground_truth.json",
     },
     {
-        "name": "ragas_loghub_real",
-        "seed_module": "eval.ragas_datasets.ragas_loghub_real.seed",
-        "ground_truth_path": ROOT / "eval/ragas_datasets/ragas_loghub_real/ground_truth.json",
+        "name": "ragas_cross_service",
+        "category": "agent",
+        "seed_module": "eval.ragas_datasets.ragas_cross_service.seed",
+        "ground_truth_path": ROOT / "eval/ragas_datasets/ragas_cross_service/ground_truth.json",
     },
 ]
 
@@ -84,6 +97,12 @@ def _parse_args(argv: list[str]) -> dict:
         elif argv[i] == "--evaluator-provider" and i + 1 < len(argv):
             args["evaluator_provider"] = argv[i + 1]
             i += 1
+        elif argv[i] == "--expand":
+            args["use_expansion"] = True
+        elif argv[i] == "--diverse":
+            args["use_diverse"] = True
+        elif argv[i] == "--skip-ragas":
+            args["skip_ragas"] = True
         i += 1
     return args
 
@@ -95,6 +114,8 @@ async def retrieve_contexts(
     question: str,
     filters_dict: dict | None = None,
     top_k: int = 10,
+    use_expansion: bool = False,
+    use_diverse: bool = False,
 ) -> list[dict]:
     """Run the RRF retrieval pipeline for a single question and return chunks."""
     async with container.get_session() as session:
@@ -109,7 +130,20 @@ async def retrieve_contexts(
                 source_service=filters_dict.get("service"),
             )
 
-        results = await rrf.search(query=question, top_k=top_k, filters=filters)
+        expanded = None
+        if use_expansion and container.query_expander:
+            expanded = await container.query_expander.expand(question)
+
+        if use_diverse:
+            results = await rrf.search_diverse(
+                query=question, top_k=top_k, filters=filters,
+                expanded_queries=expanded,
+            )
+        else:
+            results = await rrf.search(
+                query=question, top_k=top_k, filters=filters,
+                expanded_queries=expanded,
+            )
 
         chunk_ids = [cid for cid, _ in results]
         chunks_data = await rrf.vector_store.get_chunks_by_ids(chunk_ids)
@@ -272,7 +306,12 @@ def run_ragas_evaluation(eval_samples: list[dict], evaluator_provider: str | Non
 
 # ── Dataset runner ───────────────────────────────────────────────────────────
 
-async def run_dataset(container, dataset: dict, top_k: int = 10, evaluator_provider: str | None = None) -> dict:
+async def run_dataset(
+    container, dataset: dict, top_k: int = 10,
+    evaluator_provider: str | None = None,
+    use_expansion: bool = False, use_diverse: bool = False,
+    skip_ragas: bool = False,
+) -> dict:
     name = dataset["name"]
     gt = json.loads(dataset["ground_truth_path"].read_text())
 
@@ -290,7 +329,12 @@ async def run_dataset(container, dataset: dict, top_k: int = 10, evaluator_provi
         await container.init_db()
 
     # 3. Retrieve for each question
-    print(f"  [2/3] Retrieving ({len(gt['questions'])} questions, top_k={top_k})...")
+    mode_str = ""
+    if use_expansion:
+        mode_str += " +expand"
+    if use_diverse:
+        mode_str += " +diverse"
+    print(f"  [2/3] Retrieving ({len(gt['questions'])} questions, top_k={top_k}{mode_str})...")
     eval_samples = []
     retrieval_details = []
 
@@ -299,7 +343,8 @@ async def run_dataset(container, dataset: dict, top_k: int = 10, evaluator_provi
         filters_dict = q_entry.get("filters")
 
         retrieved = await retrieve_contexts(
-            container, question, filters_dict, top_k=top_k
+            container, question, filters_dict, top_k=top_k,
+            use_expansion=use_expansion, use_diverse=use_diverse,
         )
         retrieved_texts = [c["text"] for c in retrieved]
         retrieved_services = [c["service"] for c in retrieved]
@@ -347,12 +392,24 @@ async def run_dataset(container, dataset: dict, top_k: int = 10, evaluator_provi
         print(f"    Q: \"{question}\"")
         print(f"       chunks={len(retrieved)}  service_recall={service_recall:.0%}  keyword_recall={keyword_recall:.0%}")
 
-    # 4. Run RAGAS
-    print(f"  [3/3] Running RAGAS metrics...", flush=True)
-    scores = run_ragas_evaluation(eval_samples, evaluator_provider=evaluator_provider)
+    # 4. Run RAGAS (optional — skip with --skip-ragas for fast iteration)
+    scores = {}
+    if skip_ragas:
+        print(f"  [3/3] Skipping RAGAS metrics (--skip-ragas)", flush=True)
+        # Compute aggregate retrieval metrics instead
+        avg_svc_recall = sum(d["service_recall"] for d in retrieval_details) / len(retrieval_details)
+        avg_kw_recall = sum(d["keyword_recall"] for d in retrieval_details) / len(retrieval_details)
+        scores = {
+            "avg_service_recall": round(avg_svc_recall, 4),
+            "avg_keyword_recall": round(avg_kw_recall, 4),
+        }
+        status = "completed"
+    else:
+        print(f"  [3/3] Running RAGAS metrics...", flush=True)
+        scores = run_ragas_evaluation(eval_samples, evaluator_provider=evaluator_provider)
+        status = "error" if "error" in scores else "completed"
 
-    status = "error" if "error" in scores else "completed"
-    print(f"\n  RAGAS Scores:", flush=True)
+    print(f"\n  Scores:", flush=True)
     for metric_name, score_val in scores.items():
         if isinstance(score_val, (int, float)):
             print(f"    {metric_name:25s}  {score_val:.4f}", flush=True)
@@ -368,6 +425,7 @@ async def run_dataset(container, dataset: dict, top_k: int = 10, evaluator_provi
 
     return {
         "dataset": name,
+        "category": dataset.get("category", "retrieval"),
         "status": status,
         "ragas_scores": scores,
         "retrieval_details": retrieval_details,
@@ -381,9 +439,14 @@ async def main():
     dataset_filter = args.get("dataset_filter")
     top_k = args.get("top_k", 10)
     evaluator_provider = args.get("evaluator_provider")
+    use_expansion = args.get("use_expansion", False)
+    use_diverse = args.get("use_diverse", False)
+    skip_ragas = args.get("skip_ragas", False)
 
     container = get_container()
     await container.init_db()
+    if use_expansion:
+        await container.init_known_services()
 
     datasets_to_run = (
         [d for d in DATASETS if dataset_filter in d["name"]]
@@ -397,7 +460,12 @@ async def main():
     all_results = []
     for dataset in datasets_to_run:
         try:
-            result = await run_dataset(container, dataset, top_k=top_k, evaluator_provider=evaluator_provider)
+            result = await run_dataset(
+                container, dataset, top_k=top_k,
+                evaluator_provider=evaluator_provider,
+                use_expansion=use_expansion, use_diverse=use_diverse,
+                skip_ragas=skip_ragas,
+            )
             all_results.append(result)
         except Exception as e:
             import traceback
@@ -410,22 +478,35 @@ async def main():
                 "error": str(e),
             })
 
-    # Summary
+    # Summary — grouped by category with appropriate thresholds.
+    # "retrieval" datasets target ≥0.6 context_recall (direct single-shot).
+    # "agent" datasets target ≥0.3 (first-hop only; full quality via run_evals.py).
+    THRESHOLDS = {"retrieval": 0.6, "agent": 0.3}
+
     print(f"\n{'=' * 60}")
     print("  RAGAS EVALUATION SUMMARY")
     print(f"{'=' * 60}")
 
-    for r in all_results:
-        status = r.get("status", "unknown")
-        print(f"\n  {r['dataset']}  [{status}]")
-        if status == "completed":
-            scores = r.get("ragas_scores", {})
-            for metric_name, score_val in scores.items():
-                if isinstance(score_val, (int, float)):
-                    indicator = "+" if score_val >= 0.7 else "-"
-                    print(f"    {indicator} {metric_name:25s}  {score_val:.4f}")
-                else:
-                    print(f"    ? {metric_name:25s}  {score_val}")
+    # Build category map from DATASETS
+    cat_map = {d["name"]: d.get("category", "retrieval") for d in DATASETS}
+
+    for category in ("retrieval", "agent"):
+        cat_results = [r for r in all_results if cat_map.get(r["dataset"]) == category]
+        if not cat_results:
+            continue
+        threshold = THRESHOLDS[category]
+        print(f"\n  ── {category.upper()} (target context_recall ≥ {threshold:.1f}) ──")
+        for r in cat_results:
+            status = r.get("status", "unknown")
+            print(f"\n  {r['dataset']}  [{status}]")
+            if status == "completed":
+                scores = r.get("ragas_scores", {})
+                for metric_name, score_val in scores.items():
+                    if isinstance(score_val, (int, float)):
+                        indicator = "+" if score_val >= threshold else "-"
+                        print(f"    {indicator} {metric_name:25s}  {score_val:.4f}")
+                    else:
+                        print(f"    ? {metric_name:25s}  {score_val}")
 
     out_path = args.get("out_path")
     if out_path:
