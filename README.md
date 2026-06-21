@@ -1,6 +1,6 @@
 # repi
 
-Local-first log observability. repi continuously ingests logs, indexes them into a hybrid retrieval system (pgvector HNSW + Postgres FTS with weighted tsvector + pg_trgm fuzzy match), clusters related events by signature, builds incident timelines, and can optionally launch an autonomous root-cause investigation through a ReAct loop. Logs and investigations live in projects so different services / environments stay separated. Designed to run on a single machine against a local Postgres — no SaaS, no shared state.
+Local-first log investigation engine. repi ingests logs into PostgreSQL, indexes them with hybrid retrieval (pgvector HNSW + ParadeDB BM25, fused with Reciprocal Rank Fusion), clusters events by signature, and runs an autonomous ReAct loop to trace root causes across services. Logs and investigations live in projects so different services / environments stay separated. Runs on a single machine against a local Postgres — no SaaS, no shared state.
 
 ## Architecture
 
@@ -11,7 +11,7 @@ repi/
 ├── api/            # FastAPI — ingest, chat, investigate, conversations, projects, watchers, config endpoints
 ├── core/           # Settings (pydantic-settings), DI container, Redis cache
 ├── ingestion/      # Log parsing → signature clustering → embedding → upsert
-├── retrieval/      # pgvector HNSW + PostgreSQL FTS, RRF fusion, query expansion, timeline + cluster views
+├── retrieval/      # pgvector HNSW + ParadeDB BM25, RRF fusion, query expansion, timeline + cluster views
 ├── investigation/  # ReAct gather loop + separate compile-LLM step, tools, evidence store
 ├── llm/            # Provider protocol + adapters (OpenAI, Anthropic, Mistral, Gemini, Ollama)
 ├── intent/         # Natural-language query → service / time-window / log-level extraction
@@ -156,6 +156,8 @@ All keys live in `.repi/config.json` (see `config.example.json` for the full sch
 | `LLM_PROVIDER` | `openai` | `openai` \| `anthropic` \| `mistral` \| `gemini` \| `ollama` |
 | `LLM_MODEL` | provider default | Override model name |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` | — | Provider API key. Set the one that matches your `LLM_PROVIDER`. |
+| `FTS_BACKEND` | `paradedb` | `paradedb` (BM25 via pg_search) or `pg` (PostgreSQL tsvector) |
+| `EMBEDDING_BACKEND` | `fastembed` | `fastembed` (ONNX, fast) or `torch` (sentence-transformers) |
 | `REDIS_URL` | `redis://localhost:6379` | Redis for caching |
 | `ENABLE_REDIS_CACHE` | `true` | Set `false` to disable Redis |
 | `TIME_WINDOW_INITIAL_MINUTES` | `10` | First search window for investigation |
@@ -173,8 +175,13 @@ uv run pytest tests/ -v
 # Run a single file
 uv run pytest tests/investigation/test_react_loop.py -v
 
-# Eval harness — three scripted datasets graded against expected.json
+# Investigation eval — three scripted datasets graded against expected.json
 uv run python eval/run_evals.py
+
+# RAGAS retrieval eval — measures retrieval quality in isolation
+uv run python eval/ragas_eval.py --skip-ragas          # fast: retrieval metrics only
+uv run python eval/ragas_eval.py --evaluator-provider mistral  # full: includes LLM-judged RAGAS scores
+uv run python eval/ragas_eval.py --dataset ragas_loghub_real   # single dataset
 ```
 
 ## Contributing
