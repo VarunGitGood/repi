@@ -6,13 +6,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from repi.core.config import settings
 
-try:
-    create_async_engine = importlib.import_module("sqlalchemy.ext.asyncio").create_async_engine
-except ImportError as e:
-    raise RuntimeError(
-        "sqlalchemy.ext.asyncio is required for async DB support. "
-        "Install SQLAlchemy>=1.4."
-    ) from e
 from repi.core.cache import cache
 from repi.retrieval.pgvector_store import PgVectorStore
 from repi.retrieval.fts_factory import create_fts_retriever
