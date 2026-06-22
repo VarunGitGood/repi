@@ -160,6 +160,39 @@ async def _apply_schema(db_url: str) -> None:
         await conn.close()
 
 
+async def _sync_embedding_dim(db_url: str, target_dim: int) -> None:
+    """ALTER the embedding column width when the configured embedder's
+    dimension differs from the current schema (e.g. switching to nomic 768d).
+    Drops and recreates the HNSW index to match."""
+    import asyncpg
+
+    conn = await asyncpg.connect(dsn=_to_psql_url(db_url))
+    try:
+        row = await conn.fetchrow(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'log_chunks'::regclass AND attname = 'embedding'"
+        )
+        if row is None:
+            return
+        current_dim = row["atttypmod"]
+        if current_dim == target_dim:
+            return
+        console.print(
+            f"[yellow]Embedding dimension mismatch: column={current_dim}, "
+            f"backend={target_dim}. Migrating (existing embeddings will be invalid)...[/yellow]"
+        )
+        await conn.execute("DROP INDEX IF EXISTS log_chunks_embedding_idx")
+        await conn.execute(
+            f"ALTER TABLE log_chunks ALTER COLUMN embedding TYPE vector({target_dim})"
+        )
+        await conn.execute(
+            f"CREATE INDEX log_chunks_embedding_idx ON log_chunks "
+            f"USING hnsw (embedding vector_ip_ops)"
+        )
+    finally:
+        await conn.close()
+
+
 def _read_db_url() -> str:
     if not CONFIG_FILE.exists():
         return DEFAULT_DB_URL
@@ -230,6 +263,12 @@ def init(
     console.print(f"[cyan]Applying {SCHEMA_FILE.name}...[/cyan]")
     asyncio.run(_apply_schema(db_url))
     console.print("[green]Schema applied.[/green]")
+
+    from repi.embeddings import create_embedder
+    from repi.core.config import settings
+    embedder = create_embedder(settings.EMBEDDING_BACKEND)
+    asyncio.run(_sync_embedding_dim(db_url, embedder.dim))
+    console.print(f"[green]Embedding dimension set to {embedder.dim} ({settings.EMBEDDING_BACKEND}).[/green]")
 
     console.print()
     console.print("[bold green]Setup complete.[/bold green]")

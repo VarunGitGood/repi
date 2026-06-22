@@ -1,0 +1,36 @@
+{
+  "dataset_name": "ragas_temporal_precision",
+  "description": "Tests whether retrieval correctly isolates evidence within a specific time window when similar error patterns occur at multiple timestamps with different root causes.",
+  "questions": [
+    {
+      "question": "why did auth-svc fail around 14:00",
+      "filters": {
+        "time_from": "2026-06-10T13:50:00Z",
+        "time_to": "2026-06-10T14:30:00Z"
+      },
+      "ground_truth_answer": "Auth-svc failed at 14:00 because the Redis session store reached its max memory limit and started evicting active sessions. Users with evicted sessions received 401 errors on their next request.",
+      "ground_truth_services": ["auth-svc"],
+      "ground_truth_keywords": ["Redis", "max memory", "evict", "session", "401"]
+    },
+    {
+      "question": "auth-svc errors at 18:00",
+      "filters": {
+        "time_from": "2026-06-10T17:50:00Z",
+        "time_to": "2026-06-10T18:30:00Z"
+      },
+      "ground_truth_answer": "Auth-svc failed at 18:00 because the TLS certificate for the LDAP backend expired. All LDAP bind operations failed with certificate validation errors, causing login requests to return 500.",
+      "ground_truth_services": ["auth-svc"],
+      "ground_truth_keywords": ["TLS", "certificate", "expired", "LDAP", "bind", "500"]
+    },
+    {
+      "question": "what happened to auth-svc at 22:00",
+      "filters": {
+        "time_from": "2026-06-10T21:50:00Z",
+        "time_to": "2026-06-10T22:30:00Z"
+      },
+      "ground_truth_answer": "Auth-svc failed at 22:00 because a config reload pushed a malformed JWT signing key. Token validation started failing for all requests, returning 403 Forbidden.",
+      "ground_truth_services": ["auth-svc"],
+      "ground_truth_keywords": ["config reload", "JWT", "signing key", "malformed", "403", "token validation"]
+    }
+  ]
+}

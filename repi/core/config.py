@@ -61,7 +61,13 @@ class Settings(BaseSettings):
 
     # "fastembed" (ONNX Runtime, ~50 MB) or "torch" via sentence-transformers
     # (~790 MB). Vectors are byte-identical; the choice is image size / RSS.
+    # Additional options: "nomic" (768d), "bge" (384d).
     EMBEDDING_BACKEND: str = "fastembed"
+
+    # "paradedb" (BM25 via pg_search) or "pg" (PostgreSQL tsvector).
+    FTS_BACKEND: str = "paradedb"
+
+    ENABLE_LEVEL_BOOST: bool = True
 
     UI_PORT: int = 3000
 

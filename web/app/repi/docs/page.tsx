@@ -38,6 +38,7 @@ const FEATURES = [
     title: "Hybrid Search",
     description:
       "PostgreSQL full-text search + pgvector HNSW dense retrieval fused with Reciprocal Rank Fusion for best-of-both recall.",
+      "ParadeDB BM25 full-text search + pgvector HNSW dense retrieval fused with Reciprocal Rank Fusion for best-of-both recall.",
   },
   {
     icon: Bot,
@@ -267,8 +268,8 @@ export default function DocsPage() {
             <span className="text-muted-foreground/40">Start knowing.</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mb-12 leading-relaxed text-balance font-medium">
-            repi ingests logs into PostgreSQL with pgvector, clusters them by signature,
-            and runs an autonomous ReAct loop to surface root causes.
+            repi ingests logs into PostgreSQL, indexes them with hybrid search (ParadeDB BM25 + pgvector),
+            and runs an autonomous ReAct loop to trace root causes across services.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 mb-16">
             <a href="#quickstart">
@@ -462,7 +463,7 @@ export default function DocsPage() {
                   <span className="font-black text-xl tracking-tight">repi</span>
                 </div>
                 <p className="text-lg text-muted-foreground leading-relaxed font-medium max-w-sm">
-                  Autonomous log investigation powered by pgvector and ReAct loops.
+                  Autonomous log investigation powered by ParadeDB, pgvector, and ReAct loops.
                   Open-source, self-hosted, private.
                 </p>
               </div>

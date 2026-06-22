@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: paradedb/paradedb:pg16
     container_name: repi-db
     ports:
       - "5432:5432"
@@ -8,6 +8,7 @@ services:
       POSTGRES_DB: repi
       POSTGRES_USER: repi_user
       POSTGRES_PASSWORD: password_here
+    command: ["postgres", "-c", "shared_preload_libraries=pg_search"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
