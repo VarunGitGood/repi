@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
+import importlib
 
 from repi.core.config import settings
 from repi.core.cache import cache
