@@ -3,8 +3,10 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
+import importlib
 
 from repi.core.config import settings
+
 from repi.core.cache import cache
 from repi.retrieval.pgvector_store import PgVectorStore
 from repi.retrieval.fts_factory import create_fts_retriever
@@ -237,7 +239,8 @@ class Container:
             store=store,
             enable_reflection=settings.ENABLE_REFLECTION,
             reflection_interval=settings.REFLECTION_INTERVAL,
-        )
+            llm_max_calls_per_min=settings.LLM_MAX_CALLS_PER_MIN,
+            )
 
     def get_investigation_store(self, session: AsyncSession) -> InvestigationStore:
         return InvestigationStore(session)

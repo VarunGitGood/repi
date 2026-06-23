@@ -107,6 +107,7 @@ class ReactInvestigationLoop:
         enable_reflection: bool = True,
         reflection_interval: int = 3,
         max_reflections: int = 2,
+        llm_max_calls_per_min: int = 60,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -120,6 +121,7 @@ class ReactInvestigationLoop:
         self.enable_reflection = enable_reflection
         self.reflection_interval = reflection_interval
         self.max_reflections = max_reflections
+        self.llm_max_calls_per_min = llm_max_calls_per_min
         self._llm_call_timestamps: list[float] = []
 
     @staticmethod
@@ -145,7 +147,7 @@ class ReactInvestigationLoop:
     async def _wait_for_rate_limit(self):
         now = time.time()
         self._llm_call_timestamps = [t for t in self._llm_call_timestamps if now - t < 60]
-        while len(self._llm_call_timestamps) >= 3:
+        while len(self._llm_call_timestamps) >= self.llm_max_calls_per_min:
             wait_time = 60 - (now - self._llm_call_timestamps[0]) + 1
             logger.warning(f"Rate limit: Waiting {wait_time:.1f}s...")
             await asyncio.sleep(wait_time)
