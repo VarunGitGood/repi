@@ -37,7 +37,6 @@ const FEATURES = [
     icon: Search,
     title: "Hybrid Search",
     description:
-      "PostgreSQL full-text search + pgvector HNSW dense retrieval fused with Reciprocal Rank Fusion for best-of-both recall.",
       "ParadeDB BM25 full-text search + pgvector HNSW dense retrieval fused with Reciprocal Rank Fusion for best-of-both recall.",
   },
   {

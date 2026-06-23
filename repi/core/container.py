@@ -239,9 +239,8 @@ class Container:
             store=store,
             enable_reflection=settings.ENABLE_REFLECTION,
             reflection_interval=settings.REFLECTION_INTERVAL,
-            llm_max_calls_per_min=settings.LLM_MAX_CALLS_PER_MIN,  
-
-        )
+            llm_max_calls_per_min=settings.LLM_MAX_CALLS_PER_MIN,
+            )
 
     def get_investigation_store(self, session: AsyncSession) -> InvestigationStore:
         return InvestigationStore(session)

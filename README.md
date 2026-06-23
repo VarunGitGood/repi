@@ -163,6 +163,7 @@ All keys live in `.repi/config.json` (see `config.example.json` for the full sch
 | `UI_PORT` | `3000` | Port the web UI binds to (read by `repi ui`) |
 | `WATCHER_CONFIG_REFRESH_SECS` | `30` | How often the worker polls for config changes |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint |
+| `LLM_MAX_CALLS_PER_MIN` | `10` | Maximum LLM API calls per minute in the ReAct loop. Increase for high-tier API plans. |
 
 ## Development
 
