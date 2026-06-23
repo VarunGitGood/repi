@@ -1,0 +1,30 @@
+2026-06-10T02:10:00Z [INFO] CDN edge node cdn-edge-01 started (PoP: us-east-1)
+2026-06-10T02:10:01Z [INFO] Origin backend: gateway-cluster.internal (4 instances, health checked)
+2026-06-10T02:11:00Z [INFO] Health check ok — origin P99: 18ms, cache hit rate: 96%
+2026-06-10T02:12:00Z [INFO] Health check ok — origin P99: 19ms, cache hit rate: 96%
+2026-06-10T02:13:00Z [INFO] Health check ok — origin P99: 21ms, cache hit rate: 96%
+2026-06-10T02:14:00Z [INFO] Health check ok — origin P99: 20ms, cache hit rate: 96%
+2026-06-10T02:15:00Z [INFO] Health check ok — origin P99: 148ms, cache hit rate: 96%
+2026-06-10T02:16:00Z [INFO] Health check ok — origin P99: 892ms, cache hit rate: 95%
+2026-06-10T02:16:44Z [ERROR] Origin 502: gateway-01.internal /api/v9/channels/8821/messages returned 502 Bad Gateway
+2026-06-10T02:16:46Z [ERROR] Origin 502: gateway-02.internal /api/v9/channels/4491/messages returned 502 Bad Gateway
+2026-06-10T02:16:50Z [ERROR] Origin 502: gateway-01.internal /gateway?v=9&encoding=json returned 502 Bad Gateway
+2026-06-10T02:16:55Z [ERROR] Origin 502: gateway-03.internal /api/v9/users/@me/channels returned 502 Bad Gateway
+2026-06-10T02:16:58Z [ERROR] Origin 502 rate: 24% of requests to gateway cluster
+2026-06-10T02:17:10Z [ERROR] Origin 502 rate: 41% of requests to gateway cluster
+2026-06-10T02:17:20Z [ERROR] Origin 502 rate: 58% of requests to gateway cluster — circuit breaker threshold approaching
+2026-06-10T02:17:30Z [WARNING] Serving stale cache for /api/v9/channels/* (TTL extended to 300s due to origin degradation)
+2026-06-10T02:18:00Z [ERROR] Origin 502 rate: 62% of requests — gateway cluster under severe load
+2026-06-10T02:18:30Z [WARNING] Edge cache miss rate elevated: 34% (baseline 4%) — reconnecting clients bypass cache with fresh IDENTIFY requests
+2026-06-10T02:19:00Z [ERROR] Origin 502 rate: 71% — gateway message-svc pool exhausted, fanout requests failing
+2026-06-10T02:20:00Z [ERROR] Origin 502 rate: 69%
+2026-06-10T02:22:00Z [ERROR] Origin 502 rate: 65%
+2026-06-10T02:25:00Z [ERROR] Origin 502 rate: 58%
+2026-06-10T02:30:00Z [WARNING] Origin 502 rate: 44% — slowly improving
+2026-06-10T02:35:00Z [WARNING] Origin 502 rate: 28%
+2026-06-10T02:38:00Z [WARNING] Origin 502 rate: 12% — gateway recovering
+2026-06-10T02:40:00Z [WARNING] Origin 502 rate: 4%
+2026-06-10T02:42:10Z [INFO] Origin 502 rate dropped to 0 — gateway cluster healthy
+2026-06-10T02:43:00Z [INFO] Health check ok — origin P99: 22ms, cache hit rate: 94%
+2026-06-10T02:45:00Z [INFO] Health check ok — origin P99: 20ms, cache hit rate: 95%
+2026-06-10T02:48:00Z [INFO] Edge health nominal — origin P99: 18ms, cache hit rate: 96%

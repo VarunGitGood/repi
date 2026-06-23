@@ -1,0 +1,36 @@
+2026-06-10T02:10:00Z [INFO] Service started, version 3.8.1 (Cassandra: 4.1.3)
+2026-06-10T02:10:01Z [INFO] Connected to Cassandra cluster (nodes: 10.0.1.6, 10.0.1.7, 10.0.1.8)
+2026-06-10T02:10:02Z [INFO] Keyspace read_states: replication_factor=3, consistency=QUORUM
+2026-06-10T02:11:00Z [INFO] Health check ok — batch write latency P99: 12ms
+2026-06-10T02:12:00Z [INFO] Health check ok — batch write latency P99: 14ms
+2026-06-10T02:13:00Z [INFO] Health check ok — batch write latency P99: 11ms
+2026-06-10T02:14:00Z [INFO] Processing 142 read-state updates (user mark-reads, last-viewed)
+2026-06-10T02:14:30Z [INFO] Health check ok — batch write latency P99: 18ms
+2026-06-10T02:14:48Z [WARNING] Cassandra BATCH APPLY latency spike: 2847ms (threshold 500ms), coordinator=10.0.1.8
+2026-06-10T02:14:52Z [WARNING] Cassandra BATCH APPLY latency spike: 4103ms (threshold 500ms), coordinator=10.0.1.8
+2026-06-10T02:15:00Z [ERROR] Cassandra timeout on BATCH APPLY to read_states keyspace: OperationTimedOutException (coordinator=10.0.1.8, consistency=QUORUM, received=1, required=2)
+2026-06-10T02:15:01Z [ERROR] Failed to persist read-state for user_id=u_9f2a1c, channel_id=ch_8821: write timeout
+2026-06-10T02:15:02Z [ERROR] Cassandra timeout on BATCH APPLY to read_states keyspace: OperationTimedOutException (coordinator=10.0.1.8, consistency=QUORUM, received=1, required=2)
+2026-06-10T02:15:03Z [ERROR] Failed to persist read-state for user_id=u_c3b8e2, channel_id=ch_4491: write timeout
+2026-06-10T02:15:05Z [WARNING] Cassandra node 10.0.1.8 not responding to gossip — possible partition leader election in progress
+2026-06-10T02:15:12Z [ERROR] Cassandra timeout on BATCH APPLY to read_states keyspace: OperationTimedOutException (coordinator=10.0.1.8, consistency=QUORUM, received=1, required=2)
+2026-06-10T02:15:30Z [ERROR] Cassandra connection pool to coordinator 10.0.1.8 degraded: 28/50 connections healthy
+2026-06-10T02:16:00Z [ERROR] Cassandra timeout on BATCH APPLY: coordinator=10.0.1.8 unreachable, retrying with 10.0.1.7
+2026-06-10T02:16:15Z [ERROR] All coordinators timeout: QUORUM write requires 2 nodes but only 1 acknowledged (coordinator=10.0.1.7)
+2026-06-10T02:17:00Z [ERROR] Cassandra write queue depth: 8421 pending BATCH APPLY operations
+2026-06-10T02:17:30Z [ERROR] Cassandra write queue depth: 18204 pending BATCH APPLY operations — queue growing faster than drain rate
+2026-06-10T02:18:00Z [ERROR] read_states write queue overflow: dropping oldest 5000 pending writes to prevent OOM
+2026-06-10T02:20:00Z [ERROR] Cassandra timeout on BATCH APPLY: OperationTimedOutException (received=1, required=2)
+2026-06-10T02:22:00Z [ERROR] Cassandra timeout on BATCH APPLY: OperationTimedOutException (received=1, required=2)
+2026-06-10T02:25:00Z [ERROR] Cassandra timeout on BATCH APPLY: OperationTimedOutException (received=1, required=2)
+2026-06-10T02:28:00Z [ERROR] Cassandra timeout on BATCH APPLY: OperationTimedOutException (received=1, required=2)
+2026-06-10T02:30:00Z [WARNING] Cassandra node 10.0.1.8 gossip re-established — partition leader election in progress
+2026-06-10T02:33:00Z [ERROR] Cassandra timeout on BATCH APPLY: OperationTimedOutException (received=1, required=2)
+2026-06-10T02:36:00Z [ERROR] Cassandra timeout on BATCH APPLY: OperationTimedOutException (received=1, required=2)
+2026-06-10T02:38:30Z [INFO] Cassandra coordinator re-elected, new partition leader: 10.0.1.9
+2026-06-10T02:38:35Z [INFO] Cassandra QUORUM writes resumed — batch write latency P99: 28ms
+2026-06-10T02:38:40Z [INFO] Processing 41821 queued read-state updates (backlog drain started)
+2026-06-10T02:39:00Z [INFO] Health check ok — batch write latency P99: 22ms
+2026-06-10T02:39:30Z [INFO] Backlog drain progress: 12400/41821 updates processed
+2026-06-10T02:41:00Z [INFO] Backlog drain complete — all pending read-state updates written
+2026-06-10T02:42:00Z [INFO] Health check ok — batch write latency P99: 13ms
