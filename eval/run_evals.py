@@ -41,6 +41,11 @@ DATASETS = [
         "seed_module": "eval.dataset_3_jwt_key_rotation_noise.seed",
         "expected_path": ROOT / "eval/dataset_3_jwt_key_rotation_noise/expected.json",
     },
+    {
+        "name": "dataset_4_discord_gateway_cascade",
+        "seed_module": "eval.dataset_4_discord_gateway_cascade.seed",
+        "expected_path": ROOT / "eval/dataset_4_discord_gateway_cascade/expected.json",
+    },
 ]
 
 # ─── CLI arg parsing ────────────────────────────────────────────────────────
@@ -123,7 +128,7 @@ def create_judge(args: dict, mut_provider_name: str) -> LLMJudge:
     preferences = [
         ("openai", settings.OPENAI_API_KEY, lambda k: OpenAIProvider(api_key=k, model="gpt-4o")),
         ("anthropic", settings.ANTHROPIC_API_KEY, lambda k: AnthropicProvider(api_key=k, model="claude-3-5-sonnet-20240620")),
-        ("gemini", settings.GEMINI_API_KEY, lambda k: GeminiProvider(api_key=k, model="gemini-1.5-pro")),
+        ("gemini", settings.GEMINI_API_KEY, lambda k: GeminiProvider(api_key=k, model="gemini-2.0-flash")),
         ("mistral", settings.MISTRAL_API_KEY, lambda k: MistralProvider(api_key=k, model="mistral-large-latest")),
     ]
     for name, key, factory in preferences:

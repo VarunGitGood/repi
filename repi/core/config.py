@@ -58,12 +58,16 @@ class Settings(BaseSettings):
 
     WATCHER_CONFIG_REFRESH_SECS: int = 30
 
-    # "fastembed" (ONNX Runtime, ~50 MB) or "torch" via sentence-transformers
-    # (~790 MB). Vectors are byte-identical; the choice is image size / RSS.
-    # Additional options: "nomic" (768d), "bge" (384d).
-    EMBEDDING_BACKEND: str = "fastembed"
+    # "bge" (BAAI/bge-small-en-v1.5, 384d, ONNX) — default, best retrieval quality.
+    # "fastembed" (all-MiniLM-L6-v2, 384d, ONNX) — lighter, same dimension.
+    # "nomic" (nomic-embed-text-v1.5, 768d) — highest quality, needs schema migration.
+    # "torch" — sentence-transformers CPU path, ~790 MB.
+    # All 384d backends produce byte-compatible vectors; switching between them
+    # requires re-ingesting existing chunks (embeddings are not interchangeable).
+    EMBEDDING_BACKEND: str = "bge"
 
-    # "paradedb" (BM25 via pg_search) or "pg" (PostgreSQL tsvector).
+    # "paradedb" (BM25 via pg_search) — default, recommended.
+    # "pg" (PostgreSQL tsvector) — fallback if pg_search extension is unavailable.
     FTS_BACKEND: str = "paradedb"
 
     ENABLE_LEVEL_BOOST: bool = True

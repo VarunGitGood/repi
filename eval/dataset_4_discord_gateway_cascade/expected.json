@@ -1,0 +1,79 @@
+{
+  "query": "why are users getting disconnected from the gateway",
+  "expected_clarification": {
+    "should_clarify": false,
+    "rationale": "'gateway' is a registered service and the time window (2026-06-10 02:14–02:48) is unambiguous in the logs."
+  },
+  "expected_answer": {
+    "incident_window": {
+      "start": "2026-06-10T02:14:00Z",
+      "end":   "2026-06-10T02:48:00Z"
+    },
+    "affected_services": ["read-states-svc", "gateway", "message-svc", "cdn-edge"],
+    "trigger_event": {
+      "service": "read-states-svc",
+      "timestamp_approx": "2026-06-10T02:14:52Z",
+      "log_line_must_contain": "Cassandra timeout"
+    },
+    "propagation_chain_must_include_in_order": [
+      {
+        "service": "read-states-svc",
+        "ts_approx": "2026-06-10T02:14:52Z",
+        "what_must_mention": "Cassandra / BATCH APPLY / OperationTimedOutException"
+      },
+      {
+        "service": "gateway",
+        "ts_approx": "2026-06-10T02:16:15Z",
+        "what_must_mention": "read_states / mark_read / timeout / disconnect"
+      },
+      {
+        "service": "gateway",
+        "ts_approx": "2026-06-10T02:17:45Z",
+        "what_must_mention": "reconnect storm"
+      },
+      {
+        "service": "message-svc",
+        "ts_approx": "2026-06-10T02:19:05Z",
+        "what_must_mention": "thread pool / saturated / 512"
+      },
+      {
+        "service": "cdn-edge",
+        "ts_approx": "2026-06-10T02:16:44Z",
+        "what_must_mention": "502"
+      }
+    ],
+    "root_cause_must_mention": [
+      "Cassandra",
+      "read-states",
+      "timeout",
+      "reconnect",
+      "pool"
+    ],
+    "ruled_out_hypotheses_must_include": [
+      {
+        "hypothesis_about": "presence-svc",
+        "rationale": "presence-svc shows elevated activity caused by the gateway reconnect storm, not a cause of it — no Cassandra errors, no connection pool exhaustion"
+      }
+    ],
+    "assumptions_must_echo": [
+      "'gateway' refers to the WebSocket gateway service"
+    ],
+    "confidence": "high",
+    "gaps_must_be_empty_or_minor": true
+  },
+  "common_failure_modes_to_grade_against": [
+    "Names gateway as root cause (it is the dominant symptom, not the trigger). Should be downgraded.",
+    "Misses read-states-svc entirely because it was not mentioned in the query.",
+    "Includes presence-svc in affected_services without noting it is a downstream symptom of reconnects.",
+    "Fails to link Cassandra partition leader re-election → read_states timeouts → WebSocket disconnects → reconnect storm chain.",
+    "Skips cdn-edge 502s as evidence of the gateway impact radius.",
+    "Does not identify OperationTimedOutException as the trigger mechanism."
+  ],
+  "what_this_dataset_tests": [
+    "Multi-hop causal chain: 4 services deep from trigger (read-states) to visible symptom (cdn-edge 502).",
+    "Cross-service auto-sweep: read-states-svc errors must surface even though only 'gateway' was queried.",
+    "Red-herring elimination: presence-svc elevated but is a symptom of the reconnect storm, not a cause.",
+    "Infrastructure-level root cause: Cassandra partition leader re-election, not application code.",
+    "Reconnect amplification pattern: disconnects → reconnects → message-svc saturation loop."
+  ]
+}

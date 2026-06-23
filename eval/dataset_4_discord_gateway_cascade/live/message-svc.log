@@ -1,0 +1,30 @@
+2026-06-10T02:10:00Z [INFO] MessageService started, version 5.2.8
+2026-06-10T02:10:01Z [INFO] Worker thread pool initialized: 512 threads
+2026-06-10T02:10:02Z [INFO] Connected to gateway cluster (load balanced, 12 gateway instances)
+2026-06-10T02:11:00Z [INFO] Health check ok — inbound rate: 848 req/s, queue depth: 312
+2026-06-10T02:12:00Z [INFO] Health check ok — inbound rate: 852 req/s, queue depth: 289
+2026-06-10T02:13:00Z [INFO] Health check ok — inbound rate: 861 req/s, queue depth: 301
+2026-06-10T02:14:00Z [INFO] Health check ok — inbound rate: 874 req/s, queue depth: 320
+2026-06-10T02:17:00Z [INFO] Health check ok — inbound rate: 1240 req/s, queue depth: 4812
+2026-06-10T02:18:00Z [INFO] Health check ok — inbound rate: 4480 req/s, queue depth: 24312
+2026-06-10T02:18:10Z [WARNING] Inbound connection rate from gateway: 12400 req/s (baseline 850 req/s) — gateway reconnect storm detected
+2026-06-10T02:18:20Z [WARNING] Worker thread pool utilization: 448/512 (87%) — approaching saturation
+2026-06-10T02:18:35Z [WARNING] Fanout queue depth: 48120 pending events (threshold 10000)
+2026-06-10T02:18:50Z [WARNING] Worker thread pool utilization: 501/512 (98%) — critical
+2026-06-10T02:19:05Z [ERROR] Worker thread pool saturated: 512/512 threads in use — new requests rejected
+2026-06-10T02:19:10Z [ERROR] Message fanout rejected for channel_id=ch_9f2e1b: no worker threads available
+2026-06-10T02:19:15Z [ERROR] Message fanout rejected for channel_id=ch_4a8c2d: no worker threads available
+2026-06-10T02:19:20Z [ERROR] Message fanout rejected for channel_id=ch_1b7e3f: no worker threads available
+2026-06-10T02:19:30Z [ERROR] Message fanout timeout for channel_id=ch_9f2e1c: upstream slow (2000ms deadline exceeded)
+2026-06-10T02:19:45Z [ERROR] Message fanout timeout for channel_id=ch_6b3a4e: upstream slow (2000ms deadline exceeded)
+2026-06-10T02:20:00Z [ERROR] Worker thread pool saturated: 512/512 threads in use — queue depth 84210
+2026-06-10T02:22:00Z [ERROR] Worker thread pool saturated: 512/512 threads in use — queue depth 91044
+2026-06-10T02:25:00Z [ERROR] Worker thread pool saturated: 512/512 threads in use — queue depth 88302
+2026-06-10T02:30:00Z [WARNING] Worker thread pool utilization: 498/512 — still elevated, reconnect storm persisting
+2026-06-10T02:35:00Z [WARNING] Worker thread pool utilization: 420/512 — improving
+2026-06-10T02:38:15Z [INFO] Inbound rate from gateway normalizing: 1840 req/s
+2026-06-10T02:38:20Z [INFO] Worker thread pool: 248/512 in use — pressure releasing
+2026-06-10T02:38:30Z [INFO] Fanout queue draining: 12401 pending
+2026-06-10T02:39:00Z [INFO] Health check ok — inbound rate: 1120 req/s, queue depth: 4802
+2026-06-10T02:41:00Z [INFO] Health check ok — inbound rate: 882 req/s, queue depth: 388
+2026-06-10T02:42:00Z [INFO] Health check ok — inbound rate: 861 req/s, queue depth: 291 — nominal

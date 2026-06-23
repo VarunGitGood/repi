@@ -1,0 +1,22 @@
+2026-06-10T02:10:00Z [INFO] PresenceService started, version 2.4.1
+2026-06-10T02:10:01Z [INFO] Connected to presence store (Redis cluster, 6 shards)
+2026-06-10T02:11:00Z [INFO] Health check ok — presence updates: 480/s, Redis P99: 3ms
+2026-06-10T02:12:00Z [INFO] Health check ok — presence updates: 492/s, Redis P99: 3ms
+2026-06-10T02:13:00Z [INFO] Health check ok — presence updates: 501/s, Redis P99: 4ms
+2026-06-10T02:14:00Z [INFO] Health check ok — presence updates: 488/s, Redis P99: 3ms
+2026-06-10T02:15:00Z [INFO] Health check ok — presence updates: 495/s, Redis P99: 3ms
+2026-06-10T02:17:00Z [WARNING] Presence update flood: 4200 state changes/s (threshold 500/s) — consistent with large client reconnect event
+2026-06-10T02:17:10Z [WARNING] Inbound OFFLINE events: 4821/30s (clients disconnecting from gateway)
+2026-06-10T02:17:30Z [WARNING] Inbound ONLINE events: 3901/30s (clients reconnecting to gateway)
+2026-06-10T02:18:00Z [WARNING] Presence update queue depth: 18240 — processing backlog
+2026-06-10T02:18:30Z [WARNING] Redis pipeline latency P99: 42ms (threshold 10ms) — write contention under flood
+2026-06-10T02:19:00Z [WARNING] Presence update flood: 3800 state changes/s — sustained
+2026-06-10T02:19:22Z [WARNING] Rate-limiting presence updates: dropping 18% of state changes to protect Redis cluster
+2026-06-10T02:20:00Z [WARNING] Presence update flood: 3200 state changes/s
+2026-06-10T02:22:00Z [WARNING] Presence update flood: 2800 state changes/s
+2026-06-10T02:25:00Z [WARNING] Presence update flood: 2400 state changes/s — slowly subsiding
+2026-06-10T02:30:00Z [WARNING] Presence update rate: 1200 state changes/s
+2026-06-10T02:35:00Z [INFO] Health check ok — presence updates: 820/s, Redis P99: 5ms
+2026-06-10T02:38:00Z [INFO] Presence update rate returning to normal: 540/s
+2026-06-10T02:41:10Z [INFO] Health check ok — presence updates: 498/s, Redis P99: 3ms — nominal
+2026-06-10T02:42:00Z [INFO] Health check ok — presence updates: 491/s, Redis P99: 3ms

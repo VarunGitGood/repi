@@ -1,0 +1,42 @@
+{
+  "dataset_name": "ragas_discord_cascade",
+  "description": "Tests retrieval across a 5-service cascade. The query surface (gateway disconnects, 502s) is far from the root cause (Cassandra timeouts in read-states-svc). Also includes a red-herring service (presence-svc) that shows real activity but is downstream of the storm, not causal.",
+  "questions": [
+    {
+      "question": "why are users getting disconnected from the gateway",
+      "ground_truth_answer": "Cassandra partition leader re-election in read-states-svc caused OperationTimedOutException on all BATCH APPLY writes. Gateway timed out waiting for mark_read responses, disconnecting sessions and triggering a reconnect storm of 4821 sessions in 30 seconds. This exhausted gateway's HTTP client pool to message-svc (200/200 in use), leading to event fanout timeouts and sustained client disconnects.",
+      "ground_truth_services": ["read-states-svc", "gateway", "message-svc"],
+      "ground_truth_keywords": ["Cassandra timeout", "OperationTimedOutException", "mark_read", "session disconnect", "reconnect storm", "EXHAUSTED"]
+    },
+    {
+      "question": "Cassandra timeouts read states service",
+      "ground_truth_answer": "read-states-svc experienced OperationTimedOutException on BATCH APPLY operations to the read_states keyspace when Cassandra coordinator 10.0.1.8 became unreachable during a partition leader election. QUORUM consistency required 2 node acknowledgements but only 1 was available, causing all write operations to time out. The write queue grew to 18204 pending BATCH APPLY operations before the leader re-elected to 10.0.1.9.",
+      "ground_truth_services": ["read-states-svc"],
+      "ground_truth_keywords": ["Cassandra", "BATCH APPLY", "OperationTimedOutException", "QUORUM", "partition leader", "coordinator=10.0.1.8", "10.0.1.9"]
+    },
+    {
+      "question": "why did cdn edge start returning 502 errors",
+      "ground_truth_answer": "cdn-edge began returning 502 Bad Gateway errors when the gateway cluster became overloaded by a client reconnect storm caused by Cassandra timeouts in read-states-svc. Origin 502 rate peaked at 71% as gateway's message-svc HTTP client pool was exhausted. cdn-edge extended cache TTLs as a fallback and observed elevated cache miss rates (34%, baseline 4%) from clients bypassing cache with reconnect requests.",
+      "ground_truth_services": ["cdn-edge", "gateway"],
+      "ground_truth_keywords": ["502", "Bad Gateway", "gateway-01.internal", "71%", "cache miss rate", "34%"]
+    },
+    {
+      "question": "message service thread pool saturated",
+      "ground_truth_answer": "message-svc thread pool was saturated (512/512 threads in use) due to a reconnect storm from gateway. When Cassandra timeouts in read-states-svc caused gateway to disconnect 4821 sessions in 30 seconds, all reconnecting clients sent IDENTIFY payloads that flooded message-svc with 12400 req/s (baseline 850 req/s). Message fanout requests were rejected and timed out, with queue depth reaching 91044 at peak.",
+      "ground_truth_services": ["message-svc", "gateway"],
+      "ground_truth_keywords": ["512/512", "saturated", "12400 req/s", "reconnect storm", "fanout rejected", "queue depth 91044"]
+    },
+    {
+      "question": "what triggered the client reconnect storm",
+      "ground_truth_answer": "The reconnect storm was triggered by Cassandra write timeouts in read-states-svc causing gateway to time out on mark_read API calls and disconnect WebSocket sessions. When read-states-svc's Cassandra coordinator (10.0.1.8) stopped responding during a partition leader election, gateway's mark_read P99 latency spiked to 5800ms. Sessions were disconnected after 5000ms timeouts, producing a bulk disconnect event of 842 sessions in 60 seconds, followed by 4821 sessions reconnecting in 30 seconds.",
+      "ground_truth_services": ["gateway", "read-states-svc"],
+      "ground_truth_keywords": ["read_states timeout", "Cassandra", "partition leader", "mark_read", "5800ms", "4821 sessions", "bulk disconnect"]
+    },
+    {
+      "question": "was presence service the cause of the outage",
+      "ground_truth_answer": "No. presence-svc was a downstream symptom of the gateway reconnect storm, not a cause. It experienced a presence update flood (4200 state changes/s vs 500/s baseline) because 4821 clients disconnected and reconnected from gateway, generating OFFLINE and ONLINE state changes. presence-svc backed its state in Redis (not Cassandra), had no connection pool exhaustion, and its elevated activity resolved automatically once the gateway reconnect storm subsided. The root cause was Cassandra timeouts in read-states-svc.",
+      "ground_truth_services": ["presence-svc"],
+      "ground_truth_keywords": ["OFFLINE events", "ONLINE events", "Redis", "rate-limiting", "downstream", "reconnect storm"]
+    }
+  ]
+}

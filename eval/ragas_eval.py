@@ -70,6 +70,12 @@ DATASETS = [
         "seed_module": "eval.ragas_datasets.ragas_cross_service.seed",
         "ground_truth_path": ROOT / "eval/ragas_datasets/ragas_cross_service/ground_truth.json",
     },
+    {
+        "name": "ragas_discord_cascade",
+        "category": "agent",
+        "seed_module": "eval.ragas_datasets.ragas_discord_cascade.seed",
+        "ground_truth_path": ROOT / "eval/ragas_datasets/ragas_discord_cascade/ground_truth.json",
+    },
 ]
 
 

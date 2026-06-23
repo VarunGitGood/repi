@@ -1,0 +1,46 @@
+2026-06-10T02:10:00Z [INFO] Gateway started, version 8.14.2
+2026-06-10T02:10:01Z [INFO] WebSocket listener bound on :443 (TLS termination via envoy)
+2026-06-10T02:10:02Z [INFO] Connected clients: 84312
+2026-06-10T02:11:00Z [INFO] Health check ok — connected clients: 85102, read_states P99: 8ms
+2026-06-10T02:12:00Z [INFO] Health check ok — connected clients: 85318, read_states P99: 9ms
+2026-06-10T02:13:00Z [INFO] Health check ok — connected clients: 85541, read_states P99: 11ms
+2026-06-10T02:14:00Z [INFO] Health check ok — connected clients: 85749, read_states P99: 10ms
+2026-06-10T02:15:00Z [INFO] Health check ok — connected clients: 86001, read_states P99: 312ms
+2026-06-10T02:15:30Z [WARNING] read_states mark_read API P99 latency: 3214ms (threshold 200ms) — upstream degraded
+2026-06-10T02:15:45Z [WARNING] read_states mark_read API P99 latency: 5800ms — requests queuing
+2026-06-10T02:16:00Z [WARNING] mark_read upstream timeout rate: 12% of requests timing out
+2026-06-10T02:16:15Z [ERROR] read_states mark_read timeout for session_id=sess_4f9a2b after 5000ms
+2026-06-10T02:16:18Z [ERROR] WebSocket session disconnect: upstream read_states timeout session_id=sess_4f9a2b user_id=u_9f2a1c
+2026-06-10T02:16:22Z [ERROR] read_states mark_read timeout for session_id=sess_7c1e3d after 5000ms
+2026-06-10T02:16:24Z [ERROR] WebSocket session disconnect: upstream read_states timeout session_id=sess_7c1e3d user_id=u_3b8e2f
+2026-06-10T02:16:30Z [ERROR] mark_read upstream timeout rate: 68% of requests timing out
+2026-06-10T02:16:45Z [ERROR] WebSocket session disconnect: upstream read_states timeout session_id=sess_2a9c4e user_id=u_f7a1d9
+2026-06-10T02:16:50Z [ERROR] WebSocket session disconnect: upstream read_states timeout session_id=sess_b3f1c2 user_id=u_e2c4a1
+2026-06-10T02:17:00Z [ERROR] Bulk disconnect event: 842 sessions dropped in 60s (threshold 50)
+2026-06-10T02:17:10Z [ERROR] WebSocket session disconnect: upstream read_states timeout session_id=sess_9d2e1f user_id=u_a4b9c8
+2026-06-10T02:17:20Z [ERROR] WebSocket session disconnect: upstream read_states timeout session_id=sess_c8f2b1 user_id=u_d1e7f3
+2026-06-10T02:17:30Z [ERROR] WebSocket session disconnect: upstream read_states timeout session_id=sess_4a1d9c user_id=u_b2c8e4
+2026-06-10T02:17:45Z [ERROR] Client reconnect storm: 4821 sessions reconnecting in 30s window (threshold 500)
+2026-06-10T02:17:50Z [ERROR] Reconnect authentication flood: 4821 IDENTIFY payloads queued
+2026-06-10T02:18:00Z [WARNING] message-svc event fanout queue depth: 31204 pending (baseline 400)
+2026-06-10T02:18:10Z [ERROR] HTTP client pool to read-states-svc under pressure: 180/200 in use
+2026-06-10T02:18:30Z [ERROR] HTTP client pool to message-svc under pressure: 190/200 in use
+2026-06-10T02:19:00Z [ERROR] Reconnect storm continuing: 3201 sessions reconnecting in 30s window
+2026-06-10T02:19:20Z [ERROR] HTTP client pool to message-svc EXHAUSTED (200/200 in use) — new fanout requests queuing
+2026-06-10T02:19:35Z [ERROR] Event fanout timeout for session_id=sess_f1a2b3: no message-svc slot available after 2000ms
+2026-06-10T02:19:40Z [ERROR] Event fanout timeout for session_id=sess_d4e5f6: no message-svc slot available after 2000ms
+2026-06-10T02:20:00Z [ERROR] Connected clients: 71204 (-14797 from peak) — active disconnects ongoing
+2026-06-10T02:21:00Z [ERROR] Connected clients: 68021 (-17980 from peak) — read_states upstream still timing out
+2026-06-10T02:23:00Z [ERROR] Connected clients: 62441 — read_states upstream still timing out
+2026-06-10T02:25:00Z [ERROR] Connected clients: 61208 — read_states upstream still timing out
+2026-06-10T02:30:00Z [ERROR] Connected clients: 60112 — sustained degradation
+2026-06-10T02:35:00Z [WARNING] Connected clients: 61804 — slight recovery, reconnects stabilising
+2026-06-10T02:38:00Z [INFO] read_states mark_read API latency normalized: P99=45ms (upstream recovered)
+2026-06-10T02:38:05Z [INFO] mark_read upstream timeout rate: 0.2% (nominal)
+2026-06-10T02:38:10Z [INFO] Client reconnect rate dropping: 180 sessions reconnecting in 30s window
+2026-06-10T02:38:30Z [INFO] HTTP client pool to read-states-svc recovered: 14/200 in use
+2026-06-10T02:39:00Z [INFO] HTTP client pool to message-svc recovered: 8/200 in use
+2026-06-10T02:41:00Z [INFO] Reconnect storm subsided: 41 sessions reconnecting in 30s window
+2026-06-10T02:43:00Z [INFO] Connected clients: 83201 — recovery in progress
+2026-06-10T02:46:00Z [INFO] Health check ok — connected clients: 84892, read_states P99: 12ms
+2026-06-10T02:48:00Z [INFO] Connected clients: 85104 — fully recovered
