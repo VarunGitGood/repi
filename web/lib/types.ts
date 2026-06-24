@@ -122,6 +122,7 @@ export type Turn =
   | {
       mode: "command"
       command: string
+      window?: string
     }
 
 export type ConversationSummary = {

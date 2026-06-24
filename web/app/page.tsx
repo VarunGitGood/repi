@@ -311,11 +311,13 @@ export default function HomePage() {
   const empty = turns.length === 0
 
   function handleCommand(command: string) {
-    if (command === "info") {
+    const [cmd, ...args] = command.trim().split(/\s+/)
+    if (cmd === "info") {
+      const windowArg = args[0]
       setTurns((prev) => [
         ...prev,
-        { mode: "chat", role: "user", content: "/info" },
-        { mode: "command", command: "info" },
+        { mode: "chat", role: "user", content: `/${command}` },
+        { mode: "command", command: "info", window: windowArg },
       ])
     }
   }
@@ -386,6 +388,7 @@ export default function HomePage() {
                     key={`cmd-${i}`}
                     projectId={project.id}
                     projectName={project.name}
+                    window={t.window}
                     onAction={handleSuggestedAction}
                   />
                 ) : null

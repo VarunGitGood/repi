@@ -50,6 +50,7 @@ function shortDate(iso: string): string {
 interface ProjectOverviewProps {
   projectId: string
   projectName: string
+  window?: string
   onAction: (action: SuggestedAction) => void
 }
 
@@ -59,14 +60,14 @@ interface ProjectOverviewProps {
  * services, and suggested next actions. Fetched live on mount; not persisted
  * as a chat message.
  */
-export function ProjectOverview({ projectId, projectName, onAction }: ProjectOverviewProps) {
+export function ProjectOverview({ projectId, projectName, window, onAction }: ProjectOverviewProps) {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setOverview(null)
-    api.projects.overview(projectId)
+    api.projects.overview(projectId, window)
       .then((d: Overview) => { if (!cancelled) setOverview(d) })
       .catch((e: any) => {
         if (!cancelled) {
@@ -75,7 +76,7 @@ export function ProjectOverview({ projectId, projectName, onAction }: ProjectOve
         }
       })
     return () => { cancelled = true }
-  }, [projectId])
+  }, [projectId, window])
 
   if (failed) return null
   if (!overview) {
