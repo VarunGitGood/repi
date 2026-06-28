@@ -98,6 +98,10 @@ CREATE INDEX IF NOT EXISTS investigations_conv_idx       ON investigations (conv
 ALTER TABLE investigations
     ADD COLUMN IF NOT EXISTS conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL;
 
+-- FSM state snapshot for resume-from-serialization (replaces message-replay).
+ALTER TABLE investigations
+    ADD COLUMN IF NOT EXISTS state_json JSONB;
+
 -- Investigation steps: individual ReAct thought → action → observation records
 CREATE TABLE IF NOT EXISTS investigation_steps (
     id               SERIAL PRIMARY KEY,
