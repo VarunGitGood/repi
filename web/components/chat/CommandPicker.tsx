@@ -11,7 +11,7 @@ export type SlashCommand = {
 }
 
 const COMMANDS: SlashCommand[] = [
-  { name: "info", description: "Show project overview (services, timeline, clusters)", icon: <Activity className="size-4" /> },
+  { name: "info", description: "Show project overview, optional window like 1h, 24h", icon: <Activity className="size-4" /> },
 ]
 
 interface CommandPickerProps {

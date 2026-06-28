@@ -48,7 +48,7 @@ export function ChatInput({
       const cmdName = trimmed.slice(1).split(/\s/)[0]
       const match = getFilteredCommands(cmdName).find((c) => c.name === cmdName)
       if (match) {
-        executeCommand(match.name)
+        executeCommand(trimmed.slice(1))
         return
       }
     }
