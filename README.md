@@ -1,6 +1,6 @@
 # repi
 
-Local-first log investigation engine. repi ingests logs into PostgreSQL, indexes them with hybrid retrieval (pgvector HNSW + ParadeDB BM25, fused with Reciprocal Rank Fusion), clusters events by signature, and runs an autonomous ReAct loop to trace root causes across services. Logs and investigations live in projects so different services / environments stay separated. Runs on a single machine against a local Postgres — no SaaS, no shared state.
+Local-first log investigation engine. repi ingests logs into PostgreSQL, indexes them with hybrid retrieval (pgvector HNSW + ParadeDB BM25, fused with Reciprocal Rank Fusion), clusters events by signature, and runs an autonomous ReAct loop to trace root causes across services. Logs and investigations live in projects so different services / environments stay separated. Runs on a single machine against a local Postgres no SaaS, no shared state.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ The Next.js web UI (`web/`) is the recommended surface. It drives the same FastA
 
 There are two supported ways to run repi. Pick one.
 
-### Option 1a — Run it (Docker only)
+### Run it (Docker only)
 
 The fastest path. No clone, no Python toolchain, no Node. Multi-arch images (linux/amd64 + linux/arm64) are published to GHCR on every push to `main` and every tagged release. The image bundles the FastAPI backend (`:8000`) and the Next.js UI (`:3000`) in one container.
 
@@ -51,7 +51,7 @@ On first start, the entrypoint seeds `/app/.repi/config.json` from a baked-in de
 
 Pin a release via `REPI_IMAGE=ghcr.io/varungitgood/repi:0.2.0 docker compose up -d`.
 
-### Option 1b — Hack on it (contributor / dev path)
+### Hack on it (contributor / dev path)
 
 For editing the codebase with hot-reload + breakpoints. Docker runs only the infra (Postgres + Redis); backend and UI run on the host so changes pick up instantly.
 
@@ -68,12 +68,12 @@ uv run repi stop                        # when done: tear down docker stack
 
 ### Configuration
 
-`.repi/config.json` is the **sole** source of truth. Shell env vars and `.env` files are ignored at runtime — there is no env-var fallback. The file is gitignored.
+`.repi/config.json` is the **sole** source of truth. Shell env vars and `.env` files are ignored at runtime there is no env-var fallback. The file is gitignored.
 
 Three ways to edit it, in order of convenience:
-1. **Web UI** — visit the Config page; changes save immediately and the API hot-reloads them.
-2. **Re-run `repi init --force`** — re-prompts for provider + key and rewrites the file.
-3. **Edit the JSON directly** — `.repi/config.json` is plain JSON; restart the API after editing.
+1. **Web UI** visit the Config page; changes save immediately and the API hot-reloads them.
+2. **Re-run `repi init --force`** re-prompts for provider + key and rewrites the file.
+3. **Edit the JSON directly** `.repi/config.json` is plain JSON; restart the API after editing.
 
 `REPI_ENV` defaults to `production`. Flip to `development` in `.repi/config.json` (or via the UI) for verbose logs + `--reload`.
 
