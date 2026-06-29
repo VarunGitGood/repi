@@ -38,11 +38,6 @@ class Settings(BaseSettings):
         description="Postgres connection string (asyncpg format)"
     )
 
-    REDIS_URL: str = Field(default="redis://localhost:6379")
-    ENABLE_REDIS_CACHE: bool = True
-    REDIS_CACHE_TTL_SECONDS: int = 300
-    EMBEDDING_CACHE_TTL_SECONDS: int = 3600
-
     TIME_WINDOW_INITIAL_MINUTES: int = 10
     # Comma-separated expansion windows in minutes; "60,360,1440" = 1h, 6h, 24h.
     TIME_WINDOW_EXPANSIONS: str = "60,360,1440"

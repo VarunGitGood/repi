@@ -17,13 +17,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    container_name: repi-redis
-    # No host port published — only the app container talks to redis via
-    # compose-internal DNS. Avoids clashing with a redis already running on
-    # the host (common on dev boxes).
-
   # repi app — FastAPI backend (:8000) + Next.js UI (:3000) in one container.
   # The UI proxies `/api/*` to the colocated API, so the browser only needs
   # port 3000 to be reachable. Starts by default with `docker compose up`.
@@ -44,8 +37,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
 
 volumes:
   postgres_data:

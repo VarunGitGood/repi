@@ -60,7 +60,6 @@ PROVIDERS = ["openai", "openrouter", "anthropic", "mistral", "gemini", "ollama"]
 KEYLESS_PROVIDERS = {"ollama"}
 
 DEFAULT_DB_URL = "postgresql+asyncpg://repi_user:password_here@localhost:5432/repi"
-DEFAULT_REDIS_URL = "redis://localhost:6379"
 
 
 def _is_prod() -> bool:
@@ -97,7 +96,6 @@ def _config_payload(provider: str, api_key: str | None) -> dict:
     payload: dict = {
         "REPI_ENV": "production",
         "DATABASE_URL": DEFAULT_DB_URL,
-        "REDIS_URL": DEFAULT_REDIS_URL,
         "LLM_PROVIDER": provider,
     }
     if api_key:
@@ -201,7 +199,7 @@ def _read_db_url() -> str:
 @app.command()
 def init(
     with_docker: bool = typer.Option(
-        False, "--with-docker", help="Run `docker compose up -d db redis`."
+        False, "--with-docker", help="Run `docker compose up -d db`."
     ),
     force: bool = typer.Option(
         False, "--force", help="Overwrite an existing .repi/config.json."
@@ -239,8 +237,8 @@ def init(
         if cmd is None:
             console.print("[red]docker compose not found on PATH.[/red]")
             raise typer.Exit(code=1)
-        console.print("[cyan]Starting db + redis via docker compose...[/cyan]")
-        result = subprocess.run(cmd + ["up", "-d", "db", "redis"], cwd=REPO_ROOT)
+        console.print("[cyan]Starting db via docker compose...[/cyan]")
+        result = subprocess.run(cmd + ["up", "-d", "db"], cwd=REPO_ROOT)
         if result.returncode != 0:
             console.print("[red]docker compose failed.[/red]")
             raise typer.Exit(code=result.returncode)
@@ -571,19 +569,6 @@ async def _check_pgvector(db_url: str) -> tuple[bool, str]:
         return False, f"{type(e).__name__}: {e}"
 
 
-async def _check_redis(url: str) -> tuple[bool, str]:
-    try:
-        import redis.asyncio as redis_async
-        client = redis_async.from_url(url, socket_connect_timeout=3)
-        try:
-            pong = await client.ping()
-        finally:
-            await client.close()
-        return bool(pong), f"PING {'ok' if pong else 'failed'}"
-    except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
-
-
 def _check_llm_key(settings) -> tuple[bool, str]:
     provider = (settings.LLM_PROVIDER or "").lower()
     if provider == "ollama":
@@ -617,7 +602,7 @@ def doctor(
         help="Skip the embedding model round-trip (faster, network-free).",
     ),
 ) -> None:
-    """Run health checks against Python, Postgres, pgvector, Redis, LLM key, and embeddings."""
+    """Run health checks against Python, Postgres, pgvector, LLM key, and embeddings."""
     from rich.table import Table
     from repi.core.config import settings
 
@@ -644,12 +629,6 @@ def doctor(
     else:
         v_ok, v_detail = False, "skipped (Postgres unreachable)"
     checks.append(("pgvector extension", v_ok, v_detail))
-
-    if settings.ENABLE_REDIS_CACHE:
-        r_ok, r_detail = asyncio.run(_check_redis(settings.REDIS_URL))
-        checks.append(("Redis reachable", r_ok, r_detail))
-    else:
-        checks.append(("Redis reachable", True, "disabled (ENABLE_REDIS_CACHE=false)"))
 
     k_ok, k_detail = _check_llm_key(settings)
     checks.append((f"LLM key ({settings.LLM_PROVIDER})", k_ok, k_detail))
