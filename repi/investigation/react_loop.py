@@ -16,6 +16,7 @@ from repi.investigation.store import InvestigationStore
 from repi.intent.resolver import resolve as resolve_intent, ResolvedIntent, ClarificationNeeded
 from repi.investigation.sweep import auto_sweep
 from repi.investigation.compiler import compile_answer, synthesize_answer
+from repi.investigation.sanitize import sanitize_query
 from repi.investigation.state import (
     Phase,
     InvestigationState,
@@ -213,7 +214,7 @@ Current UTC: {_dh.to_iso(_dh.now())}
 
 async def handle_resolving(state: InvestigationState, deps: LoopDeps) -> InvestigationState:
     now = _dh.now()
-    clarified_query = state.query
+    clarified_query = sanitize_query(state.query)
 
     if state.post_clarification:
         last_step_obs = None
@@ -301,7 +302,7 @@ async def handle_sweeping(state: InvestigationState, deps: LoopDeps) -> Investig
 
     state.messages = [
         Message(role="system", content=_build_system_prompt(deps.known_services)),
-        Message(role="user", content=state.query),
+        Message(role="user", content=sanitize_query(state.query)),
     ]
 
     if state.resolved_intent and deps.pool:
@@ -715,6 +716,11 @@ async def handle_compiling(state: InvestigationState, deps: LoopDeps) -> Investi
 
 
 # ─── Phase dispatch table ────────────────────────────────────────────────────
+#
+# GATHERING ⇄ REFLECTING is a cycle, not a pipeline. ReAct is preserved:
+# each gathering step is act→observe, reflection is the guard that decides
+# whether to loop back (probe somewhere new) or exit to COMPILING. The FSM
+# is a supervisor around the loop, not a replacement for it.
 
 HANDLERS: dict[Phase, Callable] = {
     Phase.RESOLVING: handle_resolving,
@@ -820,6 +826,12 @@ class ReactInvestigationLoop:
             try:
                 state = InvestigationState.from_json(json.dumps(investigation_obj.state_json))
                 logger.info(f"Resumed investigation {investigation_obj.id} from phase {state.phase.value}")
+                # Kick WAITING_CLARIFICATION into the resume path so the
+                # dispatch loop doesn't exit immediately.
+                if state.phase == Phase.WAITING_CLARIFICATION:
+                    state.post_clarification = True
+                    state.pending_question = None
+                    state.phase = Phase.RESOLVING
             except Exception as e:
                 logger.warning(f"Failed to restore state from state_json, falling back: {e}")
                 state = None

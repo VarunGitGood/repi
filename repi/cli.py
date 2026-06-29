@@ -56,13 +56,8 @@ SCHEMA_FILE = REPO_ROOT / "db" / "schema.sql"
 CONFIG_DIR = REPO_ROOT / ".repi"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-PROVIDERS = ["openai", "anthropic", "mistral", "gemini", "ollama"]
-PROVIDER_KEY_ENV = {
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-}
+PROVIDERS = ["openai", "openrouter", "anthropic", "mistral", "gemini", "ollama"]
+KEYLESS_PROVIDERS = {"ollama"}
 
 DEFAULT_DB_URL = "postgresql+asyncpg://repi_user:password_here@localhost:5432/repi"
 DEFAULT_REDIS_URL = "redis://localhost:6379"
@@ -105,8 +100,8 @@ def _config_payload(provider: str, api_key: str | None) -> dict:
         "REDIS_URL": DEFAULT_REDIS_URL,
         "LLM_PROVIDER": provider,
     }
-    if api_key and provider in PROVIDER_KEY_ENV:
-        payload[PROVIDER_KEY_ENV[provider]] = api_key
+    if api_key:
+        payload["LLM_API_KEY"] = api_key
     return payload
 
 
@@ -223,9 +218,9 @@ def init(
             type=click.Choice(PROVIDERS, case_sensitive=False),
         ).lower()
         api_key: str | None = None
-        if provider in PROVIDER_KEY_ENV:
+        if provider not in KEYLESS_PROVIDERS:
             api_key = typer.prompt(
-                f"{PROVIDER_KEY_ENV[provider]}",
+                "API key",
                 hide_input=True,
                 default="",
                 show_default=False,
@@ -591,20 +586,14 @@ async def _check_redis(url: str) -> tuple[bool, str]:
 
 def _check_llm_key(settings) -> tuple[bool, str]:
     provider = (settings.LLM_PROVIDER or "").lower()
-    key_field_map = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "mistral": "MISTRAL_API_KEY",
-        "gemini": "GEMINI_API_KEY",
-    }
     if provider == "ollama":
         return True, "ollama (no key required)"
-    field = key_field_map.get(provider)
-    if field is None:
+    from repi.llm.factory import SUPPORTED_PROVIDERS
+    if provider not in SUPPORTED_PROVIDERS:
         return False, f"unknown provider '{provider}'"
-    val = getattr(settings, field, None) or getattr(settings, "LLM_API_KEY", None)
+    val = settings.LLM_API_KEY
     if not val:
-        return False, f"{field} not set"
+        return False, "LLM_API_KEY not set"
     masked = f"{val[:4]}…{val[-4:]}" if len(val) > 10 else "set"
     return True, masked
 

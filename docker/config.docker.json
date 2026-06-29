@@ -5,9 +5,5 @@
   "REDIS_URL": "redis://redis:6379",
   "ENABLE_REDIS_CACHE": true,
   "LLM_PROVIDER": "mistral",
-  "LLM_API_KEY": "",
-  "OPENAI_API_KEY": "",
-  "ANTHROPIC_API_KEY": "",
-  "MISTRAL_API_KEY": "",
-  "GEMINI_API_KEY": ""
+  "LLM_API_KEY": ""
 }

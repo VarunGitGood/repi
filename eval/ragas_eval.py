@@ -180,31 +180,31 @@ def _make_ragas_llm(provider: str | None = None):
     else:
         providers = ["mistral", "gemini"]
 
-    for p in providers:
-        if p == "gemini":
-            api_key = settings.GEMINI_API_KEY or settings.GOOGLE_API_KEY
-            if not api_key:
-                continue
-            client = OpenAI(
-                api_key=api_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            )
-            print(f"  [config] RAGAS evaluator: Gemini (gemini-2.0-flash)")
-            return llm_factory(model="gemini-2.0-flash", provider="openai", client=client)
+    api_key = settings.LLM_API_KEY
+    if not api_key:
+        raise RuntimeError(
+            "No evaluator LLM available. Configure LLM_API_KEY in .repi/config.json"
+        )
 
-        elif p == "mistral":
-            api_key = settings.MISTRAL_API_KEY
-            if not api_key:
-                continue
-            client = OpenAI(
-                api_key=api_key,
-                base_url="https://api.mistral.ai/v1",
-            )
-            print(f"  [config] RAGAS evaluator: Mistral (mistral-small-2506)")
-            return llm_factory(model="mistral-small-2506", provider="openai", client=client)
+    base_urls = {
+        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "mistral": "https://api.mistral.ai/v1",
+    }
+    default_models = {
+        "gemini": "gemini-2.0-flash",
+        "mistral": "mistral-small-2506",
+    }
+
+    for p in providers:
+        if p not in base_urls:
+            continue
+        client = OpenAI(api_key=api_key, base_url=base_urls[p])
+        model = default_models[p]
+        print(f"  [config] RAGAS evaluator: {p} ({model})")
+        return llm_factory(model=model, provider="openai", client=client)
 
     raise RuntimeError(
-        "No evaluator LLM available. Configure GEMINI_API_KEY or MISTRAL_API_KEY in .repi/config.json"
+        f"No supported RAGAS evaluator provider in {providers}. Use 'gemini' or 'mistral'."
     )
 
 
@@ -215,7 +215,7 @@ def _make_ragas_embeddings(provider: str | None = None):
     import warnings
     warnings.filterwarnings("ignore", message=".*LangchainEmbeddingsWrapper.*deprecated.*")
 
-    api_key = settings.MISTRAL_API_KEY
+    api_key = settings.LLM_API_KEY
     if not api_key:
         return None
 

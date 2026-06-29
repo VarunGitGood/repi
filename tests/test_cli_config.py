@@ -38,8 +38,8 @@ def test_config_get_returns_current_value(tmp_config):
 
 
 def test_config_get_masks_api_keys_by_default(tmp_config):
-    tmp_config.write_text(json.dumps({"OPENAI_API_KEY": "sk-abcdefghijklmnop"}) + "\n")
-    result = runner.invoke(app, ["config", "get", "OPENAI_API_KEY"])
+    tmp_config.write_text(json.dumps({"LLM_API_KEY": "sk-abcdefghijklmnop"}) + "\n")
+    result = runner.invoke(app, ["config", "get", "LLM_API_KEY"])
     assert result.exit_code == 0, result.stdout
     out = result.stdout.strip()
     assert "sk-abcdefghijklmnop" not in out
@@ -47,8 +47,8 @@ def test_config_get_masks_api_keys_by_default(tmp_config):
 
 
 def test_config_get_unmask_reveals_secret(tmp_config):
-    tmp_config.write_text(json.dumps({"OPENAI_API_KEY": "sk-abcdefghijklmnop"}) + "\n")
-    result = runner.invoke(app, ["config", "get", "OPENAI_API_KEY", "--unmask"])
+    tmp_config.write_text(json.dumps({"LLM_API_KEY": "sk-abcdefghijklmnop"}) + "\n")
+    result = runner.invoke(app, ["config", "get", "LLM_API_KEY", "--unmask"])
     assert result.exit_code == 0, result.stdout
     assert "sk-abcdefghijklmnop" in result.stdout
 
@@ -93,7 +93,7 @@ def test_config_set_rejects_malformed_pair(tmp_config):
 
 
 def test_config_set_hides_api_key_value_in_output(tmp_config):
-    result = runner.invoke(app, ["config", "set", "OPENAI_API_KEY=sk-supersecret"])
+    result = runner.invoke(app, ["config", "set", "LLM_API_KEY=sk-supersecret"])
     assert result.exit_code == 0, result.stdout
     assert "sk-supersecret" not in result.stdout
     assert "<hidden>" in result.stdout

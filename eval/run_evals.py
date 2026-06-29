@@ -6,6 +6,7 @@ Usage:
     uv run python eval/run_evals.py
     uv run python eval/run_evals.py --dataset dataset_1
     uv run python eval/run_evals.py --judge-provider openai --judge-model gpt-4o
+    uv run python eval/run_evals.py --provider openrouter --model anthropic/claude-sonnet-4-20250514 --api-key sk-...
     uv run python eval/run_evals.py --no-reflection
 """
 from __future__ import annotations
@@ -68,6 +69,15 @@ def _parse_args(argv: list[str]) -> dict:
         elif argv[i] == "--judge-api-key" and i + 1 < len(argv):
             args["judge_api_key"] = argv[i + 1]
             i += 1
+        elif argv[i] == "--provider" and i + 1 < len(argv):
+            args["provider"] = argv[i + 1]
+            i += 1
+        elif argv[i] == "--model" and i + 1 < len(argv):
+            args["model"] = argv[i + 1]
+            i += 1
+        elif argv[i] == "--api-key" and i + 1 < len(argv):
+            args["api_key"] = argv[i + 1]
+            i += 1
         elif argv[i] == "--out" and i + 1 < len(argv):
             args["out_path"] = argv[i + 1]
             i += 1
@@ -75,79 +85,73 @@ def _parse_args(argv: list[str]) -> dict:
     return args
 
 
+_PROVIDER_KEY_ALIASES = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
+
+
+def _resolve_key_for_provider(provider: str) -> str:
+    """Look up an API key for a specific provider from raw config.json.
+
+    Checks the legacy per-provider field first (e.g. GEMINI_API_KEY),
+    then falls back to LLM_API_KEY.  This lets the eval harness use a
+    different provider's key without --judge-api-key when the raw config
+    still has per-provider keys from before the unification."""
+    import json
+    from repi.core.config import CONFIG_PATH, settings
+    raw: dict = {}
+    try:
+        raw = json.loads(CONFIG_PATH.read_text())
+    except Exception:
+        pass
+    alias = _PROVIDER_KEY_ALIASES.get(provider)
+    if alias:
+        val = raw.get(alias)
+        if val:
+            return val
+    return settings.LLM_API_KEY or ""
+
+
 def create_judge(args: dict, mut_provider_name: str) -> LLMJudge:
     """Create the judge LLM provider.
 
     Self-grading (judge provider == model-under-test provider) is disallowed
-    unless `--judge-provider` is passed explicitly to opt in. The auto path
-    prefers OpenAI → Anthropic → Gemini, picking the first provider whose
-    API key is configured AND that differs from the MUT.
+    Requires `--judge-provider` (and optionally `--judge-api-key`).
+    Falls back to LLM_API_KEY from config when no explicit key is given.
     """
-    from repi.llm.adapters import (
-        OpenAIProvider, AnthropicProvider, MistralProvider,
-        GeminiProvider, OllamaProvider,
-    )
+    from repi.llm.factory import create_provider
 
     judge_provider_name = args.get("judge_provider")
+    if not judge_provider_name:
+        raise RuntimeError(
+            "No --judge-provider specified. Pass --judge-provider <name> "
+            "--judge-api-key <key> to configure the eval judge."
+        )
 
-    if judge_provider_name:
-        # Explicit override — caller takes responsibility for any self-grading.
-        api_key = args.get("judge_api_key", "")
-        # If no --judge-api-key, look up the key for this provider from settings.
-        if not api_key:
-            from repi.core.config import settings as _s
-            api_key = {
-                "openai": _s.OPENAI_API_KEY,
-                "anthropic": _s.ANTHROPIC_API_KEY,
-                "mistral": _s.MISTRAL_API_KEY,
-                "gemini": _s.GEMINI_API_KEY,
-            }.get(judge_provider_name.lower(), "") or ""
-        model = args.get("judge_model")
-        providers = {
-            "openai": lambda: OpenAIProvider(api_key=api_key, model=model or "gpt-4o"),
-            "anthropic": lambda: AnthropicProvider(api_key=api_key, model=model or "claude-3-5-sonnet-20240620"),
-            "mistral": lambda: MistralProvider(api_key=api_key, model=model or "mistral-large-latest"),
-            "gemini": lambda: GeminiProvider(api_key=api_key, model=model or "gemini-1.5-pro"),
-            "ollama": lambda: OllamaProvider(model=model or "mistral"),
-        }
-        factory = providers.get(judge_provider_name.lower())
-        if not factory:
-            raise ValueError(f"Unknown judge provider: {judge_provider_name}")
-        if judge_provider_name.lower() == mut_provider_name.lower():
-            print(
-                f"  [config] WARNING: --judge-provider matches MUT provider "
-                f"({mut_provider_name}). Self-grading risk."
-            )
-        judge = LLMJudge(factory())
-        judge.provider_name = judge_provider_name.lower()
-        return judge
+    api_key = args.get("judge_api_key", "")
+    if not api_key:
+        api_key = _resolve_key_for_provider(judge_provider_name.lower())
 
-    # Auto-pick: find the first provider != MUT that has a key configured.
-    from repi.core.config import settings
-    mut = mut_provider_name.lower()
-    preferences = [
-        ("openai", settings.OPENAI_API_KEY, lambda k: OpenAIProvider(api_key=k, model="gpt-4o")),
-        ("anthropic", settings.ANTHROPIC_API_KEY, lambda k: AnthropicProvider(api_key=k, model="claude-3-5-sonnet-20240620")),
-        ("gemini", settings.GEMINI_API_KEY, lambda k: GeminiProvider(api_key=k, model="gemini-2.0-flash")),
-        ("mistral", settings.MISTRAL_API_KEY, lambda k: MistralProvider(api_key=k, model="mistral-large-latest")),
-    ]
-    for name, key, factory in preferences:
-        if name == mut:
-            continue
-        if key:
-            print(f"  [config] judge provider auto-selected: {name} (MUT: {mut})")
-            judge = LLMJudge(factory(key))
-            judge.provider_name = name
-            return judge
+    model = args.get("judge_model")
 
-    # No alternative provider available — hard fail rather than self-grade.
-    raise RuntimeError(
-        f"Judge provider auto-selection failed: model-under-test is '{mut}' and no "
-        "alternative provider key is configured. Configure a second provider key "
-        "(OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY in .repi/config.json) "
-        "OR pass --judge-provider <name> --judge-api-key <key> explicitly to opt "
-        "into self-grading."
+    if judge_provider_name.lower() == mut_provider_name.lower():
+        print(
+            f"  [config] WARNING: --judge-provider matches MUT provider "
+            f"({mut_provider_name}). Self-grading risk."
+        )
+
+    judge = LLMJudge(
+        create_provider(
+            provider=judge_provider_name,
+            api_key=api_key or None,
+            model=model,
+        )
     )
+    judge.provider_name = judge_provider_name.lower()
+    return judge
 
 # ─── Runner ──────────────────────────────────────────────────────────────────
 
@@ -328,13 +332,20 @@ async def main():
         _s.ENABLE_REFLECTION = False
         print("  [config] reflection disabled (--no-reflection)")
 
+    from repi.core.config import settings as _settings
+
+    if args.get("provider"):
+        _settings.LLM_PROVIDER = args["provider"]
+    if args.get("model"):
+        _settings.LLM_MODEL = args["model"]
+    if args.get("api_key"):
+        _settings.LLM_API_KEY = args["api_key"]
+
     dataset_filter = args.get("dataset_filter")
     container = get_container()
+    container.refresh_llm()
     await container.init_db()
 
-    # Look up the MUT provider before picking a judge so the auto-selector
-    # can guarantee judge != MUT.
-    from repi.core.config import settings as _settings
     mut_provider = _settings.LLM_PROVIDER
 
     judge = create_judge(args, mut_provider_name=mut_provider)
