@@ -67,10 +67,10 @@ def test_config_set_writes_value(tmp_config):
 
 
 def test_config_set_coerces_bool(tmp_config):
-    result = runner.invoke(app, ["config", "set", "ENABLE_REDIS_CACHE=false"])
+    result = runner.invoke(app, ["config", "set", "AUTO_DELETE_OLD_INVESTIGATIONS=true"])
     assert result.exit_code == 0, result.stdout
     data = json.loads(tmp_config.read_text())
-    assert data["ENABLE_REDIS_CACHE"] is False
+    assert data["AUTO_DELETE_OLD_INVESTIGATIONS"] is True
 
 
 def test_config_set_coerces_int(tmp_config):

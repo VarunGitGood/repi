@@ -7,7 +7,6 @@ import importlib
 
 from repi.core.config import settings
 
-from repi.core.cache import cache
 from repi.retrieval.pgvector_store import PgVectorStore
 from repi.retrieval.fts_factory import create_fts_retriever
 from repi.retrieval.rrf import RRFRetrievalService
@@ -123,7 +122,6 @@ class Container:
         if not self.pool:
             self.pool = await asyncpg.create_pool(dsn)
 
-        await cache.connect()
         logger.info("Database initialized")
 
     async def init_known_services(self) -> list[str]:
@@ -144,9 +142,8 @@ class Container:
         return self.known_services
 
     async def get_known_services(self, project_id=None) -> list[str]:
-        """Project-scoped service list. Falls back to the global cached list
-        when no project is given. Queried per call — DISTINCT on an indexed
-        column; freshness matters more than the microseconds."""
+        """Project-scoped service list. Falls back to the global list
+        when no project is given."""
         if project_id is None:
             return self.known_services
         services = await get_all_services(self.pool, project_id=project_id)
@@ -174,9 +171,8 @@ class Container:
                                known_services: list[str] | None = None) -> ReactInvestigationLoop:
         """Create a ReAct loop with tools and persistence store.
 
-        `project_id` scopes every tool to one project. It is injected here in
-        the tool closures — the LLM never sees (or controls) it, and the
-        cache key includes it so two projects can't share cached results.
+        `project_id` scopes every tool to one project — injected in the
+        tool closures so the LLM never sees (or controls) it.
         """
         llm = self.require_llm()
         retrieval_service = self.get_retrieval_service(session)
@@ -187,48 +183,12 @@ class Container:
                 kwargs.setdefault("project_id", project_id)
             return kwargs
 
-        async def cached_search_logs(**kwargs):
-            kwargs = scoped(kwargs)
-            key = cache.make_key("search_logs", **kwargs)
-            hit = await cache.get(key)
-            if hit: return hit
-            res = await search_logs(retrieval_service, **kwargs)
-            await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
-            return res
-
-        async def cached_service_summary(**kwargs):
-            kwargs = scoped(kwargs)
-            key = cache.make_key("get_service_summary", **kwargs)
-            hit = await cache.get(key)
-            if hit: return hit
-            res = await get_service_summary(self.pool, **kwargs)
-            await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
-            return res
-
-        async def cached_scan_window(**kwargs):
-            kwargs = scoped(kwargs)
-            key = cache.make_key("scan_window", **kwargs)
-            hit = await cache.get(key)
-            if hit: return hit
-            res = await scan_window(self.pool, **kwargs)
-            await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
-            return res
-
-        async def cached_find_logs_by_id(**kwargs):
-            kwargs = scoped(kwargs)
-            key = cache.make_key("find_logs_by_id", **kwargs)
-            hit = await cache.get(key)
-            if hit: return hit
-            res = await find_logs_by_id(self.pool, **kwargs)
-            await cache.set(key, res, ttl=settings.REDIS_CACHE_TTL_SECONDS)
-            return res
-
         tools = {
-            "search_logs": cached_search_logs,
+            "search_logs": lambda **kwargs: search_logs(retrieval_service, **scoped(kwargs)),
             "get_timeline": lambda **kwargs: get_timeline(self.pool, **scoped(kwargs)),
-            "scan_window": cached_scan_window,
-            "get_service_summary": cached_service_summary,
-            "find_logs_by_id": cached_find_logs_by_id,
+            "scan_window": lambda **kwargs: scan_window(self.pool, **scoped(kwargs)),
+            "get_service_summary": lambda **kwargs: get_service_summary(self.pool, **scoped(kwargs)),
+            "find_logs_by_id": lambda **kwargs: find_logs_by_id(self.pool, **scoped(kwargs)),
         }
 
         return ReactInvestigationLoop(
