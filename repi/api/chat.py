@@ -20,10 +20,11 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, text as sa_text
 
+from repi.api.limiter import limiter
 from repi.core.container import get_container
 from repi.core.config import get_settings
 from repi.core.dates import default_date_handler as _dh
@@ -105,7 +106,8 @@ answer.
 
 
 @router.post("/chat")
-async def chat(req: ChatRequest) -> StreamingResponse:
+@limiter.limit("20/minute")
+async def chat(request: Request, req: ChatRequest) -> StreamingResponse:
     container = get_container()
     container.require_llm()  # 409 if no API key is configured.
 
@@ -340,6 +342,6 @@ async def chat(req: ChatRequest) -> StreamingResponse:
 
         except Exception as e:
             logger.exception("chat endpoint raised")
-            yield _sse("error", {"message": str(e), "conversation_id": str(conversation_id)})
+            yield _sse("error", {"message": "An internal error occurred", "conversation_id": str(conversation_id)})
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -96,17 +96,27 @@ def _check_4xx(response: httpx.Response, provider: str, model: str) -> None:
         logger.warning("%s %d body: %s", provider, response.status_code, body[:500])
         raise LLMBadRequestError(provider, model, response.status_code, body)
 
-class OpenAIProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str = "gpt-4o"):
+class OpenAICompatProvider(LLMProvider):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gpt-4o",
+        base_url: str = "https://api.openai.com/v1",
+        provider_label: str = "openai",
+        extra_headers: Optional[dict] = None,
+    ):
         self._api_key = api_key
         self._model = model
-        self._url = "https://api.openai.com/v1/chat/completions"
+        self._url = f"{base_url.rstrip('/')}/chat/completions"
+        self._provider_label = provider_label
+        self._extra_headers = extra_headers or {}
 
     async def complete(self, messages: List[Message], max_tokens: int = 2000, temperature: float = 0.0) -> str:
         try:
+            headers = {"Authorization": f"Bearer {self._api_key}", **self._extra_headers}
             response = await _post_with_429_retry(
-                self._url, provider="openai", model=self._model,
-                headers={"Authorization": f"Bearer {self._api_key}"},
+                self._url, provider=self._provider_label, model=self._model,
+                headers=headers,
                 json_body={
                     "model": self._model,
                     "messages": [{"role": m.role, "content": m.content} for m in messages],
@@ -114,17 +124,20 @@ class OpenAIProvider(LLMProvider):
                     "temperature": temperature
                 }
             )
-            _check_4xx(response, "openai", self._model)
+            _check_4xx(response, self._provider_label, self._model)
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
         except LLMError:
             raise
         except Exception as e:
-            raise LLMError(str(e), "openai", self._model)
+            raise LLMError(str(e), self._provider_label, self._model)
 
     @property
     def model_name(self) -> str:
         return self._model
+
+
+OpenAIProvider = OpenAICompatProvider
 
 class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str, model: str = "claude-3-5-sonnet-20240620"):

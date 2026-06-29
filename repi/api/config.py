@@ -9,10 +9,22 @@ logger = logging.getLogger("repi.api.config")
 
 router = APIRouter()
 
+
+def _mask_secrets(data: dict) -> dict:
+    masked = {}
+    for key, value in data.items():
+        if key.endswith(("_KEY", "_SECRET", "_TOKEN")) and value:
+            s = str(value)
+            masked[key] = f"{s[:4]}...{s[-4:]}" if len(s) > 10 else "***"
+        else:
+            masked[key] = value
+    return masked
+
+
 @router.get("/config")
 async def get_config():
-    """Return the current configuration."""
-    return settings.model_dump()
+    """Return the current configuration with secrets masked."""
+    return _mask_secrets(settings.model_dump())
 
 @router.put("/config")
 async def update_config(new_config: dict):
@@ -49,5 +61,5 @@ async def update_config(new_config: dict):
 
         return {"status": "success", "message": "Configuration updated and reloaded"}
     except Exception as e:
-        logger.error(f"Failed to update config: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Failed to update config", exc_info=True)
+        raise HTTPException(status_code=400, detail="Configuration update failed")

@@ -139,6 +139,8 @@ class Investigation(SQLModel, table=True):
     conversation_id: Optional[UUID] = Field(default=None, index=True)
     # Scopes the investigation's retrieval + tools to one project.
     project_id: Optional[UUID] = Field(default=None, index=True)
+    # FSM state snapshot for resume-from-serialization.
+    state_json: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSONB))
 
 class InvestigationStep(SQLModel, table=True):
     __tablename__ = "investigation_steps"

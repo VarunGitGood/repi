@@ -7,8 +7,11 @@ from fastapi.responses import StreamingResponse
 from uuid import UUID
 from datetime import datetime
 
+from fastapi import Request as StarletteRequest
+
 from repi.core.container import get_container
 from repi.investigation.react_loop import InvestigationStep
+from repi.api.limiter import limiter
 from repi.api.schemas import (
     ClarifyRequest,
     InvestigateRequest,
@@ -42,7 +45,8 @@ async def list_investigations(limit: int = 20):
         return results
 
 @router.post("/investigate", response_model=SimpleInvestigationResponse)
-async def investigate(request: InvestigateRequest):
+@limiter.limit("10/minute")
+async def investigate(request: StarletteRequest, request_body: InvestigateRequest):
     """
     Start an autonomous log investigation (non-blocking).
 
@@ -59,10 +63,10 @@ async def investigate(request: InvestigateRequest):
         from sqlmodel import select as sm_select
         from sqlalchemy import text as sa_text
 
-        conversation_id = request.conversation_id
-        project_id = request.project_id
+        conversation_id = request_body.conversation_id
+        project_id = request_body.project_id
         if conversation_id is None:
-            conv = Conversation(title=request.query[:80], project_id=project_id)
+            conv = Conversation(title=request_body.query[:80], project_id=project_id)
             session.add(conv)
             await session.commit()
             await session.refresh(conv)
@@ -73,7 +77,7 @@ async def investigate(request: InvestigateRequest):
             res = await session.exec(stmt)
             existing = res.first()
             if existing is None:
-                session.add(Conversation(id=conversation_id, title=request.query[:80], project_id=project_id))
+                session.add(Conversation(id=conversation_id, title=request_body.query[:80], project_id=project_id))
                 await session.commit()
             elif project_id is None:
                 # Inherit the conversation's project when the caller didn't pin one.
@@ -81,7 +85,7 @@ async def investigate(request: InvestigateRequest):
 
         store = container.get_investigation_store(session)
         investigation = await store.get_or_create(
-            request.query, conversation_id=conversation_id, project_id=project_id
+            request_body.query, conversation_id=conversation_id, project_id=project_id
         )
 
         # Bump the conversation's updated_at so the sidebar surfaces the
@@ -244,8 +248,8 @@ async def stream_investigation(investigation_id: str):
                     done_payload = {"answer": result.answer, "stats": result.stats}
                     yield f"data: {json.dumps({'type': 'done', 'data': done_payload}, default=str)}\n\n"
             except Exception as e:
-                logger.error(f"Investigation failed: {e}")
-                yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
+                logger.error("Investigation failed", exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Investigation failed'}})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

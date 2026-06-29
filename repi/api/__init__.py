@@ -1,8 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from repi.api.limiter import limiter
 
 from repi.core.container import get_container
 from repi.api.ingest import router as ingest_router
@@ -31,9 +36,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+from repi.core.config import settings as _settings
+
+_cors_origins = _settings.CORS_ORIGINS or [f"http://localhost:{_settings.UI_PORT}"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to the frontend URL in production
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

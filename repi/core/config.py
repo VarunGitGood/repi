@@ -2,9 +2,9 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
 
 def _resolve_config_path() -> Path:
     """Locate .repi/config.json: cwd first (docker runs from /app), then parent
@@ -23,6 +23,11 @@ def _resolve_config_path() -> Path:
 
 CONFIG_PATH = _resolve_config_path()
 CONFIG_DIR = CONFIG_PATH.parent
+
+_LEGACY_KEY_FIELDS = (
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "MISTRAL_API_KEY",
+    "GEMINI_API_KEY", "GOOGLE_API_KEY",
+)
 
 class Settings(BaseSettings):
     REPI_ENV: str = Field(default="production", description="Runtime environment")
@@ -44,12 +49,21 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openai"
     LLM_MODEL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
-    OPENAI_API_KEY: Optional[str] = None
-    MISTRAL_API_KEY: Optional[str] = None
-    ANTHROPIC_API_KEY: Optional[str] = None
-    GEMINI_API_KEY: Optional[str] = None
-    GOOGLE_API_KEY: Optional[str] = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_api_keys(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if data.get("LLM_API_KEY"):
+            return data
+        for field in _LEGACY_KEY_FIELDS:
+            val = data.get(field)
+            if val:
+                data["LLM_API_KEY"] = val
+                break
+        return data
 
     WATCHER_CONFIG_REFRESH_SECS: int = 30
     LLM_MAX_CALLS_PER_MIN: int = Field(default=60, ge=1)
@@ -69,13 +83,14 @@ class Settings(BaseSettings):
     ENABLE_LEVEL_BOOST: bool = True
 
     UI_PORT: int = 3000
+    CORS_ORIGINS: List[str] = Field(default_factory=list)
 
     MAX_RETRIES_PER_STEP: int = 2
     BACKOFF_BASE_SECONDS: int = 5
 
     # Forced re-plan turn every N action steps to break perseveration.
     ENABLE_REFLECTION: bool = True
-    REFLECTION_INTERVAL: int = 3
+    REFLECTION_INTERVAL: int = 2
 
     # /chat followup-bias envelope. When a turn omits an explicit time
     # window AND the previous assistant turn cited chunks, the chat path
