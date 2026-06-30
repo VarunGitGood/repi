@@ -74,7 +74,7 @@ def _short_name(model_id: str) -> str:
 
 def _run_eval(model_cfg: dict, args: dict, out_path: Path) -> dict | None:
     cmd = [
-        sys.executable, str(ROOT / "eval" / "run_evals.py"),
+        sys.executable, str(ROOT / "eval" / "eval_agent.py"),
         "--provider", model_cfg["provider"],
         "--model", model_cfg["model"],
         "--out", str(out_path),

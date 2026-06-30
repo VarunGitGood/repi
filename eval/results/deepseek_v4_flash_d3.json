@@ -1,0 +1,68 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 1,
+    "failed": 0,
+    "errored": 0,
+    "average_score": 0.833
+  },
+  "results": [
+    {
+      "dataset": "dataset_3_jwt_key_rotation_noise",
+      "query": "why are users getting 401 errors last monday morning",
+      "status": "pass",
+      "aggregate_score": 0.833,
+      "model_under_test": "deepseek/deepseek-v4-flash",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 1.0,
+          "explanation": "The trigger service is correctly identified as auth-svc. The log line references 'Public key push to verification-svc timed out', which matches one of the required phrases."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 1.0,
+          "explanation": "The root_cause explanation mentions JWT, key rotation, k-2026-05, verification-svc, and public key, covering all required concepts."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 1.0,
+          "explanation": "The propagation_chain includes all required hops in the correct causal order. It mentions the key rotation and timeout in auth-svc, the unknown key_id in verification-svc, the 401 error in api-gateway, and the 401 error and checkout failure in billing-svc."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.0,
+          "explanation": "The ruled_out_hypotheses section does not address the specific red herrings of user-svc and cache-svc. It only rules out unrelated services without providing any reasoning or evidence."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 1.0,
+          "explanation": "Confidence correctly set to 'high'."
+        },
+        {
+          "name": "hallucination_avoidance",
+          "score": 1.0,
+          "explanation": "The root_cause does not name any of the forbidden items as the root cause. It correctly focuses on the JWT key rotation and the timeout in the public key push."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-29T06:00:00Z\",\n    \"end\": \"2026-06-29T12:00:00Z\"\n  },\n  \"affected_services\": [\n    \"auth-svc\",\n    \"verification-svc\",\n    \"api-gateway\",\n    \"billing-svc\",\n    \"user-svc\",\n    \"cache-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"f74407e6-b991-4f37-b82a-cf6ec383b508\",\n    \"service\": \"auth-svc\",\n    \"timestamp\": \"2026-06-29T09:15:02Z\",\n    \"log_line\": \"Signature: ING] Public key push to verification-svc timed out after <NUM>ms \\u2014 will retry\"\n  ",
+      "stats": {
+        "iterations_used": 4,
+        "reflections_used": 1,
+        "chunks_gathered": 64,
+        "tools_called": [
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [
+          "no gaps listed despite non-low confidence (\u22653 chunk citations \u2014 leaving as-is)"
+        ],
+        "gathering_exit_reason": "Complete evidence chain established: auth-svc key rotation at 09:15:02 failed to push new public key to verification-svc (timeout), causing verification-svc to reject all JWTs signed with new key k-2026-05. This resulted in api-gateway returning 401 to users across multiple endpoints (checkout, cart, profile, orders) starting at 09:15:35, and billing-svc checkout failures from upstream 401s."
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

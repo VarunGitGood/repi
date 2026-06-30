@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openai"
     LLM_MODEL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
+    OPENROUTER_API_KEY: Optional[str] = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     @model_validator(mode="before")

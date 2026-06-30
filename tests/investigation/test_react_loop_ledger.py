@@ -86,6 +86,7 @@ def _build_loop(llm_responses, *, tool: AsyncMock, enable_reflection=False):
         pool=None,
         store=_FakeStore(),
         max_iterations=12,
+        min_gathering_actions=0,
         min_iteration_delay=0,
         enable_reflection=enable_reflection,
     )

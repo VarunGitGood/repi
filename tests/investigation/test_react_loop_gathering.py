@@ -92,7 +92,8 @@ class _FakeStore:
     async def set_awaiting_clarification(self, i, q): pass
 
 
-def _build_loop(responses, tool=None, *, max_iterations=8, enable_reflection=False):
+def _build_loop(responses, tool=None, *, max_iterations=8, enable_reflection=False,
+                 min_gathering_actions=0):
     llm = MagicMock()
     llm.complete = AsyncMock(side_effect=list(responses))
     if tool is None:
@@ -108,6 +109,7 @@ def _build_loop(responses, tool=None, *, max_iterations=8, enable_reflection=Fal
         pool=None,
         store=_FakeStore(),
         max_iterations=max_iterations,
+        min_gathering_actions=min_gathering_actions,
         min_iteration_delay=0,
         enable_reflection=enable_reflection,
     )
@@ -249,7 +251,7 @@ class TestReflectionBudget:
         loop = ReactInvestigationLoop(
             llm=llm, tools={"search_logs": tool}, known_services=["svc-a"],
             pool=None, store=_FakeStore(),
-            max_iterations=4, min_iteration_delay=0,
+            max_iterations=4, min_gathering_actions=0, min_iteration_delay=0,
             enable_reflection=True, reflection_interval=2, max_reflections=2,
         )
         loop._wait_for_rate_limit = AsyncMock(return_value=None)
@@ -286,7 +288,7 @@ class TestReflectionBudget:
         loop = ReactInvestigationLoop(
             llm=llm, tools={"search_logs": tool}, known_services=["svc-a"],
             pool=None, store=_FakeStore(),
-            max_iterations=6, min_iteration_delay=0,
+            max_iterations=6, min_gathering_actions=0, min_iteration_delay=0,
             enable_reflection=True, reflection_interval=1, max_reflections=1,
         )
         loop._wait_for_rate_limit = AsyncMock(return_value=None)

@@ -137,6 +137,7 @@ class LoopDeps:
     pool: asyncpg.Pool | None
     store: InvestigationStore | None
     max_iterations: int = 10
+    min_gathering_actions: int = 3
     min_iteration_delay: float = 2.0
     enable_reflection: bool = True
     reflection_interval: int = 3

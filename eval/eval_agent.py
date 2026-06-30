@@ -1,13 +1,14 @@
 """
-Eval runner — seeds each dataset, runs the investigation, scores the answer
-with an LLM judge, and writes results to bug.json in the repo root.
+Agent eval — seeds each dataset, runs the ReAct investigation loop, scores
+the answer with an LLM judge, and writes results + leaderboard rows.
+Distinct from ragas_eval.py which tests retrieval quality only.
 
 Usage:
-    uv run python eval/run_evals.py
-    uv run python eval/run_evals.py --dataset dataset_1
-    uv run python eval/run_evals.py --judge-provider openai --judge-model gpt-4o
-    uv run python eval/run_evals.py --provider openrouter --model anthropic/claude-sonnet-4-20250514 --api-key sk-...
-    uv run python eval/run_evals.py --no-reflection
+    uv run python eval/eval_agent.py
+    uv run python eval/eval_agent.py --dataset dataset_1
+    uv run python eval/eval_agent.py --judge-provider openai --judge-model gpt-4o
+    uv run python eval/eval_agent.py --provider openrouter --model anthropic/claude-sonnet-4-20250514 --api-key sk-...
+    uv run python eval/eval_agent.py --no-reflection
 """
 from __future__ import annotations
 import asyncio
@@ -90,6 +91,7 @@ _PROVIDER_KEY_ALIASES = {
     "anthropic": "ANTHROPIC_API_KEY",
     "mistral": "MISTRAL_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
 }
 
 
@@ -169,17 +171,22 @@ async def run_dataset(container, dataset: dict, judge: LLMJudge) -> dict:
     seed_mod = importlib.import_module(dataset["seed_module"])
     await seed_mod.main()
 
-    # 2. Init pool + known services
+    # 2. Init pool + derive known services from seeded log_chunks (not watcher_configs)
     if not container.pool:
         await container.init_db()
-    await container.init_known_services()
+    rows = await container.pool.fetch(
+        "SELECT DISTINCT source_service FROM log_chunks"
+    )
+    eval_services = [r["source_service"] for r in rows]
+    container.known_services = eval_services
+    print(f"  [eval] known_services from seeded data: {eval_services}")
 
     # 3. Investigate (with clarification if needed)
     print(f"  [2/4] Investigating: \"{expected['query']}\"")
     query = expected["query"]
 
     async with container.get_session() as session:
-        loop = container.get_investigation_loop(session)
+        loop = container.get_investigation_loop(session, known_services=eval_services)
         store = loop.store
         investigation_obj = await store.create(query)
         inv_id = investigation_obj.id

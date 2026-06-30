@@ -1,0 +1,62 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "average_score": 0.58
+  },
+  "results": [
+    {
+      "dataset": "dataset_4_discord_gateway_cascade",
+      "query": "why are users getting disconnected from the gateway",
+      "status": "fail",
+      "aggregate_score": 0.58,
+      "model_under_test": "qwen/qwen3.5-flash-02-23",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.5,
+          "explanation": "The trigger service is correctly identified as read-states-svc. However, the log line does not reference 'Cassandra timeout' as required. It mentions a latency spike instead."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 0.8,
+          "explanation": "The root_cause explanation mentions Cassandra, read-states, timeout, and reconnect. However, it does not mention the connection pool, which is a required concept."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 0.6,
+          "explanation": "The propagation_chain includes the required hops: read-states-svc mentions Cassandra timeout, gateway mentions read_states mark_read timeout and disconnect, and message-svc mentions thread pool saturation. However, it does not mention the reconnect storm in the gateway or the 502 in cdn-edge."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.0,
+          "explanation": "The ruled_out_hypotheses does not address the presence-svc red herring as required. It only rules out log service failure and cdn-edge failure."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 1.0,
+          "explanation": "Confidence correctly set to 'high'."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-10T02:14:48+00:00\",\n    \"end\": \"2026-06-10T02:25:00+00:00\"\n  },\n  \"affected_services\": [\n    \"gateway\",\n    \"message-svc\",\n    \"presence-svc\",\n    \"read-states-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"33484660-7182-4f6f-b8b5-74d588528090\",\n    \"service\": \"read-states-svc\",\n    \"timestamp\": \"2026-06-10T02:14:48+00:00\",\n    \"log_line\": \"Signature: ING] Cassandra BATCH APPLY latency spike: <NUM>ms (threshold <NUM>ms), coordinator=<IP>\"\n  },\n  \"p",
+      "stats": {
+        "iterations_used": 7,
+        "reflections_used": 2,
+        "chunks_gathered": 72,
+        "tools_called": [
+          "get_timeline",
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "Complete causal chain verified with precise timeline. Root cause: Cassandra backend latency spike at 02:14:48 \u2192 read-states-svc BATCH APPLY timeouts \u2192 gateway WebSocket disconnects \u2192 reconnect storm \u2192 message-svc saturation. All 6 known services investigated. Evidence is conclusive."
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

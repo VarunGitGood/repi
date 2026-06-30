@@ -1,0 +1,61 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "average_score": 0.78
+  },
+  "results": [
+    {
+      "dataset": "dataset_4_discord_gateway_cascade",
+      "query": "why are users getting disconnected from the gateway",
+      "status": "fail",
+      "aggregate_score": 0.78,
+      "model_under_test": "deepseek/deepseek-v4-flash",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 1.0,
+          "explanation": "The trigger service is correctly identified as read-states-svc, and the log line references a Cassandra timeout, which matches the required criteria."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 1.0,
+          "explanation": "The root_cause explanation mentions Cassandra, read-states, timeout, reconnect, and pool, covering all required concepts semantically. The explanation is comprehensive and accurate."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 1.0,
+          "explanation": "The propagation_chain includes all required hops in causal order. It mentions Cassandra timeout, gateway disconnections, reconnect storm, message-svc thread pool saturation, and cdn-edge 502 errors. The chain is well-documented and logically consistent."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.9,
+          "explanation": "The ruled_out_hypotheses section addresses the presence-svc red herring by stating there is no evidence of its involvement. However, it does not explicitly mention the elevated activity in presence-svc caused by the gateway reconnect storm, which is a minor omission."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 0.0,
+          "explanation": "Expected confidence 'high', got 'medium'."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-10T02:15:00+00:00\",\n    \"end\": \"2026-06-10T02:30:00+00:00\"\n  },\n  \"affected_services\": [\n    \"gateway\",\n    \"read-states-svc\",\n    \"message-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"568c75d7-0377-4230-a93a-2775cccb9607\",\n    \"service\": \"read-states-svc\",\n    \"timestamp\": \"2026-06-10T02:15:00+00:00\",\n    \"log_line\": \"Cassandra timeout on BATCH APPLY to read_states keyspace: OperationTimedOutException (coordinator=<IP>, consistency=QUORUM, recei",
+      "stats": {
+        "iterations_used": 2,
+        "reflections_used": 0,
+        "chunks_gathered": 42,
+        "tools_called": [
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "Collected evidence showing: (1) read-states-svc Cassandra timeouts on read_states keyspace starting 02:15:00, (2) gateway pre-context showing increasing mark_read API latency and upstream timeout rate, (3) gateway ERROR logs showing WebSocket disconnects due to 'upstream read_states timeout' starting 02:16:15, (4) escalation to bulk disconnect event (842 sessions) and reconnect storm. Root cause is identified as read-states-svc storage layer failing."
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

@@ -42,7 +42,12 @@ def create_provider(
         )
 
     adapter_cls, default_model, extra_kwargs = _PROVIDERS[provider]
-    key = api_key or settings.LLM_API_KEY
+    key = api_key
+    if not key:
+        if provider == "openrouter" and settings.OPENROUTER_API_KEY:
+            key = settings.OPENROUTER_API_KEY
+        else:
+            key = settings.LLM_API_KEY
     if not key:
         raise ValueError(
             f"LLM_API_KEY must be set for {provider} provider"

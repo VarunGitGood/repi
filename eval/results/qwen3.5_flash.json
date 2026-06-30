@@ -1,0 +1,63 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "average_score": 0.68
+  },
+  "results": [
+    {
+      "dataset": "dataset_1_cascading_inventory_migration",
+      "query": "why did checkout break friday night",
+      "status": "fail",
+      "aggregate_score": 0.68,
+      "model_under_test": "qwen/qwen3.5-flash-02-23",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.8,
+          "explanation": "The trigger service is correctly identified as inventory-svc. However, the log line does not reference 'Migration 0042 added column warehouse_id NOT NULL to skus table' exactly, but it does mention 'Applying migration 0042_add_warehouse_id.sql', which is semantically related."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 0.6,
+          "explanation": "The root_cause explanation mentions migration, warehouse_id, NOT NULL, and retry. However, it does not explicitly mention pool exhaustion, which is a key concept."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 1.0,
+          "explanation": "The propagation_chain includes all required hops in causal order. It mentions 'Migration 0042 / warehouse_id NOT NULL', '500 / null value / warehouse_id', 'retry', 'pool exhausted', and 'checkout / cart timeout'."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.0,
+          "explanation": "The ruled_out_hypotheses do not address the specific red herrings mentioned in the criteria. It lists several services but does not explicitly rule out pricing-svc, payment-svc, or notification-svc as required."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 1.0,
+          "explanation": "Confidence correctly set to 'high'."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-26T22:00:00+00:00\",\n    \"end\": \"2026-06-27T06:00:00+00:00\"\n  },\n  \"affected_services\": [\n    \"inventory-svc\",\n    \"cart-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"afeca3aa-21bd-4961-9994-a8f78c8f2bd3\",\n    \"service\": \"inventory-svc\",\n    \"timestamp\": \"2026-06-26T22:00:14+00:00\",\n    \"log_line\": \"Signature: Applying migration <NUM>_add_warehouse_id.sql\\nExamples: Applying migration 0042_add_warehouse_id.sql\"\n  },\n  \"propagation_chain\": [\n    {\n ",
+      "stats": {
+        "iterations_used": 9,
+        "reflections_used": 2,
+        "chunks_gathered": 40,
+        "tools_called": [
+          "get_service_summary",
+          "get_timeline",
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "stalled_no_new_evidence"
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

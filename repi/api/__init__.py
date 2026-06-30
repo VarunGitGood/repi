@@ -17,6 +17,7 @@ from repi.api.config import router as config_router
 from repi.api.chat import router as chat_router
 from repi.api.conversations import router as conversations_router
 from repi.api.projects import router as projects_router
+from repi.api.leaderboard import router as leaderboard_router
 
 logger = logging.getLogger("repi.api")
 
@@ -57,6 +58,7 @@ app.include_router(config_router, tags=["config"])
 app.include_router(chat_router, tags=["chat"])
 app.include_router(conversations_router, tags=["conversations"])
 app.include_router(projects_router, tags=["projects"])
+app.include_router(leaderboard_router, tags=["leaderboard"])
 
 
 @app.get("/health", tags=["health"])

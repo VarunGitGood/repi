@@ -1,0 +1,66 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "average_score": 0.583
+  },
+  "results": [
+    {
+      "dataset": "dataset_2_insufficient_logging",
+      "query": "why is the nightly report failing",
+      "status": "fail",
+      "aggregate_score": 0.583,
+      "model_under_test": "google/gemini-2.5-flash-lite",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.8,
+          "explanation": "The trigger_event correctly identifies the cron-runner service and mentions the timeout, which is an acceptable symptom-anchor. However, it does not mention the SIGKILL event in report-svc, which is another acceptable trigger event. The explanation is mostly correct but misses one key trigger event."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 1.0,
+          "explanation": "The root_cause correctly states that the specific reason for the timeout is not evident in the provided logs and that there is no retry policy configured. It does not assert any specific root cause as fact, which is correct given the insufficient evidence."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.3,
+          "explanation": "The ruled_out_hypotheses section does not consider the possibilities of a code crash, deadlock, or external kill. It only lists other services that were checked and found to have no relevant activity. This misses key hypotheses that should have been considered."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 0.0,
+          "explanation": "Expected confidence 'low', got 'medium'."
+        },
+        {
+          "name": "gap_awareness",
+          "score": 0.4,
+          "explanation": "Gaps list is non-empty but doesn't clearly match expected gap descriptions."
+        },
+        {
+          "name": "hallucination_avoidance",
+          "score": 1.0,
+          "explanation": "The root_cause does not assert any specific root cause as fact, such as memory leak, OOM, GC pressure, any specific code path, or any specific dependency. It correctly states the limitations of the evidence and does not make unwarranted assumptions."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-25T02:30:00Z\",\n    \"end\": \"2026-06-25T03:30:00Z\"\n  },\n  \"affected_services\": [\n    \"cron-runner\",\n    \"report-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"84d32ab3-d913-4600-8d7d-a6ef2083726b\",\n    \"service\": \"cron-runner\",\n    \"timestamp\": \"2026-06-25T03:00:00Z\",\n    \"log_line\": \"Signature: Job nightly_reports exceeded timeout, marking as failed\\nExamples: Job nightly_reports exceeded timeout, marking as failed\"\n  },\n  \"propagation_chain\": [\n   ",
+      "stats": {
+        "iterations_used": 4,
+        "reflections_used": 1,
+        "chunks_gathered": 4,
+        "tools_called": [
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "The root cause of the 'nightly_reports' job timeout in 'cron-runner' could not be determined from the available logs. The 'report-svc' failure appears to be a downstream consequence. Multiple searches and window scans have been performed without uncovering specific error details leading to the timeout."
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

@@ -52,22 +52,30 @@ produced at least one chunk in the evidence list. A service mentioned in
 another service's log line (e.g. "caller=api-gateway") is also valid and
 should be included if it's part of the incident chain.
 
-RULED-OUT RULE (important — most-skipped step): every KNOWN service that
-appeared in the evidence (or was searched but returned nothing) but is NOT
-in your `affected_services` list MUST appear in `ruled_out_hypotheses` with
-a one-line rationale. Acceptable rationales:
+RULED-OUT RULE (important — most-skipped step): check the `known_services`
+list in the evidence package. Every service in that list that is NOT in your
+`affected_services` MUST appear in `ruled_out_hypotheses` with a one-line
+rationale. Use only services from `known_services` — do not invent services
+that aren't in the list. Acceptable rationales:
   - "no errors in this window"
   - "only downstream symptom of <other-service>"
   - "coincidental activity, no causal link"
   - "appears in logs but the timing doesn't match the incident window"
+  - "checked via scan_window/get_service_summary, no relevant activity"
 Generic hypotheses like "network outage" do NOT count — name the specific
-service. Two or three concrete ruled-out entries is the floor, not the ceiling.
+service. Every uninvolved known service must be ruled out explicitly.
 
-CONFIDENCE RULE: if you cite ≥3 chunk_ids in trigger_event + propagation_chain
-AND the root_cause is supported by those citations end-to-end, you SHOULD
-emit `confidence="high"`. Reserve `"medium"` for partial chains, `"low"` for
-genuinely unsupported answers. Listing gaps is encouraged but not required
-when confidence is high.
+CONFIDENCE RULE — calibrate carefully, do not default to "high":
+- `"high"`: you cite ≥3 chunk_ids in trigger_event + propagation_chain AND
+  the root_cause is fully supported end-to-end with no missing links.
+- `"medium"`: you have a plausible root cause but the causal chain has gaps,
+  or the evidence is indirect / circumstantial.
+- `"low"`: the evidence is insufficient to confirm the root cause. Use this
+  when logs show WHAT happened (e.g. a timeout, a crash) but not WHY — the
+  underlying cause is a hypothesis, not a confirmed fact. If you find yourself
+  writing "possibly", "likely", or "may have been" in root_cause, confidence
+  should be "low" or "medium", not "high".
+Listing gaps is encouraged at ALL confidence levels.
 
 InvestigationAnswer schema:
 {
@@ -255,7 +263,7 @@ async def compile_answer(
     recent_thoughts: Optional[list[str]] = None,
     known_services: Optional[list[str]] = None,
     *,
-    max_tokens: int = 4000,
+    max_tokens: int = 8000,
 ) -> CompileResult:
     """Run the compile LLM call. Validates and retries once on validation
     failure. Falls through to deterministic synth on persistent errors.

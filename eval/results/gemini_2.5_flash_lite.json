@@ -1,0 +1,62 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "average_score": 0.76
+  },
+  "results": [
+    {
+      "dataset": "dataset_1_cascading_inventory_migration",
+      "query": "why did checkout break friday night",
+      "status": "fail",
+      "aggregate_score": 0.76,
+      "model_under_test": "google/gemini-2.5-flash-lite",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.5,
+          "explanation": "The trigger service is correctly identified as inventory-svc. However, the log line does not reference the specific migration 0042 or the addition of the warehouse_id column with the NOT NULL constraint. It only mentions the null value violation."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 1.0,
+          "explanation": "The root_cause explanation mentions the migration, warehouse_id, NOT NULL constraint, retry, and pool exhaustion. All required concepts are covered semantically."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 1.0,
+          "explanation": "The propagation_chain includes the necessary hops: inventory-svc mentioning the migration and null value, cart-svc mentioning retry, pool exhaustion, and checkout timeout. All required elements are present."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.3,
+          "explanation": "The ruled_out_hypotheses section does not specifically address the pricing-svc, payment-svc, or notification-svc as red herrings. It only mentions other services with no errors. The explanation for gateway is partially correct but does not fully address the red herrings."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 1.0,
+          "explanation": "Confidence correctly set to 'high'."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-26T22:00:00+00:00\",\n    \"end\": \"2026-06-27T06:00:00+00:00\"\n  },\n  \"affected_services\": [\n    \"cart-svc\",\n    \"inventory-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"a644c43b-d951-4e04-94cd-2885e73eecc9\",\n    \"service\": \"inventory-svc\",\n    \"timestamp\": \"2026-06-26T22:00:47+00:00\",\n    \"log_line\": \"Signature: Failed to insert SKU sku_<NUM>: null value in column \\\"warehouse_id\\\" violates not-null constraint\\nExamples: Failed to insert SKU sku_8821:",
+      "stats": {
+        "iterations_used": 3,
+        "reflections_used": 1,
+        "chunks_gathered": 22,
+        "tools_called": [
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 2,
+        "floor_adjustments": [
+          "no gaps listed despite non-low confidence (\u22653 chunk citations \u2014 leaving as-is)"
+        ],
+        "gathering_exit_reason": "The investigation revealed that errors in the inventory-svc (specifically, null warehouse_id during SKU insertion) are causing inventory check failures in the cart-svc, leading to checkout timeouts. This provides a clear causal link."
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

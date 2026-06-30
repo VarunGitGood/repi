@@ -1,0 +1,62 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "average_score": 0.66
+  },
+  "results": [
+    {
+      "dataset": "dataset_1_cascading_inventory_migration",
+      "query": "why did checkout break friday night",
+      "status": "fail",
+      "aggregate_score": 0.66,
+      "model_under_test": "google/gemini-2.5-flash-lite",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.5,
+          "explanation": "The trigger service is correctly identified as inventory-svc. However, the log line does not reference the specific migration '0042 added column warehouse_id NOT NULL to skus table'. It mentions a null value constraint violation but not the migration itself."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 0.8,
+          "explanation": "The root_cause explanation mentions the migration, warehouse_id, NOT NULL constraint, and retry. However, it does not explicitly mention pool exhaustion, which is a key concept in the propagation chain."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 1.0,
+          "explanation": "The propagation_chain includes all required hops: inventory-svc mentioning the migration and 500 error, cart-svc mentioning retry, pool exhausted, and checkout timeout. The chain is logically ordered and complete."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.0,
+          "explanation": "The ruled_out_hypotheses do not address the specific red herrings mentioned in the criteria (pricing-svc, payment-svc, notification-svc). Instead, it rules out gateway, message-svc, presence-svc, and cdn-edge, which are not part of the criteria."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 1.0,
+          "explanation": "Confidence correctly set to 'high'."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-26T22:00:00+00:00\",\n    \"end\": \"2026-06-27T06:00:00+00:00\"\n  },\n  \"affected_services\": [\n    \"cart-svc\",\n    \"inventory-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"066019f3-8dda-43aa-8ec6-243ebfec057d\",\n    \"service\": \"inventory-svc\",\n    \"timestamp\": \"2026-06-26T22:00:47+00:00\",\n    \"log_line\": \"Signature: Failed to insert SKU sku_<NUM>: null value in column \\\"warehouse_id\\\" violates not-null constraint\\nExamples: Failed to insert SKU sku_8821:",
+      "stats": {
+        "iterations_used": 2,
+        "reflections_used": 0,
+        "chunks_gathered": 26,
+        "tools_called": [
+          "scan_window"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [
+          "no gaps listed despite non-low confidence (\u22653 chunk citations \u2014 leaving as-is)"
+        ],
+        "gathering_exit_reason": "The investigation revealed that a database migration in `inventory-svc` to add a NOT NULL `warehouse_id` column was followed by errors in `inventory-svc` failing to insert SKUs due to null `warehouse_id` values. This led to `inventory-svc` returning 500 errors to `cart-svc`, causing inventory check failures and timeouts in `cart-svc`, ultimately breaking checkout."
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

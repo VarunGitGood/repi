@@ -1,0 +1,67 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 1,
+    "failed": 0,
+    "errored": 0,
+    "average_score": 0.833
+  },
+  "results": [
+    {
+      "dataset": "dataset_3_jwt_key_rotation_noise",
+      "query": "why are users getting 401 errors last monday morning",
+      "status": "pass",
+      "aggregate_score": 0.833,
+      "model_under_test": "qwen/qwen3.5-flash-02-23",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 1.0,
+          "explanation": "The trigger service is correctly identified as auth-svc. The log line references 'Active signing key changed' which is semantically equivalent to one of the required phrases. The key_id k-2026-05 is also mentioned in the examples within the log line."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 1.0,
+          "explanation": "The root_cause explanation mentions JWT, key rotation, k-2026-05, verification-svc, and the public key (implied by the key push to verification-svc). All required concepts are covered."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 1.0,
+          "explanation": "The propagation_chain includes all required hops in the correct order. It mentions the key rotation and push timeout for auth-svc, the unknown key_id for verification-svc, the 401 errors for api-gateway, and the checkout failure for billing-svc."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.0,
+          "explanation": "The ruled_out_hypotheses section does not address the specific red herrings of user-svc and cache-svc. The explanations provided are generic and do not mention the specific services or the reasons why they are ruled out."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 1.0,
+          "explanation": "Confidence correctly set to 'high'."
+        },
+        {
+          "name": "hallucination_avoidance",
+          "score": 1.0,
+          "explanation": "The root_cause does not name any of the forbidden items as the root cause. It correctly identifies the key rotation and delay in key sync as the root cause."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-29T06:00:00+00:00\",\n    \"end\": \"2026-06-29T12:00:00+00:00\"\n  },\n  \"affected_services\": [\n    \"auth-svc\",\n    \"verification-svc\",\n    \"billing-svc\",\n    \"api-gateway\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"213b8774-edd0-4a3c-b9e4-12668af87e25\",\n    \"service\": \"auth-svc\",\n    \"timestamp\": \"2026-06-29T09:15:02+00:00\",\n    \"log_line\": \"Signature: Active signing key changed: k-<NUM> \\u2192 k-<NUM>-<NUM>\\nExamples: Active signing key changed: k-2025 \\",
+      "stats": {
+        "iterations_used": 9,
+        "reflections_used": 2,
+        "chunks_gathered": 93,
+        "tools_called": [
+          "find_logs_by_id",
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "Root cause fully identified: Scheduled JWT key rotation at 09:15:02 caused auth-svc to sign with new key k-2026-05, but the key push to verification-svc timed out and failed. verification-svc didn't receive the key until 09:45, causing ~30 minutes of 401 errors. Evidence includes: auth-svc rotation logs, key push timeout warnings, verification-svc 'unknown key_id' errors, api-gateway 401 logs, and eventual successful key sync at 09:45."
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "average_score": 0.483
+  },
+  "results": [
+    {
+      "dataset": "dataset_2_insufficient_logging",
+      "query": "why is the nightly report failing",
+      "status": "fail",
+      "aggregate_score": 0.483,
+      "model_under_test": "qwen/qwen3.5-flash-02-23",
+      "judge_model": "mistral-small-2506",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.5,
+          "explanation": "The trigger_event is correctly identified as the cron-runner service with a log line mentioning the job nightly_reports. However, it does not mention the SIGKILL or timeout explicitly, which are the acceptable trigger events. The explanation mentions SIGKILL later in the propagation_chain, but the initial trigger_event does not meet the criteria."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 1.0,
+          "explanation": "The root_cause is described as the job exceeding its timeout limit, which is a hypothesis based on the evidence. It does not assert a specific root cause as fact, aligning with the acceptable criteria of 'unable_to_determine' or 'hypothesis_only'."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.0,
+          "explanation": "The ruled_out_hypotheses section does not address the specific possibilities of code crash, deadlock, or external kill. It only lists other services without errors, which does not meet the criteria for considering these possibilities."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 0.0,
+          "explanation": "Expected confidence 'low', got 'high'."
+        },
+        {
+          "name": "gap_awareness",
+          "score": 0.4,
+          "explanation": "Gaps list is non-empty but doesn't clearly match expected gap descriptions."
+        },
+        {
+          "name": "hallucination_avoidance",
+          "score": 1.0,
+          "explanation": "The root_cause does not assert any of the prohibited facts such as memory leak, OOM, GC pressure, specific code path, or specific dependency. It sticks to the observed evidence and hypotheses."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-25T02:00:00+00:00\",\n    \"end\": \"2026-06-25T03:30:00+00:00\"\n  },\n  \"affected_services\": [\n    \"cron-runner\",\n    \"report-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"8e0399ca-cd31-4ef1-8536-ee5a796c74e4\",\n    \"service\": \"cron-runner\",\n    \"timestamp\": \"2026-06-25T02:00:00+00:00\",\n    \"log_line\": \"Signature: Triggering job nightly_reports \\u2192 report-svc\"\n  },\n  \"propagation_chain\": [\n    {\n      \"service\": \"report-svc\",\n      \"chunk_id\": \"f9b7ea",
+      "stats": {
+        "iterations_used": 9,
+        "reflections_used": 2,
+        "chunks_gathered": 22,
+        "tools_called": [
+          "get_service_summary",
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "stalled_no_new_evidence"
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

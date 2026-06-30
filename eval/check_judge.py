@@ -22,7 +22,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from eval.judge import LLMJudge
-from eval.run_evals import create_judge, _parse_args  # reuse selector + arg parsing
+from eval.eval_agent import create_judge, _parse_args
 
 
 GOLD_PASS_THRESHOLD = 0.8
@@ -32,7 +32,7 @@ FAIL_MAX_THRESHOLD = 0.5
 # ─── Canned answers per dataset ──────────────────────────────────────────────
 #
 # Each block has:
-#   - dataset_name (folder name, matches DATASETS in run_evals.py)
+#   - dataset_name (folder name, matches DATASETS in eval_agent.py)
 #   - expected_path
 #   - gold: a hand-crafted answer that satisfies expected.json's criteria
 #   - fail: a hand-crafted answer that exhibits one entry from

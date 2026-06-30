@@ -154,10 +154,22 @@ def enforce_floors(
         downgraded = _downgrade_confidence(confidence, by=1)
         if downgraded != confidence:
             answer_dict["confidence"] = downgraded
+            confidence = downgraded
         gap_msg = (
             f"affected_services {unseen!r} never appeared in tool results or "
             "any chunk text (downgraded confidence one notch as a precaution)"
         )
+        answer_dict.setdefault("gaps", []).append(gap_msg)
+        notes.append(gap_msg)
+
+    root_cause = str(answer_dict.get("root_cause", "")).lower()
+    _HEDGING = ("possibly", "likely", "may have", "might have", "unclear",
+                "unable to determine", "hypothesis", "not confirmed",
+                "insufficient evidence", "cannot confirm", "uncertain")
+    if confidence == "high" and any(h in root_cause for h in _HEDGING):
+        answer_dict["confidence"] = "medium"
+        confidence = "medium"
+        gap_msg = "downgraded high→medium: root_cause contains hedging language"
         answer_dict.setdefault("gaps", []).append(gap_msg)
         notes.append(gap_msg)
 

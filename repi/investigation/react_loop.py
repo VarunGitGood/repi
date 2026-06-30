@@ -104,6 +104,68 @@ def _extract_chunks(tool_result: Any) -> list[dict]:
     return chunks
 
 
+def _is_degenerate_output(text: str, threshold: int = 4000, repeat_ratio: float = 0.4) -> bool:
+    if len(text) < threshold:
+        return False
+    chunk_size = 200
+    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+    if len(chunks) < 3:
+        return False
+    unique = len(set(chunks))
+    return (unique / len(chunks)) < repeat_ratio
+
+
+async def _auto_fill_unchecked_services(state: InvestigationState, deps: LoopDeps) -> None:
+    unchecked = _unchecked_services(state.tool_call_ledger, deps.known_services)
+    if not unchecked or "get_service_summary" not in deps.tools:
+        return
+    logger.info("Auto-filling %d unchecked services: %s", len(unchecked), unchecked)
+    for svc in unchecked:
+        try:
+            result = await deps.tools["get_service_summary"](service=svc)
+            lkey = _ledger_key("get_service_summary", {"service": svc})
+            state.tool_call_ledger[lkey] = {
+                "tool_name": "get_service_summary",
+                "args": {"service": svc},
+                "result": result,
+            }
+            new_chunks = _extract_chunks(result)
+            if deps.store and new_chunks:
+                await deps.store.add_chunks(state.investigation_id, new_chunks)
+        except Exception as e:
+            logger.warning("Auto-fill for %s failed: %s", svc, e)
+
+
+def _unchecked_services(ledger: dict[str, dict], known_services: list[str]) -> list[str]:
+    queried = set()
+    for entry in ledger.values():
+        args = entry.get("args", {})
+        svc = args.get("service") or args.get("services")
+        if isinstance(svc, str) and svc:
+            queried.add(svc)
+        elif isinstance(svc, list):
+            queried.update(svc)
+        result = entry.get("result")
+        if isinstance(result, dict):
+            for key in result:
+                if key in known_services:
+                    queried.add(key)
+    return [s for s in known_services if s not in queried]
+
+
+def _count_errors_per_service(sweep_results: Any, known_services: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {svc: 0 for svc in known_services}
+    if isinstance(sweep_results, dict):
+        for svc, entries in sweep_results.items():
+            if svc in counts and isinstance(entries, list):
+                counts[svc] = len(entries)
+            elif isinstance(entries, dict):
+                for sub_svc, sub_entries in entries.items():
+                    if sub_svc in counts and isinstance(sub_entries, list):
+                        counts[sub_svc] = len(sub_entries)
+    return counts
+
+
 # ─── Ledger helpers ──────────────────────────────────────────────────────────
 
 def _ledger_key(tool_name: str, args: dict) -> str:
@@ -147,7 +209,7 @@ async def _llm_call_with_retry(
     for attempt in range(3):
         try:
             await _wait_for_rate_limit(deps)
-            return await deps.llm.complete(messages)
+            return await deps.llm.complete(messages, max_tokens=8000)
         except LLMBadRequestError as e:
             logger.error(f"{step_label}: non-retryable LLM error: {e}")
             return None
@@ -193,17 +255,22 @@ GATHERING PRINCIPLES:
 2. ALWAYS correlate logs cross-service. `scan_window` is usually the right
    first call when investigating a TIME WINDOW (no entity in play) — it
    returns ERRORS plus pre-context for each service that emitted them.
-3. Don't repeat tool calls with identical arguments — the dispatcher
+3. INVESTIGATE EVERY KNOWN SERVICE. Before calling `done_gathering`, ensure
+   you have checked each service in KNOWN SERVICES for relevant activity.
+   Services that show no errors still matter — you need evidence to rule
+   them out. Use `get_service_summary` or `scan_window` filtered by service
+   to confirm a service is uninvolved.
+4. Don't repeat tool calls with identical arguments — the dispatcher
    dedupes them, but you still waste a turn.
-4. If a tool call returns nothing useful, vary the arguments (different
+5. If a tool call returns nothing useful, vary the arguments (different
    service, wider window, different level filter) before giving up on
    that line of inquiry.
-5. If two consecutive tool calls return no new evidence, call
+6. If two consecutive tool calls return no new evidence, call
    `done_gathering` — there is no value in spamming the dispatcher.
-6. When NO time window was provided, do NOT pass time_from/time_to to
+7. When NO time window was provided, do NOT pass time_from/time_to to
    `search_logs`/`scan_window`; rely on `find_logs_by_id` and unbounded
    searches keyed off the entity/service signal you do have.
-7. Do NOT emit a "Final Answer:" prefix or fill in any
+8. Do NOT emit a "Final Answer:" prefix or fill in any
    InvestigationAnswer schema. The compile step will produce that.
 
 Current UTC: {_dh.to_iso(_dh.now())}
@@ -331,9 +398,27 @@ async def handle_sweeping(state: InvestigationState, deps: LoopDeps) -> Investig
                 exclude_services=[],
             )
             sweep_msg = f"SWEEP CONTEXT:\n{_compact_observation(sweep_results)}\n\n"
+
+            svc_errors = _count_errors_per_service(sweep_results, deps.known_services)
+            if svc_errors:
+                sweep_msg += "SERVICE ERROR SUMMARY (you must investigate or rule out every service):\n"
+                for svc, count in svc_errors.items():
+                    label = f"{count} error(s)" if count > 0 else "no errors"
+                    sweep_msg += f"  - {svc}: {label}\n"
+                sweep_msg += "\n"
+
             if state.resolved_intent.assumed:
                 sweep_msg += "ASSUMPTIONS:\n" + "\n".join(f"- {a}" for a in state.resolved_intent.assumed) + "\n"
             state.messages.append(Message(role="user", content=sweep_msg))
+
+    planning_nudge = (
+        "Before your first tool call, state a brief INVESTIGATION PLAN:\n"
+        "1. Which services you will query first and why\n"
+        "2. What hypothesis you are testing\n"
+        "3. What would change your hypothesis\n"
+        "Then proceed with your first tool call."
+    )
+    state.messages.append(Message(role="user", content=planning_nudge))
 
     state.phase = Phase.GATHERING
     return state
@@ -459,6 +544,18 @@ async def handle_gathering(state: InvestigationState, deps: LoopDeps) -> Investi
     if deps.store:
         await deps.store.increment_llm_calls(state.investigation_id)
 
+    if _is_degenerate_output(raw_response):
+        logger.warning("Step %d: degenerate output detected (%d chars), re-prompting",
+                        state.next_step_number, len(raw_response))
+        state.messages.append(Message(
+            role="user",
+            content=(
+                "Your response was too long and repetitive. "
+                "Give a concise thought (under 500 chars) and one tool call."
+            ),
+        ))
+        return state
+
     try:
         parsed = parse_llm_response(raw_response)
 
@@ -479,6 +576,22 @@ async def handle_gathering(state: InvestigationState, deps: LoopDeps) -> Investi
             tool_args = parsed["action"].get("args", {}) or {}
 
             if tool_name in (DONE_GATHERING_TOOL, LEGACY_SUBMIT_TOOL):
+                if state.actions_taken < deps.min_gathering_actions:
+                    state.messages.append(Message(role="assistant", content=raw_response))
+                    unchecked = _unchecked_services(state.tool_call_ledger, deps.known_services)
+                    svc_hint = f" Unchecked services: {', '.join(unchecked)}." if unchecked else ""
+                    state.messages.append(Message(
+                        role="user",
+                        content=(
+                            f"Too early to stop — only {state.actions_taken} action(s) taken "
+                            f"(minimum {deps.min_gathering_actions}). Investigate further "
+                            f"before calling done_gathering.{svc_hint}"
+                        ),
+                    ))
+                    logger.info("Rejected early done_gathering at action %d (min %d)",
+                                state.actions_taken, deps.min_gathering_actions)
+                    return state
+
                 signal_done = True
                 state.gathering_exit_reason = (
                     tool_args.get("reason", "model_signaled_done")
@@ -525,8 +638,12 @@ async def handle_gathering(state: InvestigationState, deps: LoopDeps) -> Investi
                                 await deps.store.add_chunks(state.investigation_id, new_chunks)
                         except Exception as e:
                             logger.error(f"Tool failed: {e}")
+                            schema_hint = ""
+                            if tool_name in TOOL_SCHEMAS:
+                                schema_hint = f" Expected args: {json.dumps(TOOL_SCHEMAS[tool_name].get('args', {}))}"
                             observation = Observation(tool_result=ToolResult(
-                                tool_name=tool_name, args=tool_args, result=None, error=str(e),
+                                tool_name=tool_name, args=tool_args, result=None,
+                                error=f"{e}{schema_hint}",
                             ))
                             state.consecutive_empty_tool_calls += 1
                 else:
@@ -581,6 +698,7 @@ async def handle_gathering(state: InvestigationState, deps: LoopDeps) -> Investi
         state.next_step_number += 1
 
         if signal_done:
+            await _auto_fill_unchecked_services(state, deps)
             state.phase = Phase.COMPILING
             return state
 
@@ -594,6 +712,7 @@ async def handle_gathering(state: InvestigationState, deps: LoopDeps) -> Investi
                 "Exiting gathering early: %d consecutive tool calls returned no new chunks",
                 state.consecutive_empty_tool_calls,
             )
+            await _auto_fill_unchecked_services(state, deps)
             state.phase = Phase.COMPILING
             return state
 
@@ -748,6 +867,7 @@ class ReactInvestigationLoop:
         pool: Optional[asyncpg.Pool] = None,
         store: Optional[InvestigationStore] = None,
         max_iterations: int = 10,
+        min_gathering_actions: int = 3,
         min_iteration_delay: float = 2.0,
         enable_reflection: bool = True,
         reflection_interval: int = 3,
@@ -759,6 +879,7 @@ class ReactInvestigationLoop:
         self.known_services = known_services
         self.pool = pool
         self.max_iterations = max_iterations
+        self.min_gathering_actions = min_gathering_actions
         self.min_iteration_delay = min_iteration_delay
         self.store = store
         self.enable_reflection = enable_reflection
@@ -934,6 +1055,7 @@ class ReactInvestigationLoop:
             pool=self.pool,
             store=self.store,
             max_iterations=self.max_iterations,
+            min_gathering_actions=self.min_gathering_actions,
             min_iteration_delay=self.min_iteration_delay,
             enable_reflection=self.enable_reflection,
             reflection_interval=self.reflection_interval,

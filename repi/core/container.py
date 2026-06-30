@@ -41,14 +41,8 @@ class Container:
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
         self.pool: Optional[asyncpg.Pool] = None
-
-        # Embedder load is deferred so /health and /config answer in <1s.
         self._embedder: Optional[Embedder] = None
         self.known_services: list[str] = []
-
-        # LLM init is best-effort: a fresh install has no API key, but the
-        # API still needs to boot so the user can POST /config. Routes that
-        # need the LLM call require_llm() and 409 if it's still missing.
         self.llm_provider: Optional[LLMProvider] = None
         self.query_expander: Optional[QueryExpander] = None
         self.llm_init_error: Optional[str] = None
