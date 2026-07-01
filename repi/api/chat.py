@@ -24,11 +24,12 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, text as sa_text
 
 from repi.api.limiter import limiter
+from repi.api.guards import llm_daily_budget
 from repi.core.container import get_container
 from repi.core.config import get_settings
 from repi.core.dates import default_date_handler as _dh
@@ -114,8 +115,8 @@ answer.
 # tries to resolve it into a response model, fails, and silently demotes `req`
 # to a query param — so the JSON body is never parsed and every /chat call 422s
 # (and /openapi.json 500s). Dropping the hint is the reliable fix.
-@router.post("/chat", response_model=None)
-@limiter.limit("20/minute")
+@router.post("/chat", response_model=None, dependencies=[Depends(llm_daily_budget)])
+@limiter.limit("5/minute")
 async def chat(request: Request, req: ChatRequest):
     container = get_container()
     container.require_llm()  # 409 if no API key is configured.

@@ -280,7 +280,7 @@ def stop(
         help="Also remove the Postgres volume (DESTROYS ingested data).",
     ),
 ) -> None:
-    """Stop the docker stack (db + redis, and api/worker if running)."""
+    """Stop the docker stack (db, and api/worker if running)."""
     cmd = _docker_compose_cmd()
     if cmd is None:
         console.print("[red]docker compose not found on PATH.[/red]")

@@ -1,13 +1,14 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from repi.api.limiter import limiter
+from repi.api.guards import block_in_demo
 
 from repi.core.container import get_container
 from repi.api.ingest import router as ingest_router
@@ -51,14 +52,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(ingest_router, tags=["ingest"])
+# Routers fully disabled under the read-only demo lock (writes + admin/
+# non-showcase reads). Showcase routers (investigate, chat, conversations,
+# projects reads, services) stay mounted; their per-route guards live inline.
+_demo_locked = [Depends(block_in_demo)]
+app.include_router(ingest_router, tags=["ingest"], dependencies=_demo_locked)
 app.include_router(investigate_router, tags=["investigate"])
-app.include_router(watchers_router, tags=["watchers"])
-app.include_router(config_router, tags=["config"])
+app.include_router(watchers_router, tags=["watchers"], dependencies=_demo_locked)
+app.include_router(config_router, tags=["config"], dependencies=_demo_locked)
 app.include_router(chat_router, tags=["chat"])
 app.include_router(conversations_router, tags=["conversations"])
 app.include_router(projects_router, tags=["projects"])
-app.include_router(leaderboard_router, tags=["leaderboard"])
+app.include_router(leaderboard_router, tags=["leaderboard"], dependencies=_demo_locked)
 
 
 @app.get("/health", tags=["health"])

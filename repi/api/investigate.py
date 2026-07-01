@@ -10,6 +10,7 @@ from datetime import datetime
 from fastapi import Request as StarletteRequest
 
 from repi.core.container import get_container
+from repi.api.guards import llm_daily_budget
 from repi.investigation.react_loop import InvestigationStep
 from repi.api.limiter import limiter
 from repi.api.schemas import (
@@ -44,8 +45,9 @@ async def list_investigations(limit: int = 20):
             ))
         return results
 
-@router.post("/investigate", response_model=SimpleInvestigationResponse)
-@limiter.limit("10/minute")
+@router.post("/investigate", response_model=SimpleInvestigationResponse,
+             dependencies=[Depends(llm_daily_budget)])
+@limiter.limit("3/minute")
 async def investigate(request: StarletteRequest, request_body: InvestigateRequest):
     """
     Start an autonomous log investigation (non-blocking).
@@ -105,8 +107,11 @@ async def investigate(request: StarletteRequest, request_body: InvestigateReques
         conversation_id=str(conversation_id),
     )
 
-@router.post("/investigations/{investigation_id}/clarify", response_model=SimpleInvestigationResponse)
-async def clarify_investigation(investigation_id: str, request: ClarifyRequest):
+@router.post("/investigations/{investigation_id}/clarify", response_model=SimpleInvestigationResponse,
+             dependencies=[Depends(llm_daily_budget)])
+@limiter.limit("3/minute")
+async def clarify_investigation(request: StarletteRequest, investigation_id: str,
+                                request_body: ClarifyRequest):
     """
     Provide clarification for a paused investigation.
     """
@@ -126,7 +131,7 @@ async def clarify_investigation(investigation_id: str, request: ClarifyRequest):
         if investigation.status != "awaiting_clarification":
             raise HTTPException(status_code=409, detail=f"Investigation is in status {investigation.status}, not awaiting_clarification")
         
-        await store.resume_from_clarification(uuid_obj, request.reply)
+        await store.resume_from_clarification(uuid_obj, request_body.reply)
         
     return SimpleInvestigationResponse(
         id=investigation_id,
@@ -147,6 +152,21 @@ async def stream_investigation(investigation_id: str):
     # generator the response status is already 200 and the client only learns
     # something went wrong through an error event.
     get_container().require_llm()
+
+    # Claim execution before the SSE 200 so concurrent streams can't both run
+    # the (expensive) ReAct loop on one budgeted request. 'started' → atomically
+    # take it; already 'running' → someone else owns it (409); terminal /
+    # awaiting states fall through to the cheap replay path below.
+    async with get_container().get_session() as _session:
+        _store = get_container().get_investigation_store(_session)
+        _inv = await _store.get_by_id(uuid_obj)
+        if not _inv:
+            raise HTTPException(status_code=404, detail="Investigation not found")
+        if _inv.status == "running":
+            raise HTTPException(status_code=409, detail="Investigation is already being streamed")
+        if _inv.status not in ("completed", "failed", "awaiting_clarification"):
+            if not await _store.claim_for_execution(uuid_obj):
+                raise HTTPException(status_code=409, detail="Investigation is already being streamed")
 
     async def event_generator():
         container = get_container()

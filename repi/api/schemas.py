@@ -125,7 +125,9 @@ class ConversationDetail(BaseModel):
 # ── Investigations ────────────────────────────────────────────────────────────
 
 class InvestigateRequest(BaseModel):
-    query: str
+    # Capped to bound embedding + LLM prompt cost per request (a huge query
+    # inflates token spend even within the rate limit).
+    query: str = Field(..., max_length=2000)
     resume: bool = True
     # Optional thread back to a chat conversation. If omitted, a new
     # conversation row is created and its id returned so the UI can attach
@@ -167,14 +169,14 @@ class SimpleInvestigationResponse(BaseModel):
 
 
 class ClarifyRequest(BaseModel):
-    reply: str
+    reply: str = Field(..., max_length=2000)
 
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
-    content: str
+    content: str = Field(..., max_length=4000)
 
 
 class ChatFilters(BaseModel):
@@ -185,8 +187,8 @@ class ChatFilters(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    query: str
-    history: List[ChatTurn] = []
+    query: str = Field(..., max_length=2000)
+    history: List[ChatTurn] = Field(default_factory=list, max_length=50)
     filters: Optional[ChatFilters] = None
     conversation_id: Optional[UUID] = None
     # Follow-up bias hint: chunk_ids the previous assistant turn cited. Used

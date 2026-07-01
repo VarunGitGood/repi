@@ -33,6 +33,21 @@ class Settings(BaseSettings):
     REPI_ENV: str = Field(default="production", description="Runtime environment")
     LOG_LEVEL: str = Field(default="INFO", description="Logging level (DEBUG/INFO/WARNING/ERROR)")
 
+    # Read-only demo lock. When true: all mutating endpoints (ingest, watchers,
+    # project create/update, config PUT) 403, non-showcase reads (config,
+    # leaderboard, watchers) 403, and the shared daily LLM budget is enforced.
+    # Only investigate/clarify/chat + the reads their flows need stay live.
+    DEMO_MODE: bool = False
+    # Max token-burning calls (investigate + clarify + chat combined) per UTC
+    # day while DEMO_MODE is on. In-memory: resets on process restart.
+    DEMO_DAILY_LLM_BUDGET: int = Field(default=100, ge=1)
+    # Header carrying the real client IP when running behind a trusted edge
+    # proxy (Fly: "fly-client-ip"; Railway/most: "x-forwarded-for"). Rate
+    # limiting keys on its FIRST hop. Leave blank for direct exposure — do NOT
+    # set it unless the platform overwrites/pins the header, or clients can
+    # spoof it to bypass per-IP limits.
+    TRUSTED_CLIENT_IP_HEADER: str = ""
+
     DATABASE_URL: str = Field(
         default="postgresql+asyncpg://repi_user:password_here@localhost:5432/repi",
         description="Postgres connection string (asyncpg format)"

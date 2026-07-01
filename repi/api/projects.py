@@ -12,7 +12,9 @@ from datetime import datetime
 from typing import Any, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from repi.api.guards import block_in_demo
 from sqlalchemy import text as sa_text
 from sqlmodel import select
 
@@ -102,7 +104,7 @@ async def list_projects():
     ]
 
 
-@router.post("/projects", response_model=ProjectRead)
+@router.post("/projects", response_model=ProjectRead, dependencies=[Depends(block_in_demo)])
 async def create_project(body: ProjectCreate):
     name = body.name.strip()
     if not name:
@@ -135,7 +137,7 @@ async def get_project(project_id: UUID):
         )
 
 
-@router.patch("/projects/{project_id}", response_model=ProjectRead)
+@router.patch("/projects/{project_id}", response_model=ProjectRead, dependencies=[Depends(block_in_demo)])
 async def update_project(project_id: UUID, body: ProjectUpdate):
     """Partial update; `settings` is merged over existing keys (same
     merge-not-replace contract as PUT /config)."""

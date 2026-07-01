@@ -3,6 +3,7 @@ import logging
 from uuid import UUID
 from typing import List, Optional, Dict, Any
 from sqlmodel import select, desc
+from sqlalchemy import update
 from sqlmodel.ext.asyncio.session import AsyncSession
 from repi.core.dates import DateHandler, default_date_handler as _dh
 from repi.models.schema import Investigation, InvestigationStep, InvestigationChunk
@@ -17,6 +18,23 @@ class InvestigationStore:
         statement = select(Investigation).where(Investigation.id == investigation_id)
         result = await self.session.exec(statement)
         return result.first()
+
+    async def claim_for_execution(self, investigation_id: UUID) -> bool:
+        """Atomically flip a fresh investigation from 'started' to 'running'.
+
+        Returns True only for the caller that won the flip. Concurrent SSE
+        streams on the same investigation therefore can't both enter the live
+        ReAct loop — without this, N parallel streams would run the loop N times
+        on a single budgeted request, multiplying token spend.
+        """
+        stmt = (
+            update(Investigation)
+            .where(Investigation.id == investigation_id, Investigation.status == "started")
+            .values(status="running")
+        )
+        result = await self.session.execute(stmt)
+        await self.session.commit()
+        return (result.rowcount or 0) == 1
 
     async def list_all(self, limit: int = 50) -> List[Investigation]:
         """List all investigations, newest first."""
