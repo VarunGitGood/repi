@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { API_BASE, api } from "@/lib/api"
 import { ChatInput } from "@/components/chat/ChatInput"
 import { ChatMessageView, ChatMessageProps } from "@/components/chat/ChatMessage"
@@ -15,6 +16,10 @@ import { Badge } from "@/components/ui/badge"
 import { Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import type { Step, Turn } from "@/lib/types"
+import { DemoTour } from "@/components/demo/DemoTour"
+import { DEMO_QUERY } from "@/components/demo/steps/InvestigationStep"
+
+const DEMO_PROJECT_NAME = "Demo"
 
 const DR_KEY = "repi.deepResearch"
 
@@ -56,7 +61,21 @@ function buildChatHistory(turns: Turn[]): { role: "user" | "assistant"; content:
   return flat.slice(-CHAT_HISTORY_TURNS)
 }
 
-export default function HomePage() {
+export default function HomePageWrapper() {
+  // useSearchParams() requires a Suspense boundary in Next 15 prod builds.
+  return (
+    <Suspense fallback={null}>
+      <HomePage />
+    </Suspense>
+  )
+}
+
+function HomePage() {
+  const searchParams = useSearchParams()
+  const demoMode = searchParams.get("demo") === "1"
+  const [demoInvestigationId, setDemoInvestigationId] = useState<string | null>(null)
+  const demoStartedRef = useRef(false)
+
   const [conversationId, setConversationId] = useState<string | null>(null)
   // Context-before-investigation: every conversation is scoped to a project.
   // null → show the picker (which auto-selects when only one project exists).
@@ -75,6 +94,28 @@ export default function HomePage() {
   // (streaming investigation steps / chat deltas) grows. Flips to false when
   // the user scrolls up to read, so we don't yank them back down.
   const stickToBottom = useRef(true)
+
+  // Demo mode: auto-select (or create) the "Demo" project so the picker is
+  // skipped and the dashboard mounts immediately under the tour overlay.
+  useEffect(() => {
+    if (!demoMode || project) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const list: { id: string; name: string }[] = await api.projects.list()
+        let demo = list.find((p) => p.name === DEMO_PROJECT_NAME)
+        if (!demo) {
+          demo = await api.projects.create(DEMO_PROJECT_NAME)
+        }
+        if (!cancelled && demo) {
+          setProject({ id: demo.id, name: demo.name })
+        }
+      } catch (e: any) {
+        if (!cancelled) toast.error("Demo: could not init project: " + e.message)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [demoMode, project])
 
   // Restore the sticky toggle from localStorage on mount.
   useEffect(() => {
@@ -160,6 +201,56 @@ export default function HomePage() {
       toast.error("Could not load conversation: " + e.message)
     }
   }, [])
+
+  // Demo-only: kick off the locked investigation against the Demo project.
+  // Idempotent — won't fire a second `/investigate` if we already have an id.
+  const startDemoInvestigation = useCallback(() => {
+    if (demoStartedRef.current) {
+      console.debug("[demo] startDemoInvestigation: already started, id=", demoInvestigationId)
+      return demoInvestigationId
+    }
+    if (!project) {
+      console.debug("[demo] startDemoInvestigation: project not loaded yet, deferring")
+      return null
+    }
+    demoStartedRef.current = true
+    console.debug("[demo] startDemoInvestigation: firing /investigate for project", project.id)
+    ;(async () => {
+      try {
+        const res = await api.investigations.create(DEMO_QUERY, undefined, project.id)
+        console.debug("[demo] /investigate ok:", res)
+        setDemoInvestigationId(res.id)
+        if (res.conversation_id) {
+          setConversationId(res.conversation_id)
+          setActiveInvestigatingConvId(res.conversation_id)
+        }
+        setTurns((prev) => [
+          ...prev,
+          { mode: "chat", role: "user", content: DEMO_QUERY },
+          { mode: "investigate", id: `inv-${res.id}`, investigationId: res.id, query: DEMO_QUERY },
+        ])
+        setSidebarRefresh((n) => n + 1)
+        toast.success("Demo investigation started")
+      } catch (e: any) {
+        console.error("[demo] /investigate failed:", e)
+        toast.error("Demo: investigation failed to start: " + e.message)
+        demoStartedRef.current = false
+      }
+    })()
+    return null
+  }, [demoInvestigationId, project])
+
+  const demoInvestigationDone = useMemo(
+    () =>
+      !!demoInvestigationId &&
+      turns.some(
+        (t) =>
+          t.mode === "investigate" &&
+          t.investigationId === demoInvestigationId &&
+          !!t.finalAnswer,
+      ),
+    [demoInvestigationId, turns],
+  )
 
   async function handleSend(query: string, dr: boolean) {
     setBusy(true)
@@ -335,6 +426,9 @@ export default function HomePage() {
   }
 
   // New chat, no project yet → step 1 of the flow: pick (or create) a project.
+  // Demo mode skips this: the auto-select effect above is resolving the
+  // Demo project; render an empty shell with the overlay on top so the user
+  // sees the SeedingStep immediately instead of the picker flash.
   if (!conversationId && !project) {
     return (
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -344,14 +438,32 @@ export default function HomePage() {
           refreshKey={sidebarRefresh}
         />
         <main className="flex-1 flex flex-col min-h-0">
-          <ProjectPicker onSelect={(p) => setProject({ id: p.id, name: p.name })} />
+          {demoMode ? null : (
+            <ProjectPicker onSelect={(p) => setProject({ id: p.id, name: p.name })} />
+          )}
         </main>
+        {demoMode && (
+          <DemoTour
+            projectId=""
+            onStartInvestigation={startDemoInvestigation}
+            investigationStarted={!!demoInvestigationId}
+            investigationDone={demoInvestigationDone}
+          />
+        )}
       </div>
     )
   }
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+      {demoMode && project && (
+        <DemoTour
+          projectId={project.id}
+          onStartInvestigation={startDemoInvestigation}
+          investigationStarted={!!demoInvestigationId}
+          investigationDone={demoInvestigationDone}
+        />
+      )}
       <ConversationSidebar
         activeId={conversationId}
         onSelect={loadConversation}

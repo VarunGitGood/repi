@@ -11,7 +11,11 @@ Contract:
 - Persist both user and assistant turns to `chat_messages` keyed by
   `conversation_id` (creating the row if not supplied).
 """
-from __future__ import annotations
+# NOTE: deliberately NOT using `from __future__ import annotations`. FastAPI
+# must see `req: ChatRequest` as the real Pydantic class to treat it as the
+# request body; stringized annotations get demoted to a query param and the
+# JSON body is never parsed (every /chat call then 422s). Python 3.11 evaluates
+# `X | None` / `list[X]` at runtime natively, so no future import is needed.
 
 import asyncio
 import json
@@ -105,9 +109,14 @@ answer.
 """
 
 
-@router.post("/chat")
+# No return-type annotation on purpose. With `from __future__ import annotations`
+# a `-> StreamingResponse` hint becomes a stringized ForwardRef; FastAPI then
+# tries to resolve it into a response model, fails, and silently demotes `req`
+# to a query param — so the JSON body is never parsed and every /chat call 422s
+# (and /openapi.json 500s). Dropping the hint is the reliable fix.
+@router.post("/chat", response_model=None)
 @limiter.limit("20/minute")
-async def chat(request: Request, req: ChatRequest) -> StreamingResponse:
+async def chat(request: Request, req: ChatRequest):
     container = get_container()
     container.require_llm()  # 409 if no API key is configured.
 

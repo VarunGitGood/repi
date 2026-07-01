@@ -200,12 +200,9 @@ const ENV_VARS = [
 export default function DocsPage() {
   const publicDeploy = isPublicMode()
   return (
-    <div className="min-h-screen bg-background selection:bg-foreground selection:text-background">
-      {/* ── Background Decoration ──────────────────────────────────────────────── */}
-      <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] rounded-full bg-foreground/5 blur-[120px]" />
-        <div className="absolute top-[20%] -right-[10%] w-[30%] h-[30%] rounded-full bg-foreground/3 blur-[100px]" />
-      </div>
+    <div className="min-h-screen selection:bg-foreground selection:text-background">
+      {/* Background dot grid / ambient glow / noise lives in <Background />
+          (mounted by the root layout). Pages don't render their own blurs. */}
 
       {/* ── Docs Navbar ───────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-md">
@@ -271,11 +268,11 @@ export default function DocsPage() {
             and runs an autonomous ReAct loop to trace root causes across services.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 mb-16">
-            <a href="#quickstart">
+            <Link href="/?demo=1">
               <Button size="lg" className="rounded-full px-10 h-14 text-base font-bold shadow-xl shadow-foreground/10 hover:shadow-foreground/20 transition-all hover:-translate-y-0.5">
-                Quick Start ↓
+                ▶ Try Demo
               </Button>
-            </a>
+            </Link>
             <a
               href="https://github.com/VarunGitGood/repi"
               target="_blank"

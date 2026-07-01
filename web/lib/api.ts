@@ -51,6 +51,9 @@ export const api = {
     list: () => fetchApi("/conversations"),
     get: (id: string) => fetchApi(`/conversations/${id}`),
   },
+  leaderboard: {
+    summary: () => fetchApi("/leaderboard/summary"),
+  },
   projects: {
     list: () => fetchApi("/projects"),
     create: (name: string) => fetchApi("/projects", { method: "POST", body: JSON.stringify({ name }) }),

@@ -1,0 +1,221 @@
+{
+  "pass_threshold": 0.8,
+  "summary": {
+    "passed": 2,
+    "failed": 2,
+    "errored": 0,
+    "average_score": 0.599
+  },
+  "results": [
+    {
+      "dataset": "dataset_1_cascading_inventory_migration",
+      "query": "why did checkout break friday night",
+      "status": "pass",
+      "aggregate_score": 0.96,
+      "model_under_test": "mistralai/mistral-small-2603",
+      "judge_model": "mistral-large-latest",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.8,
+          "explanation": "The trigger service is correctly identified as 'inventory-svc'. However, the log line does not explicitly reference 'Migration 0042 added column warehouse_id NOT NULL to skus table'; instead, it mentions applying a migration with a generic pattern. This is a minor omission as the semantic meaning is close but not exact."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 1.0,
+          "explanation": "The root_cause explanation correctly mentions all required concepts: migration, warehouse_id, NOT NULL, retry (implied by 'inventory checks then failed'), and pool exhaustion. The explanation is semantically complete and accurate."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 1.0,
+          "explanation": "The propagation_chain includes all required hops in the correct order. It mentions 'migration added NOT NULL warehouse_id column' (inventory-svc), 'Inserts fail with null warehouse_id violating NOT NULL constraint' (inventory-svc), 'Cart receives 500 from inventory-svc and retries' (cart-svc), 'HTTP pool to inventory-svc exhausted' (cart-svc), and 'Checkout fails due to cart operation timeout' (cart-svc). The chain is complete and accurate."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 1.0,
+          "explanation": "The ruled_out_hypotheses correctly address all red herrings: pricing-svc (no errors), payment-svc (no relevant activity), and notification-svc (no errors). The explanations are appropriate and align with the criteria."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 1.0,
+          "explanation": "Confidence correctly set to 'high'."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-26T22:00:00+00:00\",\n    \"end\": \"2026-06-27T06:00:00+00:00\"\n  },\n  \"affected_services\": [\n    \"inventory-svc\",\n    \"cart-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"a8f2a4e4-7cd6-4fc1-8e94-d3daf23edf9a\",\n    \"service\": \"inventory-svc\",\n    \"timestamp\": \"2026-06-26T22:00:14+00:00\",\n    \"log_line\": \"Signature: Applying migration <NUM>_add_warehouse_id.sql\\nExamples: Applying migration 0042_add_warehouse_id.sql\"\n  },\n  \"propagation_chain\": [\n    {\n ",
+      "stats": {
+        "iterations_used": 4,
+        "reflections_used": 1,
+        "chunks_gathered": 26,
+        "tools_called": [
+          "get_service_summary",
+          "scan_window"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "stalled_no_new_evidence"
+      },
+      "judge_parse_attempts": 1
+    },
+    {
+      "dataset": "dataset_2_insufficient_logging",
+      "query": "why is the nightly report failing",
+      "status": "fail",
+      "aggregate_score": 0.383,
+      "model_under_test": "mistralai/mistral-small-2603",
+      "judge_model": "mistral-large-latest",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.7,
+          "explanation": "The answer identifies the trigger event as 'cron-runner' with the log line 'Job nightly_reports exceeded timeout, marking as failed'. While this is an acceptable symptom-anchor, it is not one of the primary acceptable trigger events (which require either 'SIGKILL' in report-svc or 'exceeded timeout' in cron-runner as a symptom-anchor). However, the answer does include the SIGKILL event in the propagation chain, which is a key part of the incident. The explanation is mostly correct but misses the primary trigger event (SIGKILL in report-svc) as the originating event."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 0.3,
+          "explanation": "The root_cause field asserts a specific scenario ('orchestrator terminated the still-running report-svc process via SIGKILL due to exceeding liveness probe or lifecycle thresholds') as fact, which is not supported by sufficient evidence. The correct approach would be to label this as 'hypothesis_only' or 'unable_to_determine' given the gaps in evidence (e.g., no orchestrator logs). The answer overreaches in its conclusion."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.5,
+          "explanation": "The ruled_out_hypotheses field addresses 'metrics-collector failure' and 'OOM/resource exhaustion' but does not explicitly consider 'code crash' (weakly ruled out due to no stack trace), 'deadlock' (cannot confirm or rule out), or 'external kill' (consistent with SIGKILL but cannot identify killer). The answer partially covers the required hypotheses but misses key ones."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 0.0,
+          "explanation": "Expected confidence 'low', got 'medium'."
+        },
+        {
+          "name": "gap_awareness",
+          "score": 0.4,
+          "explanation": "Gaps list is non-empty but doesn't clearly match expected gap descriptions."
+        },
+        {
+          "name": "hallucination_avoidance",
+          "score": 0.4,
+          "explanation": "The root_cause field asserts specific mechanisms ('orchestrator', 'liveness probe', 'lifecycle thresholds') as confirmed facts, which are not supported by direct evidence. This constitutes a hallucination, as it goes beyond the available data. However, it does not assert the explicitly forbidden terms (e.g., 'memory leak', 'OOM as fact')."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-25T03:00:00+00:00\",\n    \"end\": \"2026-06-25T03:14:48+00:00\"\n  },\n  \"affected_services\": [\n    \"cron-runner\",\n    \"report-svc\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"02e667cf-2a2b-4930-879a-24023792f7bf\",\n    \"service\": \"cron-runner\",\n    \"timestamp\": \"2026-06-25 03:00:00+00:00\",\n    \"log_line\": \"Job nightly_reports exceeded timeout, marking as failed\"\n  },\n  \"propagation_chain\": [\n    {\n      \"service\": \"report-svc\",\n      \"chunk_id\": \"3c02f5ac-9",
+      "stats": {
+        "iterations_used": 8,
+        "reflections_used": 2,
+        "chunks_gathered": 13,
+        "tools_called": [
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "Incident timeline reconstructed: cron-runner job exceeded timeout at 2026-06-25T03:00:00+00:00 with no retry policy; report-svc was SIGKILLed at 2026-06-25T03:14:48+00:00. No OOM/kernel/system events or upstream failures found. The SIGKILL is consistent with an orchestrator eviction due to the long-running cron job and lack of retry policy."
+      },
+      "judge_parse_attempts": 1
+    },
+    {
+      "dataset": "dataset_3_jwt_key_rotation_noise",
+      "query": "why are users getting 401 errors last monday morning",
+      "status": "fail",
+      "aggregate_score": 0.233,
+      "model_under_test": "mistralai/mistral-small-2603",
+      "judge_model": "mistral-large-latest",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 0.0,
+          "explanation": "The trigger_event is null, and there is no reference to the required trigger service (auth-svc) or any of the specified log lines related to JWT key rotation. This is completely incorrect."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 0.0,
+          "explanation": "The root_cause field states that no evidence was found and does not mention any of the required concepts (JWT, key rotation, k-2026-05, verification-svc, public key). This is completely incorrect."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 0.0,
+          "explanation": "The propagation_chain is empty and does not include any of the required hops or their causal relationships. This is completely incorrect."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.4,
+          "explanation": "The ruled_out_hypotheses field does address the red herrings (user-svc and cache-svc), but it incorrectly rules them out due to 'no errors in this window' rather than explaining their lack of causal connection to the JWT verification path. This is partially correct but misses the key reasoning."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 0.0,
+          "explanation": "Expected confidence 'high', got 'low'."
+        },
+        {
+          "name": "hallucination_avoidance",
+          "score": 1.0,
+          "explanation": "The root_cause does not name any of the prohibited terms as THE root cause. It correctly avoids hallucinating these as the root cause, though it also fails to identify the actual root cause. This criterion is fully satisfied."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-29T06:00:00+00:00\",\n    \"end\": \"2026-06-29T12:00:00+00:00\"\n  },\n  \"affected_services\": [],\n  \"trigger_event\": null,\n  \"propagation_chain\": [],\n  \"root_cause\": \"unable to determine; no evidence of 401 errors or causal events in the provided incident window across any service\",\n  \"ruled_out_hypotheses\": [\n    {\n      \"hypothesis\": \"api-gateway\",\n      \"why_ruled_out\": \"no errors in this window\"\n    },\n    {\n      \"hypothesis\": \"auth-svc\",\n      \"why_r",
+      "stats": {
+        "iterations_used": 2,
+        "reflections_used": 0,
+        "chunks_gathered": 0,
+        "tools_called": [
+          "get_service_summary",
+          "scan_window"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "stalled_no_new_evidence"
+      },
+      "judge_parse_attempts": 1
+    },
+    {
+      "dataset": "dataset_4_discord_gateway_cascade",
+      "query": "why are users getting disconnected from the gateway",
+      "status": "pass",
+      "aggregate_score": 0.82,
+      "model_under_test": "mistralai/mistral-small-2603",
+      "judge_model": "mistral-large-latest",
+      "criteria": [
+        {
+          "name": "trigger_identification",
+          "score": 1.0,
+          "explanation": "The trigger service is correctly identified as 'read-states-svc', and the log line explicitly references 'Cassandra timeout' (via 'Cassandra timeout on BATCH APPLY'). This fully meets the criterion."
+        },
+        {
+          "name": "root_cause_accuracy",
+          "score": 0.7,
+          "explanation": "The root_cause explanation mentions Cassandra, read-states, timeout, and reconnect (via 'client reconnect storm'). However, it does not explicitly mention 'pool' (e.g., connection pool exhaustion or similar). This is a significant omission, though the rest of the concepts are covered."
+        },
+        {
+          "name": "propagation_chain",
+          "score": 0.6,
+          "explanation": "The propagation_chain includes all required hops in the correct order, but some details are missing or not fully explicit. For example: (1) 'read-states-svc' mentions 'Cassandra BATCH APPLY timeouts' but does not explicitly state 'OperationTimedOutException'; (2) 'gateway' mentions 'WebSocket disconnects due to upstream read_states timeouts' but does not explicitly mention 'mark_read' or 'disconnect'; (3) 'gateway' reconnect storm is implied but not explicitly labeled as such; (4) 'message-svc' mentions 'Worker thread pool saturated' but does not specify '512'; (5) 'cdn-edge' correctly mentions '502'. The chain is mostly correct but lacks some key details."
+        },
+        {
+          "name": "red_herring_handling",
+          "score": 0.8,
+          "explanation": "The ruled_out_hypotheses correctly addresses the presence-svc red herring, noting that it showed no errors in the window. However, it does not explicitly state that presence-svc's elevated activity was caused by the gateway reconnect storm (a key nuance). The rest of the red herrings are handled well."
+        },
+        {
+          "name": "confidence_calibration",
+          "score": 1.0,
+          "explanation": "Confidence correctly set to 'high'."
+        }
+      ],
+      "raw_answer_truncated": "{\n  \"incident_window\": {\n    \"start\": \"2026-06-10T02:15:00+00:00\",\n    \"end\": \"2026-06-10T02:30:00+00:00\"\n  },\n  \"affected_services\": [\n    \"gateway\",\n    \"message-svc\",\n    \"read-states-svc\",\n    \"cdn-edge\"\n  ],\n  \"trigger_event\": {\n    \"chunk_id\": \"15b773f2-d659-4a7c-9d76-af99c7d913df\",\n    \"service\": \"read-states-svc\",\n    \"timestamp\": \"2026-06-10T02:15:00+00:00\",\n    \"log_line\": \"Signature: Cassandra timeout on BATCH APPLY to read_states keyspace: OperationTimedOutException (coordinator=<IP>",
+      "stats": {
+        "iterations_used": 5,
+        "reflections_used": 1,
+        "chunks_gathered": 63,
+        "tools_called": [
+          "scan_window",
+          "search_logs"
+        ],
+        "compile_source": "llm",
+        "compile_attempts": 1,
+        "floor_adjustments": [],
+        "gathering_exit_reason": "All KNOWN SERVICES investigated. Evidence shows a clear chain: Cassandra issues in read-states-svc caused upstream timeouts, triggering a gateway reconnect storm that overwhelmed message-svc's thread pool, leading to fanout failures and user disconnections. CDN-edge 502s are a downstream effect, not a root cause."
+      },
+      "judge_parse_attempts": 1
+    }
+  ]
+}

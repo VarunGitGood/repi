@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { Navbar } from "@/components/navbar";
+import { Background } from "@/components/background";
 
 // Geist for body/headings, Geist Mono for code/logs (backs the `--font-mono`
 // slot referenced in globals.css).
@@ -38,6 +39,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <Background />
           <div className="relative flex h-screen flex-col overflow-hidden">
             <Navbar />
             <main className="flex-1 min-h-0 flex flex-col overflow-y-auto">{children}</main>

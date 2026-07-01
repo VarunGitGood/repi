@@ -97,6 +97,22 @@ uv run python -m repi.worker
 
 The worker polls `watcher_configs` every 30s (`WATCHER_CONFIG_REFRESH_SECS`) and uses `watchfiles` to detect new bytes, seeking forward from the last stored offset.
 
+## Demo prep
+
+The web UI ships with a guided tour at `/?demo=1` (linked from the landing page's hero button as **▶ Try Demo**). It walks: seeded dataset → mode picker → live investigation → RCA → evals → close.
+
+The investigation step runs against real data, so seed the Discord-gateway-cascade dataset into a `Demo` project once per environment **before** showing the demo. This wipes `log_chunks`:
+
+```bash
+uv run python -m eval.dataset_4_discord_gateway_cascade.seed
+```
+
+Optional: run the multi-model eval so the eval card pulls live scores from `/api/leaderboard/summary` instead of a static fallback table.
+
+```bash
+uv run python eval/run_multi_model.py
+```
+
 ## Configuration keys
 
 All keys live in `.repi/config.json` (see `config.example.json` for the full schema). Setting them in the shell or a `.env` file does nothing — Settings reads only this file.
