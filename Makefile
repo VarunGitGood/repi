@@ -1,4 +1,4 @@
-.PHONY: serve ui migrate reset-investigations
+.PHONY: serve ui migrate reset-investigations seed-ragas
 
 -include .env
 export
@@ -33,3 +33,8 @@ migrate:
 # log_chunks, watchers, and leaderboard alone.
 reset-investigations:
 	psql $(PSQL_URL) -c "TRUNCATE investigations CASCADE;"
+
+# Seed the `ragas` table from eval/ragas_results.json (RAGAS retrieval eval
+# output). Idempotent — re-running replaces rows per dataset.
+seed-ragas:
+	uv run python eval/seed_ragas.py

@@ -84,10 +84,15 @@ function HomePage() {
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
   const [sidebarRefresh, setSidebarRefresh] = useState(0)
-  // Conversation id whose investigation is streaming this session — drives the
-  // sidebar's per-row loading spinner. Session-only: cleared when the stream
-  // settles or the user switches conversations (not persisted across reload).
-  const [activeInvestigatingConvId, setActiveInvestigatingConvId] = useState<string | null>(null)
+  // Conversation ids with a live investigation this session — drives the
+  // sidebar's per-row loading spinner. Session-only (not persisted across
+  // reload). Multiple investigations can run in parallel across different
+  // conversations, so this is a set, not a single id. An id is removed only
+  // when the InvestigateTurnView for that conversation reports the stream
+  // settled (done/error) — switching away from a conversation does NOT clear
+  // its entry, since the investigation keeps running server-side regardless
+  // of which chat is currently open.
+  const [activeInvestigatingConvIds, setActiveInvestigatingConvIds] = useState<Set<string>>(new Set())
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   // Whether the view should keep itself pinned to the bottom as new content
@@ -98,6 +103,11 @@ function HomePage() {
   // Demo mode: auto-select (or create) the "Demo" project so the picker is
   // skipped and the dashboard mounts immediately under the tour overlay.
   useEffect(() => {
+    if (demoMode) {
+      try {
+        localStorage.setItem("repi.demoMode", "1")
+      } catch {}
+    }
     if (!demoMode || project) return
     let cancelled = false
     ;(async () => {
@@ -162,9 +172,6 @@ function HomePage() {
   // Load an existing conversation's transcript from the API.
   const loadConversation = useCallback(async (id: string | null) => {
     setConversationId(id)
-    // Switching conversations drops the live stream we were following, so any
-    // session-only "investigating" spinner no longer applies.
-    setActiveInvestigatingConvId(null)
     if (!id) {
       // New conversation → back to project selection (the picker auto-skips
       // itself when exactly one project exists).
@@ -222,7 +229,7 @@ function HomePage() {
         setDemoInvestigationId(res.id)
         if (res.conversation_id) {
           setConversationId(res.conversation_id)
-          setActiveInvestigatingConvId(res.conversation_id)
+          setActiveInvestigatingConvIds((prev) => new Set(prev).add(res.conversation_id))
         }
         setTurns((prev) => [
           ...prev,
@@ -270,7 +277,7 @@ function HomePage() {
         }
         // Mark this conversation as investigating so the sidebar shows a spinner
         // on its row until the stream settles (see InvestigateTurnView.onSettled).
-        if (convId) setActiveInvestigatingConvId(convId)
+        if (convId) setActiveInvestigatingConvIds((prev) => new Set(prev).add(convId))
         setTurns((prev) => [
           ...prev,
           {
@@ -431,7 +438,7 @@ function HomePage() {
   // sees the SeedingStep immediately instead of the picker flash.
   if (!conversationId && !project) {
     return (
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row">
         <ConversationSidebar
           activeId={conversationId}
           onSelect={loadConversation}
@@ -455,7 +462,7 @@ function HomePage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden flex-col md:flex-row">
       {demoMode && project && (
         <DemoTour
           projectId={project.id}
@@ -468,7 +475,7 @@ function HomePage() {
         activeId={conversationId}
         onSelect={loadConversation}
         refreshKey={sidebarRefresh}
-        activeInvestigatingId={activeInvestigatingConvId}
+        activeInvestigatingIds={activeInvestigatingConvIds}
       />
       <main className="flex-1 flex flex-col min-h-0">
         <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
@@ -509,7 +516,15 @@ function HomePage() {
                   key={t.id}
                   investigationId={t.investigationId}
                   alreadyHoisted={!!t.finalAnswer}
-                  onSettled={() => setActiveInvestigatingConvId(null)}
+                  onSettled={() => {
+                    if (!conversationId) return
+                    setActiveInvestigatingConvIds((prev) => {
+                      if (!prev.has(conversationId)) return prev
+                      const next = new Set(prev)
+                      next.delete(conversationId)
+                      return next
+                    })
+                  }}
                   onComplete={(finalAnswer) => {
                     setTurns((prev) => {
                       const idx = prev.findIndex(
@@ -554,7 +569,7 @@ interface InvestigateTurnViewProps {
 
 function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete, onSettled }: InvestigateTurnViewProps) {
   const streamUrl = `${API_BASE}/investigations/${investigationId}/stream`
-  const { steps, answer, error, done, clarificationQuestion, awaitingClarification, phase } = useSSE(streamUrl)
+  const { steps, answer, error, done, clarificationQuestion, awaitingClarification, phase, reconnecting } = useSSE(streamUrl)
 
   // Hoist the final answer into the parent's turns state once, so the next
   // /chat turn can include it as history context.
@@ -598,7 +613,7 @@ function InvestigateTurnView({ investigationId, alreadyHoisted, onComplete, onSe
           ))}
         </div>
         {!done && !error && !awaitingClarification && (
-          <ThinkingIndicator phase={phase} lastStep={steps[steps.length - 1]} />
+          <ThinkingIndicator phase={phase} lastStep={steps[steps.length - 1]} reconnecting={reconnecting} />
         )}
         {answer && <CompiledAnswer answer={answer} />}
         {error && (

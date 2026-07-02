@@ -16,8 +16,15 @@ export function ConfigForm() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showKey, setShowKey] = useState(false)
+  const [isDemo, setIsDemo] = useState(false)
 
   useEffect(() => {
+    const demo = typeof window !== "undefined" && (
+      localStorage.getItem("repi.demoMode") === "1" ||
+      new URLSearchParams(window.location.search).get("demo") === "1" ||
+      process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+    )
+    setIsDemo(!!demo)
     loadConfig()
   }, [])
 
@@ -33,6 +40,7 @@ export function ConfigForm() {
   }
 
   async function handleSave() {
+    if (isDemo) return
     setSaving(true)
     try {
       await api.config.update(config)
@@ -59,6 +67,11 @@ export function ConfigForm() {
 
   return (
     <div className="space-y-8">
+      {isDemo && (
+        <div className="p-3.5 text-sm border rounded-lg bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center gap-2">
+          <span className="font-semibold">Demo Mode:</span> Configuration is read-only to prevent modification of the shared sandbox.
+        </div>
+      )}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Database & Redis */}
         <Card>
@@ -73,6 +86,7 @@ export function ConfigForm() {
                 id="DATABASE_URL"
                 value={config.DATABASE_URL}
                 onChange={(e) => handleChange("DATABASE_URL", e.target.value)}
+                disabled={isDemo}
               />
             </div>
             <div className="space-y-2">
@@ -81,6 +95,7 @@ export function ConfigForm() {
                 id="REDIS_URL"
                 value={config.REDIS_URL}
                 onChange={(e) => handleChange("REDIS_URL", e.target.value)}
+                disabled={isDemo}
               />
             </div>
             <div className="flex items-center space-x-2">
@@ -88,6 +103,7 @@ export function ConfigForm() {
                 id="ENABLE_REDIS_CACHE"
                 checked={config.ENABLE_REDIS_CACHE}
                 onCheckedChange={(val) => handleChange("ENABLE_REDIS_CACHE", val)}
+                disabled={isDemo}
               />
               <Label htmlFor="ENABLE_REDIS_CACHE">Enable Redis Cache</Label>
             </div>
@@ -105,9 +121,10 @@ export function ConfigForm() {
               <Label htmlFor="LLM_PROVIDER">Provider</Label>
               <select
                 id="LLM_PROVIDER"
-                className="w-full h-10 px-3 py-2 text-sm border rounded-md bg-background"
+                className="w-full h-10 px-3 py-2 text-sm border rounded-md bg-background disabled:opacity-50"
                 value={config.LLM_PROVIDER}
                 onChange={(e) => handleChange("LLM_PROVIDER", e.target.value)}
+                disabled={isDemo}
               >
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic</option>
@@ -123,6 +140,7 @@ export function ConfigForm() {
                 value={config.LLM_MODEL || ""}
                 placeholder="e.g. gpt-4o, claude-3-sonnet"
                 onChange={(e) => handleChange("LLM_MODEL", e.target.value)}
+                disabled={isDemo}
               />
             </div>
             <div className="space-y-2">
@@ -133,12 +151,14 @@ export function ConfigForm() {
                   type={showKey ? "text" : "password"}
                   value={config.LLM_API_KEY || ""}
                   onChange={(e) => handleChange("LLM_API_KEY", e.target.value)}
+                  disabled={isDemo}
                 />
                 <Button
                   variant="ghost"
                   size="sm"
                   className="absolute right-0 top-0 h-full px-3 py-2"
                   onClick={() => setShowKey(!showKey)}
+                  disabled={isDemo}
                 >
                   {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -161,6 +181,7 @@ export function ConfigForm() {
                 type="number"
                 value={config.TIME_WINDOW_INITIAL_MINUTES}
                 onChange={(e) => handleChange("TIME_WINDOW_INITIAL_MINUTES", parseInt(e.target.value))}
+                disabled={isDemo}
               />
             </div>
             <div className="space-y-2">
@@ -170,6 +191,7 @@ export function ConfigForm() {
                 value={config.TIME_WINDOW_EXPANSIONS}
                 placeholder="e.g. 60,360,1440"
                 onChange={(e) => handleChange("TIME_WINDOW_EXPANSIONS", e.target.value)}
+                disabled={isDemo}
               />
             </div>
             <div className="flex items-center space-x-2">
@@ -177,6 +199,7 @@ export function ConfigForm() {
                 id="AUTO_DELETE_OLD_INVESTIGATIONS"
                 checked={config.AUTO_DELETE_OLD_INVESTIGATIONS}
                 onCheckedChange={(val) => handleChange("AUTO_DELETE_OLD_INVESTIGATIONS", val)}
+                disabled={isDemo}
               />
               <Label htmlFor="AUTO_DELETE_OLD_INVESTIGATIONS">Auto-delete old investigations</Label>
             </div>
@@ -197,6 +220,7 @@ export function ConfigForm() {
                 type="number"
                 value={config.WATCHER_CONFIG_REFRESH_SECS}
                 onChange={(e) => handleChange("WATCHER_CONFIG_REFRESH_SECS", parseInt(e.target.value))}
+                disabled={isDemo}
               />
             </div>
             <div className="space-y-2">
@@ -206,6 +230,7 @@ export function ConfigForm() {
                 type="number"
                 value={config.MAX_RETRIES_PER_STEP}
                 onChange={(e) => handleChange("MAX_RETRIES_PER_STEP", parseInt(e.target.value))}
+                disabled={isDemo}
               />
             </div>
           </CardContent>
@@ -213,7 +238,7 @@ export function ConfigForm() {
       </div>
 
       <div className="flex justify-end pt-4">
-        <Button size="lg" onClick={handleSave} disabled={saving}>
+        <Button size="lg" onClick={handleSave} disabled={saving || isDemo}>
           {saving ? (
             <Spinner size="sm" label="Saving..." />
           ) : (

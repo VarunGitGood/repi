@@ -53,6 +53,7 @@ export const api = {
   },
   leaderboard: {
     summary: () => fetchApi("/leaderboard/summary"),
+    retrieval: () => fetchApi("/leaderboard/retrieval"),
   },
   projects: {
     list: () => fetchApi("/projects"),

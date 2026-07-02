@@ -45,9 +45,13 @@ function contextLabel(phase: InvestigationPhase | null, lastStep?: Step): string
 interface ThinkingIndicatorProps {
   phase: InvestigationPhase | null
   lastStep?: Step
+  // Stream connection dropped and we're retrying (tab was backgrounded, brief
+  // network blip, etc). The investigation keeps running server-side, so this
+  // is a quiet status line, not an error.
+  reconnecting?: boolean
 }
 
-export function ThinkingIndicator({ phase, lastStep }: ThinkingIndicatorProps) {
+export function ThinkingIndicator({ phase, lastStep, reconnecting }: ThinkingIndicatorProps) {
   const [tick, setTick] = useState(0)
 
   // Restart the rotation whenever a new step lands, so the contextual label
@@ -57,6 +61,19 @@ export function ThinkingIndicator({ phase, lastStep }: ThinkingIndicatorProps) {
     const id = setInterval(() => setTick((t) => t + 1), 3000)
     return () => clearInterval(id)
   }, [phase, lastStep?.step_number])
+
+  if (reconnecting) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground italic">
+        <Spinner size="sm" />
+        <span>Reconnecting to stream…</span>
+      </div>
+    )
+  }
+
+  if (lastStep?.kind === "reflection") {
+    return null
+  }
 
   const context = contextLabel(phase, lastStep)
   const rotation = context ? [context, ...THINKING_WORDS] : THINKING_WORDS

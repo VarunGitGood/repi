@@ -15,8 +15,15 @@ export function WatcherForm() {
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [newWatcher, setNewWatcher] = useState({ service_name: "", watch_path: "", env: "production" })
+  const [isDemo, setIsDemo] = useState(false)
 
   useEffect(() => {
+    const demo = typeof window !== "undefined" && (
+      localStorage.getItem("repi.demoMode") === "1" ||
+      new URLSearchParams(window.location.search).get("demo") === "1" ||
+      process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+    )
+    setIsDemo(!!demo)
     loadWatchers()
   }, [])
 
@@ -32,6 +39,7 @@ export function WatcherForm() {
   }
 
   async function handleAdd() {
+    if (isDemo) return
     if (!newWatcher.service_name || !newWatcher.watch_path) {
       toast.error("Please fill in service name and path")
       return
@@ -50,6 +58,7 @@ export function WatcherForm() {
   }
 
   async function handleToggle(watcher: any) {
+    if (isDemo) return
     try {
       await api.watchers.update(watcher.id, { enabled: !watcher.enabled })
       loadWatchers()
@@ -59,6 +68,7 @@ export function WatcherForm() {
   }
 
   async function handleDelete(id: string) {
+    if (isDemo) return
     try {
       await api.watchers.delete(id)
       loadWatchers()
@@ -70,6 +80,11 @@ export function WatcherForm() {
 
   return (
     <div className="space-y-4">
+      {isDemo && (
+        <div className="p-3.5 text-sm border rounded-lg bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center gap-2">
+          <span className="font-semibold">Demo Mode:</span> Log watchers configuration is read-only.
+        </div>
+      )}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -106,6 +121,7 @@ export function WatcherForm() {
                     <Switch
                       checked={w.enabled}
                       onCheckedChange={() => handleToggle(w)}
+                      disabled={isDemo}
                     />
                   </TableCell>
                   <TableCell>
@@ -113,7 +129,8 @@ export function WatcherForm() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleDelete(w.id)}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      disabled={isDemo}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 disabled:opacity-50"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -129,6 +146,7 @@ export function WatcherForm() {
                   value={newWatcher.service_name}
                   onChange={(e) => setNewWatcher({ ...newWatcher, service_name: e.target.value })}
                   className="h-8"
+                  disabled={isDemo}
                 />
               </TableCell>
               <TableCell>
@@ -137,6 +155,7 @@ export function WatcherForm() {
                   value={newWatcher.watch_path}
                   onChange={(e) => setNewWatcher({ ...newWatcher, watch_path: e.target.value })}
                   className="h-8"
+                  disabled={isDemo}
                 />
               </TableCell>
               <TableCell>
@@ -145,10 +164,11 @@ export function WatcherForm() {
                   value={newWatcher.env}
                   onChange={(e) => setNewWatcher({ ...newWatcher, env: e.target.value })}
                   className="h-8"
+                  disabled={isDemo}
                 />
               </TableCell>
               <TableCell colSpan={2}>
-                <Button size="sm" className="w-full h-8" onClick={handleAdd} disabled={adding}>
+                <Button size="sm" className="w-full h-8" onClick={handleAdd} disabled={adding || isDemo}>
                   {adding ? (
                     <Spinner size="sm" />
                   ) : (

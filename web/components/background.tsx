@@ -7,6 +7,8 @@ interface BackgroundProps {
   /** Force the soft hero glow on. Defaults to auto: on for the docs/landing
    *  page, off everywhere else. Pass `false` to suppress. */
   glow?: boolean
+  /** Whether to fade the dot grid toward the edges. Defaults to true. */
+  fade?: boolean
 }
 
 /**
@@ -19,7 +21,7 @@ interface BackgroundProps {
  *   3. Optional ambient glow behind the hero
  *   4. ~2.5% fractal noise so flat fills stop feeling sterile
  */
-export function Background({ glow }: BackgroundProps) {
+export function Background({ glow, fade = false }: BackgroundProps) {
   const pathname = usePathname() ?? "/"
   const showGlow = glow ?? pathname.startsWith("/repi")
 
@@ -28,7 +30,7 @@ export function Background({ glow }: BackgroundProps) {
       aria-hidden
       className="fixed inset-0 -z-10 pointer-events-none overflow-hidden"
     >
-      <div className="absolute inset-0 bg-dot-grid bg-dot-mask" />
+      <div className={`absolute inset-0 bg-dot-grid ${fade ? "bg-dot-mask" : ""}`} />
 
       {showGlow && (
         <motion.div

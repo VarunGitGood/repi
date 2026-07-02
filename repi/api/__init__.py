@@ -54,7 +54,8 @@ app.add_middleware(
 
 # Routers fully disabled under the read-only demo lock (writes + admin/
 # non-showcase reads). Showcase routers (investigate, chat, conversations,
-# projects reads, services) stay mounted; their per-route guards live inline.
+# projects reads, services, leaderboard — all read-only) stay mounted; their
+# per-route guards live inline.
 _demo_locked = [Depends(block_in_demo)]
 app.include_router(ingest_router, tags=["ingest"], dependencies=_demo_locked)
 app.include_router(investigate_router, tags=["investigate"])
@@ -63,7 +64,7 @@ app.include_router(config_router, tags=["config"], dependencies=_demo_locked)
 app.include_router(chat_router, tags=["chat"])
 app.include_router(conversations_router, tags=["conversations"])
 app.include_router(projects_router, tags=["projects"])
-app.include_router(leaderboard_router, tags=["leaderboard"], dependencies=_demo_locked)
+app.include_router(leaderboard_router, tags=["leaderboard"])
 
 
 @app.get("/health", tags=["health"])

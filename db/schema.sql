@@ -189,6 +189,24 @@ CREATE INDEX IF NOT EXISTS leaderboard_score_idx   ON leaderboard (dataset, aggr
 CREATE INDEX IF NOT EXISTS leaderboard_created_idx ON leaderboard (created_at DESC);
 CREATE INDEX IF NOT EXISTS leaderboard_backend_idx ON leaderboard (embedding_backend);
 
+-- RAGAS retrieval evals: one row per dataset run by eval/ragas_eval.py.
+-- Seeded from eval/ragas_results.json via `make seed-ragas` (eval/seed_ragas.py).
+CREATE TABLE IF NOT EXISTS ragas (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    dataset            TEXT NOT NULL,
+    category           TEXT NOT NULL,
+    status             TEXT NOT NULL,
+    model              TEXT,
+    avg_service_recall DOUBLE PRECISION,
+    avg_keyword_recall DOUBLE PRECISION,
+    embedding_backend  TEXT,
+    details            JSONB NOT NULL DEFAULT '[]',
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ragas_dataset_idx  ON ragas (dataset);
+CREATE INDEX IF NOT EXISTS ragas_category_idx ON ragas (category);
+
 -- ── Projects (UX redesign P1) ────────────────────────────────────────────────
 -- A project is a logical system/application (e.g. "Ecommerce Platform").
 -- Workers, services (via log_chunks), conversations and investigations are

@@ -138,6 +138,24 @@ async def clarify_investigation(request: StarletteRequest, investigation_id: str
         status="running"
     )
 
+class InvestigationBroadcaster:
+    def __init__(self):
+        self.listeners: set[asyncio.Queue] = set()
+
+    def broadcast(self, event: dict):
+        for q in list(self.listeners):
+            q.put_nowait(event)
+
+    def subscribe(self) -> asyncio.Queue:
+        q = asyncio.Queue()
+        self.listeners.add(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue):
+        self.listeners.discard(q)
+
+INVESTIGATION_BROADCASTERS: dict[UUID, InvestigationBroadcaster] = {}
+
 @router.get("/investigations/{investigation_id}/stream")
 async def stream_investigation(investigation_id: str):
     """
@@ -154,19 +172,23 @@ async def stream_investigation(investigation_id: str):
     get_container().require_llm()
 
     # Claim execution before the SSE 200 so concurrent streams can't both run
-    # the (expensive) ReAct loop on one budgeted request. 'started' → atomically
-    # take it; already 'running' → someone else owns it (409); terminal /
-    # awaiting states fall through to the cheap replay path below.
+    # the (expensive) ReAct loop on one budgeted request.
     async with get_container().get_session() as _session:
         _store = get_container().get_investigation_store(_session)
         _inv = await _store.get_by_id(uuid_obj)
         if not _inv:
             raise HTTPException(status_code=404, detail="Investigation not found")
-        if _inv.status == "running":
-            raise HTTPException(status_code=409, detail="Investigation is already being streamed")
+        
         if _inv.status not in ("completed", "failed", "awaiting_clarification"):
-            if not await _store.claim_for_execution(uuid_obj):
-                raise HTTPException(status_code=409, detail="Investigation is already being streamed")
+            # Only claim if it is not already running or we don't have a broadcaster for it
+            if uuid_obj not in INVESTIGATION_BROADCASTERS:
+                if _inv.status == "running":
+                    # Stale status from a previous server run or crash, reset it
+                    _inv.status = "started"
+                    await _store.session.commit()
+                
+                if not await _store.claim_for_execution(uuid_obj):
+                    raise HTTPException(status_code=409, detail="Investigation is already being streamed")
 
     async def event_generator():
         container = get_container()
@@ -182,13 +204,7 @@ async def stream_investigation(investigation_id: str):
             # call carries project_id and the resolver sees only that
             # project's services.
             scoped_services = await container.get_known_services(investigation.project_id)
-            loop = container.get_investigation_loop(
-                session,
-                project_id=investigation.project_id,
-                known_services=scoped_services,
-            )
-            store = loop.store
-
+            
             steps = await store.get_steps(uuid_obj)
             for s in steps:
                 # Persisted shape is {name, args}; the UI consumes {tool, args}
@@ -218,58 +234,71 @@ async def stream_investigation(investigation_id: str):
                 yield f"data: {json.dumps({'type': 'clarification_request', 'data': {'question': question, 'investigation_id': investigation_id}})}\n\n"
                 return
 
-            queue = asyncio.Queue()
+            # Check if we need to start or attach to the background task
+            is_creator = False
+            if uuid_obj not in INVESTIGATION_BROADCASTERS:
+                INVESTIGATION_BROADCASTERS[uuid_obj] = InvestigationBroadcaster()
+                is_creator = True
 
-            async def on_step(step: InvestigationStep):
-                step_data = {
-                    "step_number": step.step_number,
-                    "thought": step.thought.content,
-                    "action": {"tool": step.action.tool_call.name, "args": step.action.tool_call.args} if step.action else None,
-                    "observation": step.observation.tool_result.result if step.observation else None,
-                    "kind": step.kind,
-                }
-                await queue.put({"type": "step", "data": step_data})
+            broadcaster = INVESTIGATION_BROADCASTERS[uuid_obj]
+            queue = broadcaster.subscribe()
 
-            async def on_phase_change(phase: str):
-                await queue.put({"type": "phase_change", "data": {"phase": phase}})
+            if is_creator:
+                async def on_step(step: InvestigationStep):
+                    step_data = {
+                        "step_number": step.step_number,
+                        "thought": step.thought.content,
+                        "action": {"tool": step.action.tool_call.name, "args": step.action.tool_call.args} if step.action else None,
+                        "observation": step.observation.tool_result.result if step.observation else None,
+                        "kind": step.kind,
+                    }
+                    broadcaster.broadcast({"type": "step", "data": step_data})
 
-            task = asyncio.create_task(loop.investigate(
-                investigation.query,
-                investigation_id=uuid_obj,
-                on_step=on_step,
-                on_phase_change=on_phase_change,
-                resume=True
-            ))
+                async def on_phase_change(phase: str):
+                    broadcaster.broadcast({"type": "phase_change", "data": {"phase": phase}})
 
-            while True:
-                if task.done() and queue.empty():
-                    break
+                async def run_investigation():
+                    async with container.get_session() as bg_session:
+                        bg_store = container.get_investigation_store(bg_session)
+                        bg_loop = container.get_investigation_loop(
+                            bg_session,
+                            project_id=investigation.project_id,
+                            known_services=scoped_services,
+                        )
+                        try:
+                            result = await bg_loop.investigate(
+                                investigation.query,
+                                investigation_id=uuid_obj,
+                                on_step=on_step,
+                                on_phase_change=on_phase_change,
+                                resume=True
+                            )
+                            refreshed = await bg_store.get_by_id(uuid_obj)
+                            if refreshed and refreshed.status == "awaiting_clarification":
+                                question = refreshed.pending_question or ""
+                                broadcaster.broadcast({
+                                    "type": "clarification_request",
+                                    "data": {"question": question, "investigation_id": investigation_id}
+                                })
+                            else:
+                                done_payload = {"answer": result.answer, "stats": result.stats}
+                                broadcaster.broadcast({"type": "done", "data": done_payload})
+                        except Exception as e:
+                            logger.error("Investigation failed", exc_info=True)
+                            broadcaster.broadcast({"type": "error", "data": {"message": "Investigation failed"}})
+                        finally:
+                            INVESTIGATION_BROADCASTERS.pop(uuid_obj, None)
 
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
-                    yield f"data: {json.dumps(event, default=str)}\n\n"
-                except asyncio.TimeoutError:
-                    continue
+                asyncio.create_task(run_investigation())
 
             try:
-                result = await task
-                # The loop may have paused for clarification mid-flight rather
-                # than finishing. In that case it persisted status
-                # 'awaiting_clarification' (with a question) and returned a
-                # placeholder answer — surface the question so the UI can prompt
-                # for a reply, exactly as the replay path above does. Without
-                # this the live stream emits a meaningless 'done' and the user
-                # has no way to answer until they reload the page.
-                refreshed = await store.get_by_id(uuid_obj)
-                if refreshed and refreshed.status == "awaiting_clarification":
-                    question = refreshed.pending_question or ""
-                    yield f"data: {json.dumps({'type': 'clarification_request', 'data': {'question': question, 'investigation_id': investigation_id}})}\n\n"
-                else:
-                    done_payload = {"answer": result.answer, "stats": result.stats}
-                    yield f"data: {json.dumps({'type': 'done', 'data': done_payload}, default=str)}\n\n"
-            except Exception as e:
-                logger.error("Investigation failed", exc_info=True)
-                yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Investigation failed'}})}\n\n"
+                while True:
+                    event = await queue.get()
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
+                    if event["type"] in ("done", "error", "clarification_request"):
+                        break
+            finally:
+                broadcaster.unsubscribe(queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

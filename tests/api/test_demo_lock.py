@@ -82,7 +82,6 @@ async def test_daily_budget_caps_in_demo(monkeypatch, reset_budget):
     ("GET", "/watchers"),
     ("GET", "/config"),
     ("PUT", "/config"),
-    ("GET", "/leaderboard/summary"),
     ("POST", "/projects"),
 ])
 def test_mutating_and_admin_routes_locked(method, path):
@@ -103,6 +102,10 @@ def test_token_routes_share_daily_budget(path):
     ("GET", "/conversations"),
     ("GET", "/projects"),
     ("GET", "/investigations"),
+    # Leaderboard reads are read-only showcase data — the demo lock only
+    # guards writes/admin, so these stay open (unlike e.g. /config).
+    ("GET", "/leaderboard/summary"),
+    ("GET", "/leaderboard/retrieval"),
 ])
 def test_showcase_reads_stay_open(method, path):
     g = _guards_on(path, method)

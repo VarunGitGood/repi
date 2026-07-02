@@ -259,7 +259,7 @@ export default function DocsPage() {
             <span className="opacity-30">/</span>
             <span>Any LLM</span>
           </div>
-          <h1 className="text-6xl sm:text-8xl font-black tracking-tighter mb-8 max-w-4xl leading-[0.9] text-balance">
+          <h1 className="text-6xl sm:text-8xl font-black tracking-normal mb-8 max-w-4xl leading-[0.9] text-balance">
             Stop grepping.<br />
             <span className="text-muted-foreground/40">Start knowing.</span>
           </h1>

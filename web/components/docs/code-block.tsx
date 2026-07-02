@@ -33,6 +33,21 @@ export function CodeBlock({ code, language = "bash" }: CodeBlockProps) {
     )
   }
 
+  const themeStyle = resolvedTheme === "dark" ? oneDark : prism
+  const cleanStyle = { ...themeStyle }
+  if (cleanStyle['pre[class*="language-"]']) {
+    cleanStyle['pre[class*="language-"]'] = {
+      ...cleanStyle['pre[class*="language-"]'],
+      background: "transparent",
+    }
+  }
+  if (cleanStyle['code[class*="language-"]']) {
+    cleanStyle['code[class*="language-"]'] = {
+      ...cleanStyle['code[class*="language-"]'],
+      background: "transparent",
+    }
+  }
+
   return (
     <div className="relative rounded-2xl border border-foreground/[0.03] overflow-hidden group bg-card">
       <div className="absolute top-0 left-0 right-0 h-10 bg-muted/30 border-b border-foreground/[0.02] flex items-center px-4 justify-between">
@@ -61,7 +76,7 @@ export function CodeBlock({ code, language = "bash" }: CodeBlockProps) {
       <div className="pt-10">
         <SyntaxHighlighter
           language={language}
-          style={resolvedTheme === "dark" ? oneDark : prism}
+          style={cleanStyle}
           customStyle={{
             margin: 0,
             background: "transparent",
@@ -69,6 +84,11 @@ export function CodeBlock({ code, language = "bash" }: CodeBlockProps) {
             fontSize: "13px",
             lineHeight: "1.7",
             padding: "1.5rem",
+          }}
+          codeTagProps={{
+            style: {
+              background: "transparent",
+            }
           }}
         >
           {code}

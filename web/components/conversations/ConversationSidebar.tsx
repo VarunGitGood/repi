@@ -12,12 +12,13 @@ interface ConversationSidebarProps {
   activeId: string | null
   onSelect: (id: string | null) => void
   refreshKey?: number  // bump to force a re-fetch (e.g. after sending a turn)
-  // Conversation id with a live investigation this session → show a spinner on
-  // its row in place of the message icon.
-  activeInvestigatingId?: string | null
+  // Conversation ids with a live investigation this session → show a spinner
+  // on those rows in place of the message icon. Multiple rows can spin at
+  // once since investigations run in parallel across conversations.
+  activeInvestigatingIds?: Set<string>
 }
 
-export function ConversationSidebar({ activeId, onSelect, refreshKey, activeInvestigatingId }: ConversationSidebarProps) {
+export function ConversationSidebar({ activeId, onSelect, refreshKey, activeInvestigatingIds }: ConversationSidebarProps) {
   const [items, setItems] = useState<ConversationSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -31,27 +32,26 @@ export function ConversationSidebar({ activeId, onSelect, refreshKey, activeInve
   }, [refreshKey])
 
   return (
-    <aside className="w-64 border-r bg-muted/30 flex flex-col h-full">
-      <div className="p-3 border-b">
+    <aside className="w-full md:w-80 border-b md:border-r bg-muted/30 flex flex-col h-auto md:h-full max-h-48 md:max-h-none">
+      <div className="p-4 border-b">
         <Button
           variant="outline"
-          size="sm"
-          className="w-full justify-start"
+          className="w-full justify-start h-10 px-4 py-2.5 text-sm font-medium"
           onClick={() => onSelect(null)}
         >
-          <Plus className="h-3.5 w-3.5 mr-2" />
+          <Plus className="h-4 w-4 mr-2" />
           New conversation
         </Button>
       </div>
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 overflow-y-auto py-2">
         {loading && (
-          <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
+          <div className="px-4 py-3 text-xs text-muted-foreground">Loading…</div>
         )}
         {error && (
-          <div className="px-3 py-2 text-xs text-destructive">Couldn't load: {error}</div>
+          <div className="px-4 py-3 text-xs text-destructive">Couldn't load: {error}</div>
         )}
         {!loading && !error && items.length === 0 && (
-          <div className="px-3 py-2 text-xs text-muted-foreground">
+          <div className="px-4 py-3 text-sm text-muted-foreground">
             No conversations yet. Send your first message →
           </div>
         )}
@@ -60,19 +60,19 @@ export function ConversationSidebar({ activeId, onSelect, refreshKey, activeInve
             key={c.id}
             onClick={() => onSelect(c.id)}
             className={cn(
-              "w-full text-left px-3 py-2 text-xs flex items-start gap-2 hover:bg-muted transition-colors",
-              activeId === c.id && "bg-muted font-medium",
+              "w-full text-left px-4 py-3 text-sm flex items-start gap-3 hover:bg-muted transition-colors",
+              activeId === c.id && "bg-muted font-semibold",
             )}
           >
-            {activeInvestigatingId === c.id ? (
+            {activeInvestigatingIds?.has(c.id) ? (
               <Spinner size="sm" className="mt-0.5 flex-shrink-0 text-primary" />
             ) : (
-              <MessageSquare className="size-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+              <MessageSquare className="size-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
             )}
-            <span className="min-w-0">
-              <span className="line-clamp-2 break-words">{c.title || "Untitled"}</span>
+            <span className="min-w-0 flex-1">
+              <span className="line-clamp-2 break-words leading-tight">{c.title || "Untitled"}</span>
               {c.project_name && (
-                <span className="block text-[10px] text-muted-foreground mt-0.5">
+                <span className="block text-xs text-muted-foreground mt-1">
                   {c.project_name}
                 </span>
               )}
